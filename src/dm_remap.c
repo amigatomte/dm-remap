@@ -234,5 +234,4 @@ module_exit(remap_exit);
 
 MODULE_LICENSE("GPL");
 MODULE_AUTHOR("Christian");
-MODULE_DESCRIPTION("Device Mapper target for dynamic bad sector remapping");
-
+MODULE_DESCRIPTION("Device Mapper target for dynamic bad sector remapping with external persistence and debugfs signaling");
