@@ -26,7 +26,8 @@ static struct dentry *remap_debugfs_dir;
 //static struct dentry *remap_trigger_file;
 static u32 remap_trigger = 0;
 
-static struct remap_c *global_remap_c;
+// Remove unused variable from previous single-instance sysfs implementation
+// static struct remap_c *global_remap_c;
 
 // remap_c_list: Global linked list of all active dm-remap targets for sysfs summary
 static LIST_HEAD(remap_c_list);
@@ -230,8 +231,8 @@ static void remap_status(struct dm_target *ti, status_type_t type,
         if (percent > 100)
             percent = 100;
         snprintf(result, maxlen,
-            "remapped=%d lost=%d spare_used=%d/%d (%d%%)",
-            rc->remap_count, lost, rc->spare_used, rc->spare_total, percent);
+            "remapped=%d lost=%d spare_used=%d/%llu (%d%%)",
+            rc->remap_count, lost, rc->spare_used, (unsigned long long)rc->spare_total, percent);
     } else if (type == STATUSTYPE_TABLE) {
         snprintf(result, maxlen, "%llu %llu",
                  (unsigned long long)rc->start,
@@ -325,38 +326,10 @@ static ssize_t clear_store(struct kobject *kobj, struct kobj_attribute *attr, co
     return -ENODEV;
 }
 
-// total_remaps_show: sysfs attribute handler for global total_remaps
-// Returns the sum of remap_count across all targets
-static ssize_t total_remaps_show(struct kobject *kobj, struct kobj_attribute *attr, char *buf)
-{
-    int total = 0;
-    struct remap_c *rc;
-    list_for_each_entry(rc, &remap_c_list, list)
-        total += rc->remap_count;
-    return sysfs_emit(buf, "%d\n", total);
-}
-
-// total_spare_used_show: sysfs attribute handler for global total_spare_used
-// Returns the sum of spare_used across all targets
-static ssize_t total_spare_used_show(struct kobject *kobj, struct kobj_attribute *attr, char *buf)
-{
-    int used = 0;
-    struct remap_c *rc;
-    list_for_each_entry(rc, &remap_c_list, list)
-        used += rc->spare_used;
-    return sysfs_emit(buf, "%d\n", used);
-}
-
-// total_spare_remaining_show: sysfs attribute handler for global total_spare_remaining
-// Returns the sum of spare_remaining across all targets
-static ssize_t total_spare_remaining_show(struct kobject *kobj, struct kobj_attribute *attr, char *buf)
-{
-    unsigned long long remaining = 0;
-    struct remap_c *rc;
-    list_for_each_entry(rc, &remap_c_list, list)
-        remaining += rc->spare_total - rc->spare_used;
-    return sysfs_emit(buf, "%llu\n", remaining);
-}
+// Remove unused global summary functions if not referenced elsewhere
+// static ssize_t total_remaps_show(struct kobject *kobj, struct kobj_attribute *attr, char *buf);
+// static ssize_t total_spare_used_show(struct kobject *kobj, struct kobj_attribute *attr, char *buf);
+// static ssize_t total_spare_remaining_show(struct kobject *kobj, struct kobj_attribute *attr, char *buf);
 
 static struct kobj_attribute spare_total_attr = __ATTR_RO(spare_total);
 static struct kobj_attribute spare_used_attr = __ATTR_RO(spare_used);
@@ -545,9 +518,9 @@ static int __init remap_init(void)
     debugfs_create_file("remap_table", 0444, remap_debugfs_dir, NULL, &remap_table_fops);
     summary_kobj = kobject_create_and_add("summary", kernel_kobj);
     if (summary_kobj) {
-        sysfs_create_file(summary_kobj, &total_remaps_attr.attr);
-        sysfs_create_file(summary_kobj, &total_spare_used_attr.attr);
-        sysfs_create_file(summary_kobj, &total_spare_remaining_attr.attr);
+        (void)sysfs_create_file(summary_kobj, &total_remaps_attr.attr);
+        (void)sysfs_create_file(summary_kobj, &total_spare_used_attr.attr);
+        (void)sysfs_create_file(summary_kobj, &total_spare_remaining_attr.attr);
     }
     pr_info("dm-remap: module loaded\n");
     return 0;
