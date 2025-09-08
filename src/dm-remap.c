@@ -133,11 +133,46 @@ static ssize_t spare_remaining_show(struct kobject *kobj, struct kobj_attribute 
     return -ENODEV;
 }
 
+// Helper for timestamp formatting
+#include <linux/timekeeping.h>
+#include <linux/ktime.h>
+#include <linux/rtc.h>
+#include <linux/string.h>
+
+static void format_timestamp(char *buf, size_t buflen, time64_t t)
+{
+    struct tm tm;
+    time64_to_tm(t, 0, &tm);
+    snprintf(buf, buflen, "%04ld-%02d-%02d %02d:%02d:%02d",
+             tm.tm_year + 1900, tm.tm_mon + 1, tm.tm_mday,
+             tm.tm_hour, tm.tm_min, tm.tm_sec);
+}
+
+// Add last_reset_time to remap_c
+// (struct remap_c is defined in dm-remap.h, ensure it has: char last_reset_time[32];)
+
+static ssize_t last_reset_time_show(struct kobject *kobj, struct kobj_attribute *attr, char *buf)
+{
+    struct remap_c *rc;
+    list_for_each_entry(rc, &remap_c_list, list)
+        if (rc->kobj == kobj)
+            return sysfs_emit(buf, "%s\n", rc->last_reset_time);
+    return -ENODEV;
+}
+
+static struct kobj_attribute last_reset_time_attr = __ATTR_RO(last_reset_time);
+
 static ssize_t clear_store(struct kobject *kobj, struct kobj_attribute *attr, const char *buf, size_t count)
 {
     struct remap_c *rc;
-    unsigned long val;
-    if (kstrtoul(buf, 10, &val) || val != 1)
+    char input[16];
+    bool confirmed = false;
+    size_t len = min(count, (size_t)15);
+    strncpy(input, buf, len);
+    input[len] = '\0';
+    if (strcmp(input, "1") == 0 || strcmp(input, "reset") == 0)
+        confirmed = true;
+    if (!confirmed)
         return -EINVAL;
     list_for_each_entry(rc, &remap_c_list, list)
         if (rc->kobj == kobj) {
@@ -145,7 +180,11 @@ static ssize_t clear_store(struct kobject *kobj, struct kobj_attribute *attr, co
             rc->remap_count = 0;
             rc->spare_used = 0;
             memset(rc->remaps, 0, rc->spare_total * sizeof(struct remap_entry));
+            // Update last_reset_time
+            format_timestamp(rc->last_reset_time, sizeof(rc->last_reset_time), ktime_get_real_seconds());
             spin_unlock(&rc->lock);
+            // Log with target name and timestamp
+            pr_info("dm-remap: remap table for target '%s' reset at %s\n", kobject_name(rc->kobj), rc->last_reset_time);
             return count;
         }
     return -ENODEV;
@@ -165,6 +204,7 @@ static struct attribute *target_attrs[] = {
     &lost_count_attr.attr,
     &spare_remaining_attr.attr,
     &clear_attr.attr,
+    &last_reset_time_attr.attr,
     NULL,
 };
 static struct attribute_group target_attr_group = {

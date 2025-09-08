@@ -38,6 +38,7 @@ struct remap_c {
     spinlock_t lock;                     // Protects remap table and counters
     struct kobject *kobj;                // Sysfs kobject for per-target stats
     struct list_head list;               // Linked list node for global summary and multi-instance sysfs
+    char last_reset_time[32];            // Human-readable timestamp of last reset
 };
 
 #endif // _DM_REMAP_H
