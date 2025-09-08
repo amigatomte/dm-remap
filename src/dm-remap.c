@@ -11,7 +11,7 @@
 #include <linux/seq_file.h>         // For debugfs table output
 
 #define DM_MSG_PREFIX "dm_remap"
-#define MAX_BADBLOCKS 1024          // Max number of remapped sectors
+// #define MAX_BADBLOCKS 1024          // Max number of remapped sectors
 
 // Debugfs trigger for user-space daemon
 static struct dentry *remap_debugfs_dir;
