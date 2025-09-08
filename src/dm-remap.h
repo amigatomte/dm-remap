@@ -6,8 +6,6 @@
 #include <linux/device-mapper.h>
 
 
-#define MAX_BADBLOCKS 1024
-
 struct remap_entry {
     sector_t orig_sector;                // Original bad sector
     struct dm_dev *spare_dev;            // Spare device for remap
@@ -22,7 +20,8 @@ struct remap_c {
     sector_t spare_start;                // Start offset for spare sector pool
     int remap_count;                     // Number of remapped sectors
     int spare_used;                      // Number of spare sectors assigned
-    struct remap_entry remaps[MAX_BADBLOCKS]; // Remap table
+    sector_t spare_total;
+    struct remap_entry *remaps;          // Remap table (dynamically allocated)
     spinlock_t lock;                     // Concurrency protection
 };
 

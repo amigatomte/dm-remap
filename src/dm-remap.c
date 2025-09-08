@@ -1,4 +1,3 @@
-
 // Device Mapper target: dm-remap
 // This module remaps bad sectors from a primary device to spare sectors on a separate block device.
 // It supports dynamic remapping, persistent state, and debugfs integration for user-space monitoring.
@@ -13,8 +12,6 @@
 
 #define DM_MSG_PREFIX "dm_remap"
 #define MAX_BADBLOCKS 1024          // Max number of remapped sectors
-
-// ...existing code...
 
 // Debugfs trigger for user-space daemon
 static struct dentry *remap_debugfs_dir;
@@ -223,8 +220,8 @@ static int remap_ctr(struct dm_target *ti, unsigned argc, char **argv)
     unsigned long long start, spare_start, spare_total;
     int ret;
 
-    if (argc < 4 || argc > 5) {
-        ti->error = "Invalid argument count (expected 4 or 5: dev start spare_dev spare_start [spare_total])";
+    if (argc != 5) {
+        ti->error = "Invalid argument count (expected 5: dev start spare_dev spare_start spare_total)";
         return -EINVAL;
     }
 
@@ -260,23 +257,27 @@ static int remap_ctr(struct dm_target *ti, unsigned argc, char **argv)
     rc->start = (sector_t)start;
     rc->spare_start = (sector_t)spare_start;
 
-    // Parse optional spare_total
-    if (argc == 5) {
-        if (kstrtoull(argv[4], 10, &spare_total)) {
-            dm_put_device(ti, rc->dev);
-            dm_put_device(ti, rc->spare_dev);
-            kfree(rc);
-            ti->error = "Invalid spare_total argument";
-            return -EINVAL;
-        }
-        rc->spare_total = (sector_t)spare_total;
-    } else {
-        rc->spare_total = MAX_BADBLOCKS;  // fallback default
+    // Parse mandatory spare_total
+    if (kstrtoull(argv[4], 10, &spare_total)) {
+        dm_put_device(ti, rc->dev);
+        dm_put_device(ti, rc->spare_dev);
+        kfree(rc);
+        ti->error = "Invalid spare_total argument";
+        return -EINVAL;
     }
+    rc->spare_total = (sector_t)spare_total;
 
     rc->remap_count = 0;
     rc->spare_used = 0;
     spin_lock_init(&rc->lock);
+    rc->remaps = kcalloc(rc->spare_total, sizeof(struct remap_entry), GFP_KERNEL);
+    if (!rc->remaps) {
+        dm_put_device(ti, rc->dev);
+        dm_put_device(ti, rc->spare_dev);
+        kfree(rc);
+        ti->error = "Remap table allocation failed";
+        return -ENOMEM;
+    }
 
     ti->private = rc;
     return 0;
@@ -291,6 +292,7 @@ static void remap_dtr(struct dm_target *ti)
     dm_put_device(ti, rc->dev);
     if (rc->spare_dev)
         dm_put_device(ti, rc->spare_dev);
+    kfree(rc->remaps);
     kfree(rc);
 }
 
