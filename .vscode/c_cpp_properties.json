@@ -1,0 +1,37 @@
+{
+    "configurations": [
+        {
+            "name": "Linux",
+            "includePath": [
+                "${workspaceFolder}/**"
+            ],
+            "defines": [],
+            "compilerPath": "/usr/bin/gcc",
+            "cStandard": "c17",
+            "cppStandard": "gnu++17",
+            "intelliSenseMode": "linux-gcc-x64"
+        },
+        {
+            "name": "Kernel",
+            "includePath": [
+                "${workspaceFolder}/**",
+                "/home/christian/linux/include",
+                "/home/christian/linux/include/uapi",
+                "/home/christian/linux/include/generated",
+                "/home/christian/linux/include/generated/uapi",
+                "/home/christian/linux/arch/x86/include",
+                "/home/christian/linux/arch/x86/include/generated",
+                "/home/christian/linux/arch/x86/include/generated/asm",
+                "/home/christian/linux/include/asm-generic"
+            ],
+            "defines": [
+                "__KERNEL__"
+            ],
+            "compilerPath": "/usr/bin/gcc",
+            "cStandard": "c11",
+            "cppStandard": "gnu++17",
+            "intelliSenseMode": "linux-gcc-x64"
+        }
+    ],
+    "version": 4
+}
