@@ -9,6 +9,7 @@
 #include <linux/slab.h>             // For memory allocation
 #include <linux/debugfs.h>          // For debugfs signaling
 #include <linux/seq_file.h>         // For debugfs table output
+#include <linux/list.h>
 
 #define DM_MSG_PREFIX "dm_remap"
 // #define MAX_BADBLOCKS 1024          // Max number of remapped sectors
@@ -17,6 +18,8 @@
 static struct dentry *remap_debugfs_dir;
 //static struct dentry *remap_trigger_file;
 static u32 remap_trigger = 0;
+
+static struct remap_c *global_remap_c;
 
 // Called for every I/O request to the DM target
 static int remap_map(struct dm_target *ti, struct bio *bio)
@@ -214,6 +217,29 @@ static void remap_status(struct dm_target *ti, status_type_t type,
     }
 }
 
+static ssize_t spare_total_show(struct kobject *kobj, struct kobj_attribute *attr, char *buf)
+{
+    struct remap_c *rc;
+    list_for_each_entry(rc, &remap_c_list, list) {
+        if (rc->kobj == kobj)
+            return sysfs_emit(buf, "%llu\n", (unsigned long long)rc->spare_total);
+    }
+    return -ENODEV;
+}
+
+static ssize_t spare_used_show(struct kobject *kobj, struct kobj_attribute *attr, char *buf)
+{
+    struct remap_c *rc;
+    list_for_each_entry(rc, &remap_c_list, list) {
+        if (rc->kobj == kobj)
+            return sysfs_emit(buf, "%d\n", rc->spare_used);
+    }
+    return -ENODEV;
+}
+
+static struct kobj_attribute spare_total_attr = __ATTR_RO(spare_total);
+static struct kobj_attribute spare_used_attr = __ATTR_RO(spare_used);
+
 static int remap_ctr(struct dm_target *ti, unsigned argc, char **argv)
 {
     struct remap_c *rc;
@@ -279,6 +305,37 @@ static int remap_ctr(struct dm_target *ti, unsigned argc, char **argv)
         return -ENOMEM;
     }
 
+    global_remap_c = rc;
+    rc->kobj = kobject_create_and_add("dm_remap_stats", kernel_kobj);
+    if (!rc->kobj) {
+        kfree(rc->remaps);
+        dm_put_device(ti, rc->dev);
+        dm_put_device(ti, rc->spare_dev);
+        kfree(rc);
+        ti->error = "Failed to create sysfs kobject";
+        return -ENOMEM;
+    }
+    if (sysfs_create_file(rc->kobj, &spare_total_attr.attr)) {
+        kobject_put(rc->kobj);
+        kfree(rc->remaps);
+        dm_put_device(ti, rc->dev);
+        dm_put_device(ti, rc->spare_dev);
+        kfree(rc);
+        ti->error = "Failed to create sysfs spare_total attribute";
+        return -ENOMEM;
+    }
+    if (sysfs_create_file(rc->kobj, &spare_used_attr.attr)) {
+        kobject_put(rc->kobj);
+        kfree(rc->remaps);
+        dm_put_device(ti, rc->dev);
+        dm_put_device(ti, rc->spare_dev);
+        kfree(rc);
+        ti->error = "Failed to create sysfs spare_used attribute";
+        return -ENOMEM;
+    }
+    INIT_LIST_HEAD(&rc->list);
+    list_add(&rc->list, &remap_c_list);
+
     ti->private = rc;
     return 0;
 }
@@ -289,6 +346,9 @@ static void remap_dtr(struct dm_target *ti)
     // remap_dtr: Target destructor. Cleans up device references and memory.
 {
     struct remap_c *rc = ti->private;
+    if (rc->kobj)
+        kobject_put(rc->kobj);
+    list_del(&rc->list);
     dm_put_device(ti, rc->dev);
     if (rc->spare_dev)
         dm_put_device(ti, rc->spare_dev);

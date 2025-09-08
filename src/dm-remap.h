@@ -4,6 +4,8 @@
 #define _DM_REMAP_H
 
 #include <linux/device-mapper.h>
+#include <linux/kobject.h>
+#include <linux/list.h>
 
 
 struct remap_entry {
@@ -23,6 +25,10 @@ struct remap_c {
     sector_t spare_total;
     struct remap_entry *remaps;          // Remap table (dynamically allocated)
     spinlock_t lock;                     // Concurrency protection
+    struct kobject *kobj;                // Sysfs kobject for stats
+    struct list_head list;               // Linked list for multi-instance sysfs
 };
+
+static LIST_HEAD(remap_c_list);
 
 #endif
