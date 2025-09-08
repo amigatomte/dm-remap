@@ -32,12 +32,144 @@ static u32 remap_trigger = 0;
 // remap_c_list: Global linked list of all active dm-remap targets for sysfs summary
 static LIST_HEAD(remap_c_list);
 
-// summary_kobj: Global sysfs kobject for summary directory
-static struct kobject *summary_kobj;
-// Global sysfs attribute structs for summary
-static struct kobj_attribute total_remaps_attr;
-static struct kobj_attribute total_spare_used_attr;
-static struct kobj_attribute total_spare_remaining_attr;
+// Global sysfs kobjects for summary statistics
+static struct kobject *dm_remap_kobj;    // /sys/kernel/dm_remap
+
+// Sysfs show functions for global statistics
+static ssize_t total_remaps_show(struct kobject *kobj, struct kobj_attribute *attr, char *buf)
+{
+    int total = 0;
+    struct remap_c *rc;
+    list_for_each_entry(rc, &remap_c_list, list)
+        total += rc->remap_count;
+    return sysfs_emit(buf, "%d\n", total);
+}
+
+static ssize_t total_spare_used_show(struct kobject *kobj, struct kobj_attribute *attr, char *buf)
+{
+    int used = 0;
+    struct remap_c *rc;
+    list_for_each_entry(rc, &remap_c_list, list)
+        used += rc->spare_used;
+    return sysfs_emit(buf, "%d\n", used);
+}
+
+static ssize_t total_spare_remaining_show(struct kobject *kobj, struct kobj_attribute *attr, char *buf)
+{
+    unsigned long long remaining = 0;
+    struct remap_c *rc;
+    list_for_each_entry(rc, &remap_c_list, list)
+        remaining += rc->spare_total - rc->spare_used;
+    return sysfs_emit(buf, "%llu\n", remaining);
+}
+
+// Sysfs attributes for summary group
+static struct kobj_attribute total_remaps_attr = __ATTR_RO(total_remaps);
+static struct kobj_attribute total_spare_used_attr = __ATTR_RO(total_spare_used);
+static struct kobj_attribute total_spare_remaining_attr = __ATTR_RO(total_spare_remaining);
+
+static struct attribute *summary_attrs[] = {
+    &total_remaps_attr.attr,
+    &total_spare_used_attr.attr,
+    &total_spare_remaining_attr.attr,
+    NULL,
+};
+
+static struct attribute_group summary_attr_group = {
+    .name = "summary",
+    .attrs = summary_attrs,
+};
+
+// --- Per-target sysfs show/store function definitions ---
+static ssize_t spare_total_show(struct kobject *kobj, struct kobj_attribute *attr, char *buf)
+{
+    struct remap_c *rc;
+    list_for_each_entry(rc, &remap_c_list, list)
+        if (rc->kobj == kobj)
+            return sysfs_emit(buf, "%llu\n", (unsigned long long)rc->spare_total);
+    return -ENODEV;
+}
+
+static ssize_t spare_used_show(struct kobject *kobj, struct kobj_attribute *attr, char *buf)
+{
+    struct remap_c *rc;
+    list_for_each_entry(rc, &remap_c_list, list)
+        if (rc->kobj == kobj)
+            return sysfs_emit(buf, "%d\n", rc->spare_used);
+    return -ENODEV;
+}
+
+static ssize_t remap_count_show(struct kobject *kobj, struct kobj_attribute *attr, char *buf)
+{
+    struct remap_c *rc;
+    list_for_each_entry(rc, &remap_c_list, list)
+        if (rc->kobj == kobj)
+            return sysfs_emit(buf, "%d\n", rc->remap_count);
+    return -ENODEV;
+}
+
+static ssize_t lost_count_show(struct kobject *kobj, struct kobj_attribute *attr, char *buf)
+{
+    struct remap_c *rc;
+    int lost = 0, i;
+    list_for_each_entry(rc, &remap_c_list, list)
+        if (rc->kobj == kobj) {
+            spin_lock(&rc->lock);
+            for (i = 0; i < rc->remap_count; i++)
+                if (!rc->remaps[i].valid)
+                    lost++;
+            spin_unlock(&rc->lock);
+            return sysfs_emit(buf, "%d\n", lost);
+        }
+    return -ENODEV;
+}
+
+static ssize_t spare_remaining_show(struct kobject *kobj, struct kobj_attribute *attr, char *buf)
+{
+    struct remap_c *rc;
+    list_for_each_entry(rc, &remap_c_list, list)
+        if (rc->kobj == kobj)
+            return sysfs_emit(buf, "%llu\n", (unsigned long long)(rc->spare_total - rc->spare_used));
+    return -ENODEV;
+}
+
+static ssize_t clear_store(struct kobject *kobj, struct kobj_attribute *attr, const char *buf, size_t count)
+{
+    struct remap_c *rc;
+    unsigned long val;
+    if (kstrtoul(buf, 10, &val) || val != 1)
+        return -EINVAL;
+    list_for_each_entry(rc, &remap_c_list, list)
+        if (rc->kobj == kobj) {
+            spin_lock(&rc->lock);
+            rc->remap_count = 0;
+            rc->spare_used = 0;
+            memset(rc->remaps, 0, rc->spare_total * sizeof(struct remap_entry));
+            spin_unlock(&rc->lock);
+            return count;
+        }
+    return -ENODEV;
+}
+
+// --- Per-target sysfs attribute definitions ---
+static struct kobj_attribute spare_total_attr = __ATTR_RO(spare_total);
+static struct kobj_attribute spare_used_attr = __ATTR_RO(spare_used);
+static struct kobj_attribute remap_count_attr = __ATTR_RO(remap_count);
+static struct kobj_attribute lost_count_attr = __ATTR_RO(lost_count);
+static struct kobj_attribute spare_remaining_attr = __ATTR_RO(spare_remaining);
+static struct kobj_attribute clear_attr = __ATTR(clear, 0220, NULL, clear_store);
+static struct attribute *target_attrs[] = {
+    &spare_total_attr.attr,
+    &spare_used_attr.attr,
+    &remap_count_attr.attr,
+    &lost_count_attr.attr,
+    &spare_remaining_attr.attr,
+    &clear_attr.attr,
+    NULL,
+};
+static struct attribute_group target_attr_group = {
+    .attrs = target_attrs,
+};
 
 // Called for every I/O request to the DM target
 // remap_map: Called for every I/O request to the DM target.
@@ -260,157 +392,41 @@ static void remap_status(struct dm_target *ti, status_type_t type,
     }
 }
 
-static ssize_t spare_total_show(struct kobject *kobj, struct kobj_attribute *attr, char *buf)
-{
-    struct remap_c *rc;
-    list_for_each_entry(rc, &remap_c_list, list)
-    {
-        if (rc->kobj == kobj)
-            return sysfs_emit(buf, "%llu\n", (unsigned long long)rc->spare_total);
-    }
-    return -ENODEV;
-}
-
-static ssize_t spare_used_show(struct kobject *kobj, struct kobj_attribute *attr, char *buf)
-{
-    struct remap_c *rc;
-    list_for_each_entry(rc, &remap_c_list, list)
-    {
-        if (rc->kobj == kobj)
-            return sysfs_emit(buf, "%d\n", rc->spare_used);
-    }
-    return -ENODEV;
-}
-
-// remap_count_show: sysfs attribute handler for per-target remap_count
-// Returns the number of sectors currently remapped for this target
-static ssize_t remap_count_show(struct kobject *kobj, struct kobj_attribute *attr, char *buf)
-{
-    struct remap_c *rc;
-    list_for_each_entry(rc, &remap_c_list, list)
-    {
-        if (rc->kobj == kobj)
-            return sysfs_emit(buf, "%d\n", rc->remap_count);
-    }
-    return -ENODEV;
-}
-
-// lost_count_show: sysfs attribute handler for per-target lost_count
-// Returns the number of remapped sectors that are marked as lost (not valid)
-static ssize_t lost_count_show(struct kobject *kobj, struct kobj_attribute *attr, char *buf)
-{
-    struct remap_c *rc;
-    int lost = 0, i;
-    list_for_each_entry(rc, &remap_c_list, list)
-    {
-        if (rc->kobj == kobj)
-        {
-            spin_lock(&rc->lock);
-            for (i = 0; i < rc->remap_count; i++)
-            {
-                if (!rc->remaps[i].valid)
-                    lost++;
-            }
-            spin_unlock(&rc->lock);
-            return sysfs_emit(buf, "%d\n", lost);
-        }
-    }
-    return -ENODEV;
-}
-
-// spare_remaining_show: sysfs attribute handler for per-target spare_remaining
-// Returns the number of spare sectors left for remapping
-static ssize_t spare_remaining_show(struct kobject *kobj, struct kobj_attribute *attr, char *buf)
-{
-    struct remap_c *rc;
-    list_for_each_entry(rc, &remap_c_list, list)
-    {
-        if (rc->kobj == kobj)
-            return sysfs_emit(buf, "%llu\n", (unsigned long long)(rc->spare_total - rc->spare_used));
-    }
-    return -ENODEV;
-}
-
-// clear_store: sysfs attribute handler for writable clear
-// Writing '1' resets the remap table and usage counters for this target
-// Ensures thread safety with locking
-static ssize_t clear_store(struct kobject *kobj, struct kobj_attribute *attr, const char *buf, size_t count)
-{
-    struct remap_c *rc;
-    unsigned long val;
-    if (kstrtoul(buf, 10, &val) || val != 1)
-        return -EINVAL;
-    list_for_each_entry(rc, &remap_c_list, list)
-    {
-        if (rc->kobj == kobj)
-        {
-            spin_lock(&rc->lock);
-            rc->remap_count = 0;
-            rc->spare_used = 0;
-            memset(rc->remaps, 0, rc->spare_total * sizeof(struct remap_entry)); // Zero out remap table
-            spin_unlock(&rc->lock);
-            return count;
-        }
-    }
-    return -ENODEV;
-}
-
-// Remove unused global summary functions if not referenced elsewhere
-// static ssize_t total_remaps_show(struct kobject *kobj, struct kobj_attribute *attr, char *buf);
-// static ssize_t total_spare_used_show(struct kobject *kobj, struct kobj_attribute *attr, char *buf);
-// static ssize_t total_spare_remaining_show(struct kobject *kobj, struct kobj_attribute *attr, char *buf);
-
-static struct kobj_attribute spare_total_attr = __ATTR_RO(spare_total);
-static struct kobj_attribute spare_used_attr = __ATTR_RO(spare_used);
-static struct kobj_attribute remap_count_attr = __ATTR_RO(remap_count);
-static struct kobj_attribute lost_count_attr = __ATTR_RO(lost_count);
-static struct kobj_attribute spare_remaining_attr = __ATTR_RO(spare_remaining);
-static struct kobj_attribute clear_attr = __ATTR(clear, 0220, NULL, clear_store);
-
-// remap_ctr: Target constructor. Initializes remap_c, allocates remap table, sets up sysfs and debugfs.
-// Arguments: dev start spare_dev spare_start spare_total
-// Returns: 0 on success, negative error code on failure
-// This function is called when the target is created by dmsetup.
-// It parses arguments, allocates memory, and registers sysfs/debugfs entries.
-// All error paths clean up resources to avoid leaks.
+// --- remap_ctr and remap_dtr definitions ---
 static int remap_ctr(struct dm_target *ti, unsigned argc, char **argv)
 {
     struct remap_c *rc;
     unsigned long long start, spare_start, spare_total;
     int ret;
 
-    if (argc != 5)
-    {
+    // Argument parsing and validation
+    if (argc != 5) {
         ti->error = "Invalid argument count (expected 5: dev start spare_dev spare_start spare_total)";
         return -EINVAL;
     }
 
     rc = kzalloc(sizeof(*rc), GFP_KERNEL);
-    if (!rc)
-    {
+    if (!rc) {
         ti->error = "Memory allocation failed";
         return -ENOMEM;
     }
 
     ret = dm_get_device(ti, argv[0], dm_table_get_mode(ti->table), &rc->dev);
-    if (ret)
-    {
+    if (ret) {
         kfree(rc);
         ti->error = "Device lookup failed";
         return ret;
     }
 
     ret = dm_get_device(ti, argv[2], dm_table_get_mode(ti->table), &rc->spare_dev);
-    if (ret)
-    {
+    if (ret) {
         dm_put_device(ti, rc->dev);
         kfree(rc);
         ti->error = "Spare device lookup failed";
         return ret;
     }
 
-    if (kstrtoull(argv[1], 10, &start) || kstrtoull(argv[3], 10, &spare_start))
-    {
+    if (kstrtoull(argv[1], 10, &start) || kstrtoull(argv[3], 10, &spare_start) || kstrtoull(argv[4], 10, &spare_total)) {
         dm_put_device(ti, rc->dev);
         dm_put_device(ti, rc->spare_dev);
         kfree(rc);
@@ -420,35 +436,23 @@ static int remap_ctr(struct dm_target *ti, unsigned argc, char **argv)
 
     rc->start = (sector_t)start;
     rc->spare_start = (sector_t)spare_start;
-
-    // Parse mandatory spare_total
-    if (kstrtoull(argv[4], 10, &spare_total))
-    {
-        dm_put_device(ti, rc->dev);
-        dm_put_device(ti, rc->spare_dev);
-        kfree(rc);
-        ti->error = "Invalid spare_total argument";
-        return -EINVAL;
-    }
     rc->spare_total = (sector_t)spare_total;
-
     rc->remap_count = 0;
     rc->spare_used = 0;
     spin_lock_init(&rc->lock);
-    // Allocate remap table and handle errors
+
     rc->remaps = kcalloc(rc->spare_total, sizeof(struct remap_entry), GFP_KERNEL);
-    if (!rc->remaps)
-    {
+    if (!rc->remaps) {
         dm_put_device(ti, rc->dev);
         dm_put_device(ti, rc->spare_dev);
         kfree(rc);
         ti->error = "Remap table allocation failed";
         return -ENOMEM;
     }
+
     // Create per-target sysfs directory and attributes
     rc->kobj = kobject_create_and_add("dm_remap_stats", kernel_kobj);
-    if (!rc->kobj)
-    {
+    if (!rc->kobj) {
         kfree(rc->remaps);
         dm_put_device(ti, rc->dev);
         dm_put_device(ti, rc->spare_dev);
@@ -457,34 +461,22 @@ static int remap_ctr(struct dm_target *ti, unsigned argc, char **argv)
         return -ENOMEM;
     }
     // Register all sysfs attributes for this target
-    if (sysfs_create_file(rc->kobj, &spare_total_attr.attr) ||
-        sysfs_create_file(rc->kobj, &spare_used_attr.attr) ||
-        sysfs_create_file(rc->kobj, &remap_count_attr.attr) ||
-        sysfs_create_file(rc->kobj, &lost_count_attr.attr) ||
-        sysfs_create_file(rc->kobj, &spare_remaining_attr.attr) ||
-        sysfs_create_file(rc->kobj, &clear_attr.attr))
-    {
+    if (sysfs_create_group(rc->kobj, &target_attr_group)) {
         kobject_put(rc->kobj);
         kfree(rc->remaps);
         dm_put_device(ti, rc->dev);
         dm_put_device(ti, rc->spare_dev);
         kfree(rc);
-        ti->error = "Failed to create sysfs attributes";
+        ti->error = "Failed to create sysfs attribute group";
         return -ENOMEM;
     }
-    // Add to global list for summary and multi-instance support
     INIT_LIST_HEAD(&rc->list);
     list_add(&rc->list, &remap_c_list);
-
     ti->private = rc;
     return 0;
 }
 
-// Called when the target is destroyed
 static void remap_dtr(struct dm_target *ti)
-// remap_dtr: Target destructor. Cleans up device references, memory, sysfs, and removes from global list.
-// This function is called when the target is removed.
-// It releases all resources and unregisters sysfs/debugfs entries.
 {
     struct remap_c *rc = ti->private;
     if (rc->kobj)
@@ -496,6 +488,18 @@ static void remap_dtr(struct dm_target *ti)
         dm_put_device(ti, rc->spare_dev);
     kfree(rc);
 }
+
+// --- remap_target struct ---
+static struct target_type remap_target = {
+    .name = "remap",
+    .version = {1, 0, 0},
+    .module = THIS_MODULE,
+    .ctr = remap_ctr,
+    .dtr = remap_dtr,
+    .map = remap_map,
+    .message = remap_message,
+    .status = remap_status,
+};
 
 // Debugfs: show remap table
 static int remap_table_show(struct seq_file *m, void *v)
@@ -531,56 +535,48 @@ static const struct file_operations remap_table_fops = {
     .release = single_release,
 };
 
-// Target registration
-static struct target_type remap_target = {
-    // remap_target: Device Mapper target registration structure.
-    .name = "remap",
-    .version = {1, 0, 0},
-    .module = THIS_MODULE,
-    .ctr = remap_ctr,
-    .dtr = remap_dtr,
-    .map = remap_map,
-    .message = remap_message,
-    .status = remap_status,
-};
-
 // Module init: register target + create debugfs trigger
-static int __init remap_init(void)
 // remap_init: Module initialization. Registers target and sets up debugfs.
+static int __init remap_init(void)
 {
     int ret = dm_register_target(&remap_target);
     if (ret)
         return ret;
-
     remap_debugfs_dir = debugfs_create_dir("dm_remap", NULL);
     debugfs_create_u32("trigger", 0644, remap_debugfs_dir, &remap_trigger);
     debugfs_create_file("remap_table", 0444, remap_debugfs_dir, NULL, &remap_table_fops);
-    summary_kobj = kobject_create_and_add("summary", kernel_kobj);
-    if (summary_kobj)
-    {
-        if (sysfs_create_file(summary_kobj, &total_remaps_attr.attr))
-            pr_warn("Failed to create total_remaps sysfs file\n");
-
-        if (sysfs_create_file(summary_kobj, &total_spare_used_attr.attr))
-            pr_warn("Failed to create total_spare_used sysfs file\n");
-
-        if (sysfs_create_file(summary_kobj, &total_spare_remaining_attr.attr))
-            pr_warn("Failed to create total_spare_remaining sysfs file\n");
-    }
+    // Create /sys/kernel/dm_remap parent kobject
+    dm_remap_kobj = kobject_create_and_add("dm_remap", kernel_kobj);
+    if (!dm_remap_kobj)
+        goto err_kobj;
+    // Create summary group under /sys/kernel/dm_remap
+    ret = sysfs_create_group(dm_remap_kobj, &summary_attr_group);
+    if (ret)
+        goto err_group;
     pr_info("dm-remap: module loaded\n");
     return 0;
+err_group:
+    kobject_put(dm_remap_kobj);
+err_kobj:
+    debugfs_remove_recursive(remap_debugfs_dir);
+    dm_unregister_target(&remap_target);
+    return -ENOMEM;
 }
 
+
 // Module exit: unregister target + remove debugfs
-static void __exit remap_exit(void)
 // remap_exit: Module cleanup. Unregisters target and removes debugfs entries.
+static void __exit remap_exit(void)
 {
     debugfs_remove_recursive(remap_debugfs_dir);
-    if (summary_kobj)
-        kobject_put(summary_kobj);
+    if (dm_remap_kobj) {
+        sysfs_remove_group(dm_remap_kobj, &summary_attr_group);
+        kobject_put(dm_remap_kobj);
+    }
     dm_unregister_target(&remap_target);
     pr_info("dm-remap: module unloaded\n");
 }
+
 
 module_init(remap_init);
 module_exit(remap_exit);
