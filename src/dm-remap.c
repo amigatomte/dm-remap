@@ -34,6 +34,8 @@ static LIST_HEAD(remap_c_list);
 
 // Global sysfs kobjects for summary statistics
 static struct kobject *dm_remap_kobj;    // /sys/kernel/dm_remap
+static struct kobject *dm_remap_stats_kobj; // /sys/kernel/dm_remap_stats
+static bool dm_remap_stats_initialized = false;
 
 // Sysfs show functions for global statistics
 static ssize_t total_remaps_show(struct kobject *kobj, struct kobj_attribute *attr, char *buf)
@@ -491,7 +493,9 @@ static int remap_ctr(struct dm_target *ti, unsigned argc, char **argv)
     }
 
     // Create per-target sysfs directory and attributes
-    rc->kobj = kobject_create_and_add("dm_remap_stats", kernel_kobj);
+    char target_name[32];
+    snprintf(target_name, sizeof(target_name), "remap%llu", (unsigned long long)ti->begin); // Use start sector for uniqueness
+    rc->kobj = kobject_create_and_add(target_name, dm_remap_kobj);
     if (!rc->kobj) {
         kfree(rc->remaps);
         dm_put_device(ti, rc->dev);
@@ -585,17 +589,28 @@ static int __init remap_init(void)
     remap_debugfs_dir = debugfs_create_dir("dm_remap", NULL);
     debugfs_create_u32("trigger", 0644, remap_debugfs_dir, &remap_trigger);
     debugfs_create_file("remap_table", 0444, remap_debugfs_dir, NULL, &remap_table_fops);
-    // Create /sys/kernel/dm_remap parent kobject
+
+    // Create /sys/kernel/dm_remap parent kobject (per-target sysfs)
     dm_remap_kobj = kobject_create_and_add("dm_remap", kernel_kobj);
     if (!dm_remap_kobj)
         goto err_kobj;
-    // Create summary group under /sys/kernel/dm_remap
-    ret = sysfs_create_group(dm_remap_kobj, &summary_attr_group);
-    if (ret)
-        goto err_group;
+
+    // Create global summary kobject only once
+    if (!dm_remap_stats_initialized) {
+        dm_remap_stats_kobj = kobject_create_and_add("dm_remap_stats", kernel_kobj);
+        if (!dm_remap_stats_kobj)
+            goto err_stats_kobj;
+        ret = sysfs_create_group(dm_remap_stats_kobj, &summary_attr_group);
+        if (ret)
+            goto err_stats_group;
+        dm_remap_stats_initialized = true;
+    }
+
     pr_info("dm-remap: module loaded\n");
     return 0;
-err_group:
+err_stats_group:
+    kobject_put(dm_remap_stats_kobj);
+err_stats_kobj:
     kobject_put(dm_remap_kobj);
 err_kobj:
     debugfs_remove_recursive(remap_debugfs_dir);
@@ -610,8 +625,13 @@ static void __exit remap_exit(void)
 {
     debugfs_remove_recursive(remap_debugfs_dir);
     if (dm_remap_kobj) {
-        sysfs_remove_group(dm_remap_kobj, &summary_attr_group);
         kobject_put(dm_remap_kobj);
+    }
+    if (dm_remap_stats_initialized && dm_remap_stats_kobj) {
+        sysfs_remove_group(dm_remap_stats_kobj, &summary_attr_group);
+        kobject_put(dm_remap_stats_kobj);
+        dm_remap_stats_initialized = false;
+        dm_remap_stats_kobj = NULL;
     }
     dm_unregister_target(&remap_target);
     pr_info("dm-remap: module unloaded\n");
