@@ -1,6 +1,13 @@
 // Device Mapper target: dm-remap
 // This module remaps bad sectors from a primary device to spare sectors on a separate block device.
-// It supports dynamic remapping, persistent state, and debugfs integration for user-space monitoring.
+// It supports dynamic remapping, persistent state, debugfs integration, and per-target sysfs monitoring.
+//
+// Key features:
+// - Dynamically sized remap table (user-supplied size)
+// - Per-target sysfs directory with attributes for monitoring and control
+// - Global sysfs summary for all targets
+// - Thread-safe operations using spinlocks
+// - Debugfs table output for user-space inspection
 
 #include <linux/module.h>           // Core kernel module support
 #include <linux/init.h>             // For module init/exit macros
@@ -9,7 +16,8 @@
 #include <linux/slab.h>             // For memory allocation
 #include <linux/debugfs.h>          // For debugfs signaling
 #include <linux/seq_file.h>         // For debugfs table output
-#include <linux/list.h>
+#include <linux/kobject.h>          // For sysfs integration
+#include <linux/list.h>             // For multi-instance sysfs support
 
 #define DM_MSG_PREFIX "dm_remap"
 // #define MAX_BADBLOCKS 1024          // Max number of remapped sectors
@@ -21,19 +29,31 @@ static u32 remap_trigger = 0;
 
 static struct remap_c *global_remap_c;
 
+// remap_c_list: Global linked list of all active dm-remap targets for sysfs summary
+static LIST_HEAD(remap_c_list);
+
+// summary_kobj: Global sysfs kobject for summary directory
+static struct kobject *summary_kobj;
+// Global sysfs attribute structs for summary
+static struct kobj_attribute total_remaps_attr;
+static struct kobj_attribute total_spare_used_attr;
+static struct kobj_attribute total_spare_remaining_attr;
+
 // Called for every I/O request to the DM target
+// remap_map: Called for every I/O request to the DM target.
+// If the sector is remapped, redirect the bio to the spare device and sector.
+// Otherwise, pass through to the original device.
+// This function is the main I/O path for the target and must be fast and thread-safe.
 static int remap_map(struct dm_target *ti, struct bio *bio)
-    // remap_map: Called for every I/O request to the DM target.
-    // If the sector is remapped, redirect the bio to the spare device and sector.
-    // Otherwise, pass through to the original device.
 {
-    struct remap_c *rc = ti->private;
-    sector_t sector = bio->bi_iter.bi_sector;
+    struct remap_c *rc = ti->private; // Get target context
+    sector_t sector = bio->bi_iter.bi_sector; // Requested sector
     int i;
-    struct dm_dev *target_dev = rc->dev;
-    sector_t target_sector = rc->start + sector;
+    struct dm_dev *target_dev = rc->dev; // Default to main device
+    sector_t target_sector = rc->start + sector; // Default to main device offset
 
     // Check if the sector is in the spare area of the spare device
+    // This prevents user I/O from accessing spare sectors directly
     if (sector >= rc->spare_start && sector < rc->spare_start + rc->spare_total) {
         pr_warn("dm-remap: access to spare sector %llu denied\n",
                 (unsigned long long)sector);
@@ -41,7 +61,8 @@ static int remap_map(struct dm_target *ti, struct bio *bio)
     }
 
     // Check if the sector is remapped
-    spin_lock(&rc->lock);
+    // If so, redirect to the spare device and sector
+    spin_lock(&rc->lock); // Protect remap table access
     for (i = 0; i < rc->remap_count; i++) {
         if (sector == rc->remaps[i].orig_sector) {
             // Fail read if data was lost
@@ -67,32 +88,32 @@ static int remap_map(struct dm_target *ti, struct bio *bio)
 }
 
 // Handles runtime messages like: dmsetup message remap0 0 remap <sector>
+// remap_message: Handles runtime messages from dmsetup for runtime control and inspection.
+// Supported commands:
+//   remap <bad_sector>   - Remap a bad sector to the next available spare sector
+//   load <bad> <spare> <valid> - Load a remap entry (for persistence)
+//   clear                - Clear all remap entries
+//   verify <sector>      - Query remap status for a sector
 static int remap_message(struct dm_target *ti,
-    // remap_message: Handles runtime messages from dmsetup.
-    // Supported commands:
-    //   remap <bad_sector>   - Remap a bad sector to the next available spare sector
-    //   load <bad> <spare> <valid> - Load a remap entry (for persistence)
-    //   clear                - Clear all remap entries
-    //   verify <sector>      - Query remap status for a sector
                          unsigned argc,
                          char **argv,
                          char *result,
                          unsigned maxlen)
 {
-    struct remap_c *rc = ti->private;
+    struct remap_c *rc = ti->private; // Get target context
     sector_t bad, spare;
     unsigned int valid;
     int i;
 
-    // remap <bad_sector>
+    // remap <bad_sector>: Add a new bad sector to the remap table
     if (argc == 2 && strcmp(argv[0], "remap") == 0) {
+        // Check if remap table is full
         if (rc->remap_count >= rc->spare_total || rc->spare_used >= rc->spare_total)
             return -ENOSPC;
-
+        // Parse bad sector argument
         if (kstrtoull(argv[1], 10, &bad))
             return -EINVAL;
-
-        // Validation: prevent duplicate bad sector or spare sector
+        // Prevent duplicate remaps
         spin_lock(&rc->lock);
         for (i = 0; i < rc->remap_count; i++) {
             if (rc->remaps[i].orig_sector == bad) {
@@ -104,6 +125,7 @@ static int remap_message(struct dm_target *ti,
                 return -EEXIST;
             }
         }
+        // Add new remap entry
         rc->remaps[rc->remap_count].orig_sector = bad;
         rc->remaps[rc->remap_count].spare_dev = rc->spare_dev;
         rc->remaps[rc->remap_count].spare_sector = rc->spare_start + rc->spare_used;
@@ -118,17 +140,16 @@ static int remap_message(struct dm_target *ti,
         return 0;
     }
 
-    // load <bad> <spare> <valid>
+    // load <bad> <spare> <valid>: Load a remap entry (used for restoring state)
     if (argc == 4 && strcmp(argv[0], "load") == 0) {
         if (rc->remap_count >= rc->spare_total)
             return -ENOSPC;
-
+        // Parse arguments
         if (kstrtoull(argv[1], 10, &bad) ||
             kstrtoull(argv[2], 10, &spare) ||
             kstrtouint(argv[3], 10, &valid))
             return -EINVAL;
-
-        // Validation: prevent duplicate bad sector or spare sector
+        // Prevent duplicate remaps
         spin_lock(&rc->lock);
         for (i = 0; i < rc->remap_count; i++) {
             if (rc->remaps[i].orig_sector == bad) {
@@ -140,11 +161,11 @@ static int remap_message(struct dm_target *ti,
                 return -EEXIST;
             }
         }
+        // Add loaded remap entry
         rc->remaps[rc->remap_count].orig_sector = bad;
         rc->remaps[rc->remap_count].spare_dev = rc->spare_dev;
         rc->remaps[rc->remap_count].spare_sector = spare;
         rc->remaps[rc->remap_count].valid = (valid != 0);
-
         rc->remap_count++;
         remap_trigger++;  // Signal daemon to re-save
         spin_unlock(&rc->lock);
@@ -152,22 +173,22 @@ static int remap_message(struct dm_target *ti,
                 (unsigned long long)bad,
                 (unsigned long long)spare,
                 valid);
-
         return 0;
     }
 
-    // clear
+    // clear: Reset the remap table and usage counters
     if (argc == 1 && strcmp(argv[0], "clear") == 0) {
         spin_lock(&rc->lock);
         rc->remap_count = 0;
         rc->spare_used = 0;
+        memset(rc->remaps, 0, rc->spare_total * sizeof(struct remap_entry)); // Zero out remap table
         remap_trigger++;  // Signal daemon to re-save
         spin_unlock(&rc->lock);
         pr_info("dm-remap: remap table cleared\n");
         return 0;
     }
 
-    // verify <sector>
+    // verify <sector>: Check if a sector is remapped and report its status
     if (argc == 2 && strcmp(argv[0], "verify") == 0) {
         if (kstrtoull(argv[1], 10, &bad))
             return -EINVAL;
@@ -186,6 +207,7 @@ static int remap_message(struct dm_target *ti,
         return 0;
     }
 
+    // Unknown command: return error
     return -EINVAL;
 }
 
@@ -193,6 +215,7 @@ static int remap_message(struct dm_target *ti,
 static void remap_status(struct dm_target *ti, status_type_t type,
     // remap_status: Reports status via dmsetup status.
     // Shows number of remapped sectors, lost sectors, and spare usage.
+    // This function is used by dmsetup to report target status.
                          unsigned status_flags, char *result, unsigned maxlen)
 {
     struct remap_c *rc = ti->private;
@@ -237,9 +260,118 @@ static ssize_t spare_used_show(struct kobject *kobj, struct kobj_attribute *attr
     return -ENODEV;
 }
 
+// remap_count_show: sysfs attribute handler for per-target remap_count
+// Returns the number of sectors currently remapped for this target
+static ssize_t remap_count_show(struct kobject *kobj, struct kobj_attribute *attr, char *buf)
+{
+    struct remap_c *rc;
+    list_for_each_entry(rc, &remap_c_list, list) {
+        if (rc->kobj == kobj)
+            return sysfs_emit(buf, "%d\n", rc->remap_count);
+    }
+    return -ENODEV;
+}
+
+// lost_count_show: sysfs attribute handler for per-target lost_count
+// Returns the number of remapped sectors that are marked as lost (not valid)
+static ssize_t lost_count_show(struct kobject *kobj, struct kobj_attribute *attr, char *buf)
+{
+    struct remap_c *rc;
+    int lost = 0, i;
+    list_for_each_entry(rc, &remap_c_list, list) {
+        if (rc->kobj == kobj) {
+            spin_lock(&rc->lock);
+            for (i = 0; i < rc->remap_count; i++) {
+                if (!rc->remaps[i].valid)
+                    lost++;
+            }
+            spin_unlock(&rc->lock);
+            return sysfs_emit(buf, "%d\n", lost);
+        }
+    }
+    return -ENODEV;
+}
+
+// spare_remaining_show: sysfs attribute handler for per-target spare_remaining
+// Returns the number of spare sectors left for remapping
+static ssize_t spare_remaining_show(struct kobject *kobj, struct kobj_attribute *attr, char *buf)
+{
+    struct remap_c *rc;
+    list_for_each_entry(rc, &remap_c_list, list) {
+        if (rc->kobj == kobj)
+            return sysfs_emit(buf, "%llu\n", (unsigned long long)(rc->spare_total - rc->spare_used));
+    }
+    return -ENODEV;
+}
+
+// clear_store: sysfs attribute handler for writable clear
+// Writing '1' resets the remap table and usage counters for this target
+// Ensures thread safety with locking
+static ssize_t clear_store(struct kobject *kobj, struct kobj_attribute *attr, const char *buf, size_t count)
+{
+    struct remap_c *rc;
+    unsigned long val;
+    if (kstrtoul(buf, 10, &val) || val != 1)
+        return -EINVAL;
+    list_for_each_entry(rc, &remap_c_list, list) {
+        if (rc->kobj == kobj) {
+            spin_lock(&rc->lock);
+            rc->remap_count = 0;
+            rc->spare_used = 0;
+            memset(rc->remaps, 0, rc->spare_total * sizeof(struct remap_entry)); // Zero out remap table
+            spin_unlock(&rc->lock);
+            return count;
+        }
+    }
+    return -ENODEV;
+}
+
+// total_remaps_show: sysfs attribute handler for global total_remaps
+// Returns the sum of remap_count across all targets
+static ssize_t total_remaps_show(struct kobject *kobj, struct kobj_attribute *attr, char *buf)
+{
+    int total = 0;
+    struct remap_c *rc;
+    list_for_each_entry(rc, &remap_c_list, list)
+        total += rc->remap_count;
+    return sysfs_emit(buf, "%d\n", total);
+}
+
+// total_spare_used_show: sysfs attribute handler for global total_spare_used
+// Returns the sum of spare_used across all targets
+static ssize_t total_spare_used_show(struct kobject *kobj, struct kobj_attribute *attr, char *buf)
+{
+    int used = 0;
+    struct remap_c *rc;
+    list_for_each_entry(rc, &remap_c_list, list)
+        used += rc->spare_used;
+    return sysfs_emit(buf, "%d\n", used);
+}
+
+// total_spare_remaining_show: sysfs attribute handler for global total_spare_remaining
+// Returns the sum of spare_remaining across all targets
+static ssize_t total_spare_remaining_show(struct kobject *kobj, struct kobj_attribute *attr, char *buf)
+{
+    unsigned long long remaining = 0;
+    struct remap_c *rc;
+    list_for_each_entry(rc, &remap_c_list, list)
+        remaining += rc->spare_total - rc->spare_used;
+    return sysfs_emit(buf, "%llu\n", remaining);
+}
+
 static struct kobj_attribute spare_total_attr = __ATTR_RO(spare_total);
 static struct kobj_attribute spare_used_attr = __ATTR_RO(spare_used);
+static struct kobj_attribute remap_count_attr = __ATTR_RO(remap_count);
+static struct kobj_attribute lost_count_attr = __ATTR_RO(lost_count);
+static struct kobj_attribute spare_remaining_attr = __ATTR_RO(spare_remaining);
+static struct kobj_attribute clear_attr = __ATTR(clear, 0220, NULL, clear_store);
 
+// remap_ctr: Target constructor. Initializes remap_c, allocates remap table, sets up sysfs and debugfs.
+// Arguments: dev start spare_dev spare_start spare_total
+// Returns: 0 on success, negative error code on failure
+// This function is called when the target is created by dmsetup.
+// It parses arguments, allocates memory, and registers sysfs/debugfs entries.
+// All error paths clean up resources to avoid leaks.
 static int remap_ctr(struct dm_target *ti, unsigned argc, char **argv)
 {
     struct remap_c *rc;
@@ -296,6 +428,7 @@ static int remap_ctr(struct dm_target *ti, unsigned argc, char **argv)
     rc->remap_count = 0;
     rc->spare_used = 0;
     spin_lock_init(&rc->lock);
+    // Allocate remap table and handle errors
     rc->remaps = kcalloc(rc->spare_total, sizeof(struct remap_entry), GFP_KERNEL);
     if (!rc->remaps) {
         dm_put_device(ti, rc->dev);
@@ -304,8 +437,7 @@ static int remap_ctr(struct dm_target *ti, unsigned argc, char **argv)
         ti->error = "Remap table allocation failed";
         return -ENOMEM;
     }
-
-    global_remap_c = rc;
+    // Create per-target sysfs directory and attributes
     rc->kobj = kobject_create_and_add("dm_remap_stats", kernel_kobj);
     if (!rc->kobj) {
         kfree(rc->remaps);
@@ -315,24 +447,22 @@ static int remap_ctr(struct dm_target *ti, unsigned argc, char **argv)
         ti->error = "Failed to create sysfs kobject";
         return -ENOMEM;
     }
-    if (sysfs_create_file(rc->kobj, &spare_total_attr.attr)) {
+    // Register all sysfs attributes for this target
+    if (sysfs_create_file(rc->kobj, &spare_total_attr.attr) ||
+        sysfs_create_file(rc->kobj, &spare_used_attr.attr) ||
+        sysfs_create_file(rc->kobj, &remap_count_attr.attr) ||
+        sysfs_create_file(rc->kobj, &lost_count_attr.attr) ||
+        sysfs_create_file(rc->kobj, &spare_remaining_attr.attr) ||
+        sysfs_create_file(rc->kobj, &clear_attr.attr)) {
         kobject_put(rc->kobj);
         kfree(rc->remaps);
         dm_put_device(ti, rc->dev);
         dm_put_device(ti, rc->spare_dev);
         kfree(rc);
-        ti->error = "Failed to create sysfs spare_total attribute";
+        ti->error = "Failed to create sysfs attributes";
         return -ENOMEM;
     }
-    if (sysfs_create_file(rc->kobj, &spare_used_attr.attr)) {
-        kobject_put(rc->kobj);
-        kfree(rc->remaps);
-        dm_put_device(ti, rc->dev);
-        dm_put_device(ti, rc->spare_dev);
-        kfree(rc);
-        ti->error = "Failed to create sysfs spare_used attribute";
-        return -ENOMEM;
-    }
+    // Add to global list for summary and multi-instance support
     INIT_LIST_HEAD(&rc->list);
     list_add(&rc->list, &remap_c_list);
 
@@ -340,36 +470,38 @@ static int remap_ctr(struct dm_target *ti, unsigned argc, char **argv)
     return 0;
 }
 
-
 // Called when the target is destroyed
 static void remap_dtr(struct dm_target *ti)
-    // remap_dtr: Target destructor. Cleans up device references and memory.
+    // remap_dtr: Target destructor. Cleans up device references, memory, sysfs, and removes from global list.
+    // This function is called when the target is removed.
+    // It releases all resources and unregisters sysfs/debugfs entries.
 {
     struct remap_c *rc = ti->private;
     if (rc->kobj)
         kobject_put(rc->kobj);
     list_del(&rc->list);
+    kfree(rc->remaps);
     dm_put_device(ti, rc->dev);
     if (rc->spare_dev)
         dm_put_device(ti, rc->spare_dev);
-    kfree(rc->remaps);
     kfree(rc);
 }
 
 // Debugfs: show remap table
 static int remap_table_show(struct seq_file *m, void *v)
     // remap_table_show: Outputs the remap table to debugfs for user-space inspection.
+    // Format: bad=<sector> spare=<sector> dev=<name> valid=<0|1>
+    // This function is used for debugging and monitoring from user space.
 {
     struct remap_c *rc = m->private;
     int i;
     spin_lock(&rc->lock);
     for (i = 0; i < rc->remap_count; i++) {
-seq_printf(m, "bad=%llu spare=%llu dev=%s valid=%d\n",
-           (unsigned long long)rc->remaps[i].orig_sector,
-           (unsigned long long)rc->remaps[i].spare_sector,
-           rc->remaps[i].spare_dev ? rc->remaps[i].spare_dev->name : "default",
-           rc->remaps[i].valid ? 1 : 0);
-
+        seq_printf(m, "bad=%llu spare=%llu dev=%s valid=%d\n",
+                   (unsigned long long)rc->remaps[i].orig_sector,
+                   (unsigned long long)rc->remaps[i].spare_sector,
+                   rc->remaps[i].spare_dev ? rc->remaps[i].spare_dev->name : "default",
+                   rc->remaps[i].valid ? 1 : 0);
     }
     spin_unlock(&rc->lock);
     return 0;
@@ -412,7 +544,12 @@ static int __init remap_init(void)
     remap_debugfs_dir = debugfs_create_dir("dm_remap", NULL);
     debugfs_create_u32("trigger", 0644, remap_debugfs_dir, &remap_trigger);
     debugfs_create_file("remap_table", 0444, remap_debugfs_dir, NULL, &remap_table_fops);
-
+    summary_kobj = kobject_create_and_add("summary", kernel_kobj);
+    if (summary_kobj) {
+        sysfs_create_file(summary_kobj, &total_remaps_attr.attr);
+        sysfs_create_file(summary_kobj, &total_spare_used_attr.attr);
+        sysfs_create_file(summary_kobj, &total_spare_remaining_attr.attr);
+    }
     pr_info("dm-remap: module loaded\n");
     return 0;
 }
@@ -422,6 +559,8 @@ static void __exit remap_exit(void)
     // remap_exit: Module cleanup. Unregisters target and removes debugfs entries.
 {
     debugfs_remove_recursive(remap_debugfs_dir);
+    if (summary_kobj)
+        kobject_put(summary_kobj);
     dm_unregister_target(&remap_target);
     pr_info("dm-remap: module unloaded\n");
 }
