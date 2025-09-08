@@ -33,7 +33,7 @@ static u32 remap_trigger = 0;
 static LIST_HEAD(remap_c_list);
 
 // Global sysfs kobjects for summary statistics
-static struct kobject *dm_remap_kobj;    // /sys/kernel/dm_remap
+static struct kobject *dm_remap_kobj;       // /sys/kernel/dm_remap
 static struct kobject *dm_remap_stats_kobj; // /sys/kernel/dm_remap_stats
 static bool dm_remap_stats_initialized = false;
 
@@ -86,27 +86,21 @@ static struct attribute_group summary_attr_group = {
 static ssize_t spare_total_show(struct kobject *kobj, struct kobj_attribute *attr, char *buf)
 {
     struct remap_c *rc;
-    list_for_each_entry(rc, &remap_c_list, list)
-        if (rc->kobj == kobj)
-            return sysfs_emit(buf, "%llu\n", (unsigned long long)rc->spare_total);
+    list_for_each_entry(rc, &remap_c_list, list) if (rc->kobj == kobj) return sysfs_emit(buf, "%llu\n", (unsigned long long)rc->spare_total);
     return -ENODEV;
 }
 
 static ssize_t spare_used_show(struct kobject *kobj, struct kobj_attribute *attr, char *buf)
 {
     struct remap_c *rc;
-    list_for_each_entry(rc, &remap_c_list, list)
-        if (rc->kobj == kobj)
-            return sysfs_emit(buf, "%d\n", rc->spare_used);
+    list_for_each_entry(rc, &remap_c_list, list) if (rc->kobj == kobj) return sysfs_emit(buf, "%d\n", rc->spare_used);
     return -ENODEV;
 }
 
 static ssize_t remap_count_show(struct kobject *kobj, struct kobj_attribute *attr, char *buf)
 {
     struct remap_c *rc;
-    list_for_each_entry(rc, &remap_c_list, list)
-        if (rc->kobj == kobj)
-            return sysfs_emit(buf, "%d\n", rc->remap_count);
+    list_for_each_entry(rc, &remap_c_list, list) if (rc->kobj == kobj) return sysfs_emit(buf, "%d\n", rc->remap_count);
     return -ENODEV;
 }
 
@@ -114,24 +108,22 @@ static ssize_t lost_count_show(struct kobject *kobj, struct kobj_attribute *attr
 {
     struct remap_c *rc;
     int lost = 0, i;
-    list_for_each_entry(rc, &remap_c_list, list)
-        if (rc->kobj == kobj) {
-            spin_lock(&rc->lock);
-            for (i = 0; i < rc->remap_count; i++)
-                if (!rc->remaps[i].valid)
-                    lost++;
-            spin_unlock(&rc->lock);
-            return sysfs_emit(buf, "%d\n", lost);
-        }
+    list_for_each_entry(rc, &remap_c_list, list) if (rc->kobj == kobj)
+    {
+        spin_lock(&rc->lock);
+        for (i = 0; i < rc->remap_count; i++)
+            if (!rc->remaps[i].valid)
+                lost++;
+        spin_unlock(&rc->lock);
+        return sysfs_emit(buf, "%d\n", lost);
+    }
     return -ENODEV;
 }
 
 static ssize_t spare_remaining_show(struct kobject *kobj, struct kobj_attribute *attr, char *buf)
 {
     struct remap_c *rc;
-    list_for_each_entry(rc, &remap_c_list, list)
-        if (rc->kobj == kobj)
-            return sysfs_emit(buf, "%llu\n", (unsigned long long)(rc->spare_total - rc->spare_used));
+    list_for_each_entry(rc, &remap_c_list, list) if (rc->kobj == kobj) return sysfs_emit(buf, "%llu\n", (unsigned long long)(rc->spare_total - rc->spare_used));
     return -ENODEV;
 }
 
@@ -156,9 +148,7 @@ static void format_timestamp(char *buf, size_t buflen, time64_t t)
 static ssize_t last_reset_time_show(struct kobject *kobj, struct kobj_attribute *attr, char *buf)
 {
     struct remap_c *rc;
-    list_for_each_entry(rc, &remap_c_list, list)
-        if (rc->kobj == kobj)
-            return sysfs_emit(buf, "%s\n", rc->last_reset_time);
+    list_for_each_entry(rc, &remap_c_list, list) if (rc->kobj == kobj) return sysfs_emit(buf, "%s\n", rc->last_reset_time);
     return -ENODEV;
 }
 
@@ -176,19 +166,19 @@ static ssize_t clear_store(struct kobject *kobj, struct kobj_attribute *attr, co
         confirmed = true;
     if (!confirmed)
         return -EINVAL;
-    list_for_each_entry(rc, &remap_c_list, list)
-        if (rc->kobj == kobj) {
-            spin_lock(&rc->lock);
-            rc->remap_count = 0;
-            rc->spare_used = 0;
-            memset(rc->remaps, 0, rc->spare_total * sizeof(struct remap_entry));
-            // Update last_reset_time
-            format_timestamp(rc->last_reset_time, sizeof(rc->last_reset_time), ktime_get_real_seconds());
-            spin_unlock(&rc->lock);
-            // Log with target name and timestamp
-            pr_info("dm-remap: remap table for target '%s' reset at %s\n", kobject_name(rc->kobj), rc->last_reset_time);
-            return count;
-        }
+    list_for_each_entry(rc, &remap_c_list, list) if (rc->kobj == kobj)
+    {
+        spin_lock(&rc->lock);
+        rc->remap_count = 0;
+        rc->spare_used = 0;
+        memset(rc->remaps, 0, rc->spare_total * sizeof(struct remap_entry));
+        // Update last_reset_time
+        format_timestamp(rc->last_reset_time, sizeof(rc->last_reset_time), ktime_get_real_seconds());
+        spin_unlock(&rc->lock);
+        // Log with target name and timestamp
+        pr_info("dm-remap: remap table for target '%s' reset at %s\n", kobject_name(rc->kobj), rc->last_reset_time);
+        return count;
+    }
     return -ENODEV;
 }
 
@@ -442,33 +432,38 @@ static int remap_ctr(struct dm_target *ti, unsigned argc, char **argv)
     int ret;
 
     // Argument parsing and validation
-    if (argc != 5) {
+    if (argc != 5)
+    {
         ti->error = "Invalid argument count (expected 5: dev start spare_dev spare_start spare_total)";
         return -EINVAL;
     }
 
     rc = kzalloc(sizeof(*rc), GFP_KERNEL);
-    if (!rc) {
+    if (!rc)
+    {
         ti->error = "Memory allocation failed";
         return -ENOMEM;
     }
 
     ret = dm_get_device(ti, argv[0], dm_table_get_mode(ti->table), &rc->dev);
-    if (ret) {
+    if (ret)
+    {
         kfree(rc);
         ti->error = "Device lookup failed";
         return ret;
     }
 
     ret = dm_get_device(ti, argv[2], dm_table_get_mode(ti->table), &rc->spare_dev);
-    if (ret) {
+    if (ret)
+    {
         dm_put_device(ti, rc->dev);
         kfree(rc);
         ti->error = "Spare device lookup failed";
         return ret;
     }
 
-    if (kstrtoull(argv[1], 10, &start) || kstrtoull(argv[3], 10, &spare_start) || kstrtoull(argv[4], 10, &spare_total)) {
+    if (kstrtoull(argv[1], 10, &start) || kstrtoull(argv[3], 10, &spare_start) || kstrtoull(argv[4], 10, &spare_total))
+    {
         dm_put_device(ti, rc->dev);
         dm_put_device(ti, rc->spare_dev);
         kfree(rc);
@@ -484,7 +479,8 @@ static int remap_ctr(struct dm_target *ti, unsigned argc, char **argv)
     spin_lock_init(&rc->lock);
 
     rc->remaps = kcalloc(rc->spare_total, sizeof(struct remap_entry), GFP_KERNEL);
-    if (!rc->remaps) {
+    if (!rc->remaps)
+    {
         dm_put_device(ti, rc->dev);
         dm_put_device(ti, rc->spare_dev);
         kfree(rc);
@@ -496,7 +492,8 @@ static int remap_ctr(struct dm_target *ti, unsigned argc, char **argv)
     char target_name[32];
     snprintf(target_name, sizeof(target_name), "remap%llu", (unsigned long long)ti->begin); // Use start sector for uniqueness
     rc->kobj = kobject_create_and_add(target_name, dm_remap_kobj);
-    if (!rc->kobj) {
+    if (!rc->kobj)
+    {
         kfree(rc->remaps);
         dm_put_device(ti, rc->dev);
         dm_put_device(ti, rc->spare_dev);
@@ -505,7 +502,8 @@ static int remap_ctr(struct dm_target *ti, unsigned argc, char **argv)
         return -ENOMEM;
     }
     // Register all sysfs attributes for this target
-    if (sysfs_create_group(rc->kobj, &target_attr_group)) {
+    if (sysfs_create_group(rc->kobj, &target_attr_group))
+    {
         kobject_put(rc->kobj);
         kfree(rc->remaps);
         dm_put_device(ti, rc->dev);
@@ -583,60 +581,58 @@ static const struct file_operations remap_table_fops = {
 // remap_init: Module initialization. Registers target and sets up debugfs.
 static int __init remap_init(void)
 {
-    int ret = dm_register_target(&remap_target);
+    int ret;
+
+    ret = dm_register_target(&remap_target);
     if (ret)
         return ret;
+
+    if (!dm_remap_stats_initialized)
+    {
+        dm_remap_stats_kobj = kobject_create_and_add("dm_remap_stats", kernel_kobj);
+        if (!dm_remap_stats_kobj)
+        {
+            pr_warn("Failed to create dm_remap_stats kobject\n");
+            return -ENOMEM;
+        }
+
+        ret = sysfs_create_group(dm_remap_stats_kobj, &summary_attr_group);
+        if (ret)
+        {
+            pr_warn("Failed to create sysfs group for dm_remap_stats\n");
+            kobject_put(dm_remap_stats_kobj);
+            dm_remap_stats_kobj = NULL;
+            return ret;
+        }
+
+        dm_remap_stats_initialized = true;
+    }
     remap_debugfs_dir = debugfs_create_dir("dm_remap", NULL);
     debugfs_create_u32("trigger", 0644, remap_debugfs_dir, &remap_trigger);
     debugfs_create_file("remap_table", 0444, remap_debugfs_dir, NULL, &remap_table_fops);
 
-    // Create /sys/kernel/dm_remap parent kobject (per-target sysfs)
-    dm_remap_kobj = kobject_create_and_add("dm_remap", kernel_kobj);
-    if (!dm_remap_kobj)
-        goto err_kobj;
-
-    // Create global summary kobject only once
-    if (!dm_remap_stats_initialized) {
-        dm_remap_stats_kobj = kobject_create_and_add("dm_remap_stats", kernel_kobj);
-        if (!dm_remap_stats_kobj)
-            goto err_stats_kobj;
-        ret = sysfs_create_group(dm_remap_stats_kobj, &summary_attr_group);
-        if (ret)
-            goto err_stats_group;
-        dm_remap_stats_initialized = true;
-    }
-
     pr_info("dm-remap: module loaded\n");
     return 0;
-err_stats_group:
-    kobject_put(dm_remap_stats_kobj);
-err_stats_kobj:
-    kobject_put(dm_remap_kobj);
-err_kobj:
-    debugfs_remove_recursive(remap_debugfs_dir);
-    dm_unregister_target(&remap_target);
-    return -ENOMEM;
 }
-
 
 // Module exit: unregister target + remove debugfs
 // remap_exit: Module cleanup. Unregisters target and removes debugfs entries.
 static void __exit remap_exit(void)
 {
-    debugfs_remove_recursive(remap_debugfs_dir);
-    if (dm_remap_kobj) {
-        kobject_put(dm_remap_kobj);
-    }
-    if (dm_remap_stats_initialized && dm_remap_stats_kobj) {
+    dm_unregister_target(&remap_target);
+
+    if (dm_remap_stats_initialized && dm_remap_stats_kobj)
+    {
         sysfs_remove_group(dm_remap_stats_kobj, &summary_attr_group);
         kobject_put(dm_remap_stats_kobj);
-        dm_remap_stats_initialized = false;
         dm_remap_stats_kobj = NULL;
+        dm_remap_stats_initialized = false;
     }
-    dm_unregister_target(&remap_target);
+    debugfs_remove_recursive(remap_debugfs_dir);
+
+
     pr_info("dm-remap: module unloaded\n");
 }
-
 
 module_init(remap_init);
 module_exit(remap_exit);
