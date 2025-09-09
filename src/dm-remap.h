@@ -11,10 +11,18 @@
 #ifndef _DM_REMAP_H
 #define _DM_REMAP_H
 
+#include <linux/types.h>
 #include <linux/device-mapper.h> // Device Mapper API for block device targets
 #include <linux/spinlock.h>      // For concurrency protection
 #include <linux/list.h>          // For multi-instance sysfs support
 #include <linux/kobject.h>       // For sysfs integration
+
+// Per-IO context for remap operations
+struct remap_io_ctx {
+    sector_t lba;
+    bool was_write;
+    bool retry_to_spare;
+};
 
 // remap_entry: describes a single remapped sector
 struct remap_entry {
