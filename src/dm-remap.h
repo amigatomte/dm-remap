@@ -27,6 +27,7 @@ struct remap_entry {
 // remap_c: per-target context for dm-remap
 // Contains all runtime state, remap table, and sysfs/debugfs integration
 struct remap_c {
+    bool auto_remap_enabled;
     struct dm_dev *dev;                  // Main block device (user data)
     struct dm_dev *spare_dev;            // Spare block device (for remapping)
     sector_t start;                      // Start offset for usable sectors on main device
@@ -39,6 +40,8 @@ struct remap_c {
     struct kobject *kobj;                // Sysfs kobject for per-target stats
     struct list_head list;               // Linked list node for global summary and multi-instance sysfs
     char last_reset_time[32];            // Human-readable timestamp of last reset
+    atomic_t auto_remap_count;           // Number of sectors auto-remapped
+    sector_t last_bad_sector;            // Last sector auto-remapped
 };
 
 #endif // _DM_REMAP_H

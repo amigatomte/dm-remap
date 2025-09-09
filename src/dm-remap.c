@@ -1,3 +1,104 @@
+// Probe bio end_io callback for auto-remap
+static void dm_remap_endio_probe(struct bio *probe_bio)
+{
+    struct bio *orig_bio = probe_bio->bi_private;
+    struct dm_target *ti = orig_bio->bi_private;
+    struct remap_c *rc = ti->private;
+    sector_t sector = orig_bio->bi_iter.bi_sector;
+    int i;
+    if (probe_bio->bi_status == BLK_STS_OK) {
+        bio_endio(orig_bio);
+        bio_put(probe_bio);
+        return;
+    }
+    // Only auto-remap hard errors
+    if (probe_bio->bi_status != BLK_STS_IOERR && probe_bio->bi_status != BLK_STS_MEDIUM) {
+        bio_endio(orig_bio);
+        bio_put(probe_bio);
+        return;
+    }
+    spin_lock(&rc->lock);
+    for (i = 0; i < rc->remap_count; i++) {
+        if (sector == rc->remaps[i].orig_sector) {
+            spin_unlock(&rc->lock);
+            bio_endio(orig_bio);
+            bio_put(probe_bio);
+            return;
+        }
+    }
+    if (rc->spare_used >= rc->spare_total) {
+        pr_warn("dm-remap: no spare sectors available for auto-remap\n");
+        spin_unlock(&rc->lock);
+        bio_endio(orig_bio);
+        bio_put(probe_bio);
+        return;
+    }
+    rc->remaps[rc->remap_count].orig_sector = sector;
+    rc->remaps[rc->remap_count].spare_dev = rc->spare_dev;
+    rc->remaps[rc->remap_count].spare_sector = rc->spare_start + rc->spare_used;
+    rc->remaps[rc->remap_count].valid = false;
+    rc->remap_count++;
+    rc->spare_used++;
+    atomic_inc(&rc->auto_remap_count);
+    rc->last_bad_sector = sector;
+    pr_info("dm-remap: auto-remapped sector %llu to spare %llu\n",
+            (unsigned long long)sector,
+            (unsigned long long)(rc->spare_start + rc->spare_used - 1));
+    spin_unlock(&rc->lock);
+    // Resubmit original bio to spare
+    bio_set_dev(orig_bio, rc->spare_dev->bdev);
+    orig_bio->bi_iter.bi_sector = rc->spare_start + rc->spare_used - 1;
+    bio_endio(orig_bio);
+    bio_put(probe_bio);
+}
+// End_io callback for automatic remapping
+static void dm_remap_endio(struct bio *bio)
+{
+    struct dm_target *ti = bio->bi_private;
+    struct remap_c *rc = ti->private;
+    sector_t sector = bio->bi_iter.bi_sector;
+    int i;
+    if (bio->bi_status == BLK_STS_OK) {
+        bio_endio(bio);
+        return;
+    }
+    // Error detected: auto-remap
+    spin_lock(&rc->lock);
+    // Check if already remapped
+    for (i = 0; i < rc->remap_count; i++) {
+        if (sector == rc->remaps[i].orig_sector) {
+            spin_unlock(&rc->lock);
+            bio_endio(bio);
+            return;
+        }
+    }
+    // Check for spare exhaustion
+    if (rc->spare_used >= rc->spare_total) {
+        pr_warn("dm-remap: no spare sectors available for auto-remap\n");
+        spin_unlock(&rc->lock);
+        bio_endio(bio);
+        return;
+    }
+    // Add new remap entry
+    rc->remaps[rc->remap_count].orig_sector = sector;
+    rc->remaps[rc->remap_count].spare_dev = rc->spare_dev;
+    rc->remaps[rc->remap_count].spare_sector = rc->spare_start + rc->spare_used;
+    rc->remaps[rc->remap_count].valid = false; // Data lost on error
+    rc->remap_count++;
+    rc->spare_used++;
+    atomic_inc(&rc->auto_remap_count);
+    rc->last_bad_sector = sector;
+    pr_info("dm-remap: auto-remapped sector %llu to spare %llu\n",
+            (unsigned long long)sector,
+            (unsigned long long)(rc->spare_start + rc->spare_used - 1));
+    spin_unlock(&rc->lock);
+    // Retry I/O on spare sector
+    bio_set_dev(bio, rc->spare_dev->bdev);
+    bio->bi_iter.bi_sector = rc->spare_start + rc->spare_used - 1;
+    bio->bi_private = ti;
+    bio->bi_end_io = NULL; // Only retry once
+    submit_bio(bio);
+}
 // Device Mapper target: dm-remap
 // This module remaps bad sectors from a primary device to spare sectors on a separate block device.
 // It supports dynamic remapping, persistent state, debugfs integration, and per-target sysfs monitoring.
@@ -18,6 +119,13 @@
 #include <linux/seq_file.h>      // For debugfs table output
 #include <linux/kobject.h>       // For sysfs integration
 #include <linux/list.h>          // For multi-instance sysfs support
+#include <linux/blk_types.h>     // For BLK_STS_OK, BLK_STS_IOERR, BLK_STS_MEDIUM
+#include <linux/kernel.h>        // For NULL
+#include <linux/bio.h>
+#include <linux/blk_types.h>
+static struct bio_set dm_remap_bioset;
+#include <linux/blk_types.h>     // For BLK_STS_OK
+#include <linux/kernel.h>        // For NULL
 #include <linux/sysfs.h>
 #define DM_MSG_PREFIX "dm_remap"
 
@@ -90,6 +198,60 @@ static struct attribute_group summary_attr_group = {
 };
 
 // --- Per-target sysfs show/store function definitions ---
+static ssize_t auto_remap_enabled_show(struct kobject *kobj, struct kobj_attribute *attr, char *buf)
+{
+    struct remap_c *rc;
+    list_for_each_entry(rc, &remap_c_list, list)
+        if (rc->kobj == kobj)
+            return sysfs_emit(buf, "%d\n", rc->auto_remap_enabled ? 1 : 0);
+    return -ENODEV;
+}
+
+static ssize_t auto_remap_enabled_store(struct kobject *kobj, struct kobj_attribute *attr, const char *buf, size_t count)
+{
+    struct remap_c *rc;
+    unsigned long val;
+    if (kstrtoul(buf, 10, &val))
+        return -EINVAL;
+    list_for_each_entry(rc, &remap_c_list, list)
+        if (rc->kobj == kobj) {
+            rc->auto_remap_enabled = !!val;
+            return count;
+        }
+    return -ENODEV;
+}
+
+static struct kobj_attribute auto_remap_enabled_attr = __ATTR(auto_remap_enabled, 0644, auto_remap_enabled_show, auto_remap_enabled_store);
+static ssize_t auto_remap_count_show(struct kobject *kobj, struct kobj_attribute *attr, char *buf)
+{
+    struct remap_c *rc;
+    list_for_each_entry(rc, &remap_c_list, list)
+        if (rc->kobj == kobj)
+            return sysfs_emit(buf, "%d\n", atomic_read(&rc->auto_remap_count));
+    return -ENODEV;
+}
+
+static ssize_t last_bad_sector_show(struct kobject *kobj, struct kobj_attribute *attr, char *buf)
+{
+    struct remap_c *rc;
+    list_for_each_entry(rc, &remap_c_list, list)
+        if (rc->kobj == kobj)
+            return sysfs_emit(buf, "%llu\n", (unsigned long long)rc->last_bad_sector);
+    return -ENODEV;
+}
+
+static ssize_t spares_remaining_show(struct kobject *kobj, struct kobj_attribute *attr, char *buf)
+{
+    struct remap_c *rc;
+    list_for_each_entry(rc, &remap_c_list, list)
+        if (rc->kobj == kobj)
+            return sysfs_emit(buf, "%llu\n", (unsigned long long)(rc->spare_total - rc->spare_used));
+    return -ENODEV;
+}
+
+static struct kobj_attribute auto_remap_count_attr = __ATTR_RO(auto_remap_count);
+static struct kobj_attribute last_bad_sector_attr = __ATTR_RO(last_bad_sector);
+static struct kobj_attribute spares_remaining_attr = __ATTR_RO(spares_remaining);
 static ssize_t spare_total_show(struct kobject *kobj, struct kobj_attribute *attr, char *buf)
 {
     struct remap_c *rc;
@@ -197,6 +359,7 @@ static struct kobj_attribute lost_count_attr = __ATTR_RO(lost_count);
 static struct kobj_attribute spare_remaining_attr = __ATTR_RO(spare_remaining);
 static struct kobj_attribute clear_attr = __ATTR(clear, 0220, NULL, clear_store);
 static struct attribute *target_attrs[] = {
+    &auto_remap_enabled_attr.attr,
     &spare_total_attr.attr,
     &spare_used_attr.attr,
     &remap_count_attr.attr,
@@ -204,6 +367,9 @@ static struct attribute *target_attrs[] = {
     &spare_remaining_attr.attr,
     &clear_attr.attr,
     &last_reset_time_attr.attr,
+    &auto_remap_count_attr.attr,
+    &last_bad_sector_attr.attr,
+    &spares_remaining_attr.attr,
     NULL,
 };
 static struct attribute_group target_attr_group = {
@@ -217,31 +383,18 @@ static struct attribute_group target_attr_group = {
 // This function is the main I/O path for the target and must be fast and thread-safe.
 static int remap_map(struct dm_target *ti, struct bio *bio)
 {
-    struct remap_c *rc = ti->private;         // Get target context
-    sector_t sector = bio->bi_iter.bi_sector; // Requested sector
+    struct remap_c *rc = ti->private;
+    sector_t sector = bio->bi_iter.bi_sector;
     int i;
-    struct dm_dev *target_dev = rc->dev;         // Default to main device
-    sector_t target_sector = rc->start + sector; // Default to main device offset
+    struct dm_dev *target_dev = rc->dev;
+    sector_t target_sector = rc->start + sector;
 
-    // Check if the sector is in the spare area of the spare device
-    // This prevents user I/O from accessing spare sectors directly
-    if (sector >= rc->spare_start && sector < rc->spare_start + rc->spare_total)
-    {
-        pr_warn("dm-remap: access to spare sector %llu denied\n",
-                (unsigned long long)sector);
-        return DM_MAPIO_KILL;
-    }
-
-    // Check if the sector is remapped
-    // If so, redirect to the spare device and sector
-    spin_lock(&rc->lock); // Protect remap table access
-    for (i = 0; i < rc->remap_count; i++)
-    {
-        if (sector == rc->remaps[i].orig_sector)
-        {
+    // Check if sector is remapped
+    spin_lock(&rc->lock);
+    for (i = 0; i < rc->remap_count; i++) {
+        if (sector == rc->remaps[i].orig_sector) {
             // Fail read if data was lost
-            if (bio_data_dir(bio) == READ && !rc->remaps[i].valid)
-            {
+            if (bio_data_dir(bio) == READ && !rc->remaps[i].valid) {
                 pr_warn("dm-remap: read from sector %llu failed — data lost\n",
                         (unsigned long long)sector);
                 spin_unlock(&rc->lock);
@@ -250,16 +403,35 @@ static int remap_map(struct dm_target *ti, struct bio *bio)
             // Redirect to spare device and sector
             target_dev = rc->remaps[i].spare_dev ? rc->remaps[i].spare_dev : rc->spare_dev;
             target_sector = rc->remaps[i].spare_sector;
-            break;
+            spin_unlock(&rc->lock);
+            bio_set_dev(bio, target_dev->bdev);
+            bio->bi_iter.bi_sector = target_sector;
+            return DM_MAPIO_REMAPPED;
         }
     }
     spin_unlock(&rc->lock);
 
-    // Set device and sector for the bio
-    bio_set_dev(bio, target_dev->bdev);
-    bio->bi_iter.bi_sector = target_sector;
-
-    return DM_MAPIO_REMAPPED;
+    // Not remapped: submit to primary device, handle errors asynchronously
+    if (!rc->auto_remap_enabled || bio->bi_iter.bi_size != 512) {
+        // Just pass through if auto-remap is disabled or bio is not 1 sector
+        bio_set_dev(bio, target_dev->bdev);
+        bio->bi_iter.bi_sector = target_sector;
+        return DM_MAPIO_REMAPPED;
+    }
+    // Clone bio for probe
+    struct bio *probe_bio = bio_clone_fast(bio, GFP_NOIO, &dm_remap_bioset);
+    if (!probe_bio) {
+        pr_err("dm-remap: bio_clone_fast failed\n");
+        bio_set_dev(bio, target_dev->bdev);
+        bio->bi_iter.bi_sector = target_sector;
+        return DM_MAPIO_REMAPPED;
+    }
+    probe_bio->bi_private = bio;
+    probe_bio->bi_end_io = dm_remap_endio_probe;
+    bio_set_dev(probe_bio, target_dev->bdev);
+    probe_bio->bi_iter.bi_sector = target_sector;
+    submit_bio(probe_bio);
+    return DM_MAPIO_SUBMITTED;
 }
 
 // Handles runtime messages like: dmsetup message remap0 0 remap <sector>
@@ -494,6 +666,9 @@ static int remap_ctr(struct dm_target *ti, unsigned argc, char **argv)
         kfree(rc);
         ti->error = "Remap table allocation failed";
         return -ENOMEM;
+
+    atomic_set(&rc->auto_remap_count, 0);
+    rc->last_bad_sector = 0;
     }
 
     // Create per-target sysfs directory and attributes
@@ -606,6 +781,10 @@ static const struct file_operations remap_table_fops = {
 // remap_init: Module initialization. Registers target and sets up debugfs.
 static int __init remap_init(void)
 {
+    if (bioset_init(&dm_remap_bioset, BIO_POOL_SIZE, 0, BIOSET_NEED_BVECS)) {
+        pr_err("dm-remap: bioset_init failed\n");
+        return -ENOMEM;
+    }
     int ret;
     ret = dm_register_target(&remap_target);
     if (ret == -EEXIST)
@@ -663,6 +842,7 @@ err_kobj:
 // remap_exit: Module cleanup. Unregisters target and removes debugfs entries.
 static void __exit remap_exit(void)
 {
+    bioset_exit(&dm_remap_bioset);
     dm_unregister_target(&remap_target);
 
     if (dm_remap_stats_initialized && dm_remap_stats_kobj)
