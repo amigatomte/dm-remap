@@ -610,9 +610,19 @@ static int __init remap_init(void)
     remap_debugfs_dir = debugfs_create_dir("dm_remap", NULL);
     debugfs_create_u32("trigger", 0644, remap_debugfs_dir, &remap_trigger);
     debugfs_create_file("remap_table", 0444, remap_debugfs_dir, NULL, &remap_table_fops);
+    dm_remap_kobj = kobject_create_and_add("dm_remap", kernel_kobj);
+    if (!dm_remap_kobj)
+    {
+        pr_warn("Failed to create dm_remap parent kobject\n");
+        goto err_kobj;
+    }
 
     pr_info("dm-remap: module loaded\n");
     return 0;
+err_kobj:
+    debugfs_remove_recursive(remap_debugfs_dir);
+    dm_unregister_target(&remap_target);
+    return -ENOMEM;
 }
 
 // Module exit: unregister target + remove debugfs
@@ -629,7 +639,6 @@ static void __exit remap_exit(void)
         dm_remap_stats_initialized = false;
     }
     debugfs_remove_recursive(remap_debugfs_dir);
-
 
     pr_info("dm-remap: module unloaded\n");
 }
