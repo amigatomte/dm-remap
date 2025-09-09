@@ -41,8 +41,6 @@ sudo ./remap_create_safe.sh main_dev=/dev/loop0 spare_dev=/dev/loop1 dm_name=my_
 sudo ./remap_test_driver.sh single 50 10 4k --dm-name=my_remap
 ```
 
-Within a minute you’ll have a working `/dev/mapper/my_remap` device, a log file in `/tmp/`, and a test run completed.
-
 ---
 
 ## 🔧 Features
@@ -80,12 +78,6 @@ Within a minute you’ll have a working `/dev/mapper/my_remap` device, a log fil
           +-------------------+
 ```
 
-**Flow:**  
-1. I/O request hits the main device mapping.  
-2. `dm-remap` checks the remap table.  
-3. If the sector is remapped, I/O is redirected to the spare device.  
-4. Otherwise, it proceeds to the main device.
-
 ---
 
 ## 🚀 Getting Started
@@ -96,8 +88,6 @@ make
 sudo insmod dm_remap.ko
 ```
 
----
-
 ### 2. Create a Remapped Device (Safe Wrapper)
 ```bash
 sudo ./remap_create_safe.sh main_dev=/dev/sdX spare_dev=/dev/sdY \
@@ -105,33 +95,10 @@ sudo ./remap_create_safe.sh main_dev=/dev/sdX spare_dev=/dev/sdY \
     logfile=/tmp/remap_wrapper.log dm_name=my_remap
 ```
 
-**Key points:**
-- Arguments are **order‑independent** `key=value` pairs.
-- `main_start` and `spare_start` default to `0` if omitted.
-- `spare_total` defaults to the full spare device length minus `spare_start`.
-- If `logfile` is omitted, one is auto‑generated in `/tmp/`.
-- `dm_name` defaults to `test_remap` but can be overridden.
-
-The wrapper:
-- Checks physical sector size match.
-- Auto‑aligns offsets/lengths to physical sector size.
-- Returns exit codes:
-  - `0` = success, no adjustments
-  - `1` = success, adjustments made
-  - `2` = aborted due to sector size mismatch
-
----
-
 ### 3. Remap a Bad Sector
-```bash
-sudo dmsetup message my_remap 0 remap <bad_sector>
-```
-Example:
 ```bash
 sudo dmsetup message my_remap 0 remap 123456
 ```
-
----
 
 ### 4. Test I/O
 ```bash
@@ -153,18 +120,10 @@ sudo dd if=/dev/mapper/my_remap bs=512 skip=123456 count=1 | hexdump -C
 ./remap_test_driver.sh batch --pause --dm-name-prefix=remap
 ```
 
-**Features:**
-- Live monitoring of `/sys/kernel/debug/dm_remap/remap_table`
-- Logs all changes (`[ADDED]` / `[REMOVED]`)
-- Captures `dmesg` output before/after runs
-- Summarises completed runs with parameters and log file names
-- Supports early quit (`q`) in batch mode with partial summary
-
 ---
 
 ## 📄 Example Wrapper Output
 
-**Live stdout:**
 ```
 === remap_create_safe.sh parameters ===
 Main device:   /dev/loop0
@@ -198,6 +157,71 @@ Log file: remap_changes_50MB_20s_8k_20250909_204210.log
 
 ---
 
+## 🛠 Troubleshooting
+
+**Problem:** `ERROR: Physical sector sizes differ`  
+**Fix:** Use devices with matching physical sector sizes (`cat /sys/block/<dev>/queue/hw_sector_size`).
+
+**Problem:** `dmsetup: ioctl ... failed: Device or resource busy`  
+**Fix:** Remove old mapping with `sudo dmsetup remove <dm_name>` and ensure no process is using it.
+
+**Problem:** `Permission denied`  
+**Fix:** Run commands with `sudo`.
+
+**Problem:** Wrapper exits with code `1`  
+**Fix:** Informational — wrapper auto‑adjusted values. Check log.
+
+**Problem:** Wrapper exits with code `2`  
+**Fix:** Physical sector sizes differ — choose compatible devices.
+
+---
+
+## 📋 Common Usage Patterns
+
+### 1. Create Loopback Test Devices
+```bash
+truncate -s 100M /tmp/main.img
+truncate -s 100M /tmp/spare.img
+sudo losetup /dev/loop0 /tmp/main.img
+sudo losetup /dev/loop1 /tmp/spare.img
+sudo ./remap_create_safe.sh main_dev=/dev/loop0 spare_dev=/dev/loop1 dm_name=test_remap
+```
+
+### 2. Remap a Known Bad Sector
+```bash
+sudo dmsetup message test_remap 0 remap 2048
+```
+
+### 3. Run a Quick fio Test
+```bash
+sudo fio --name=remap_test --filename=/dev/mapper/test_remap \
+         --direct=1 --rw=randrw --bs=4k --size=50M \
+         --numjobs=1 --time_based --runtime=15 --group_reporting
+```
+
+### 4. Remove Mapping and Loop Devices
+```bash
+sudo dmsetup remove test_remap
+sudo losetup -d /dev/loop0
+sudo losetup -d /dev/loop1
+```
+
+### 5. Simulating Failures (No Real Bad Disk Needed)
+You can simulate a bad sector by:
+1. Creating a mapping as above.
+2. Choosing a sector number within the main device range (e.g., `4096`).
+3. Issuing a remap command for that sector:
+   ```bash
+   sudo dmsetup message test_remap 0 remap 4096
+   ```
+4. Writing to that sector:
+   ```bash
+   sudo dd if=/dev/zero of=/dev/mapper/test_remap bs=512 seek=4096 count=1
+   ```
+5. Observing in `/sys/kernel/debug/dm_remap/remap_table` that the sector is now mapped to a spare.
+
+---
+
 ## 🧠 Design Overview
 - Kernel module maintains an in‑memory mapping table.
 - Remapped sectors are redirected to a spare pool defined at creation.
@@ -218,8 +242,15 @@ Log file: remap_changes_50MB_20s_8k_20250909_204210.log
 - Mapping table is volatile (not persisted across reboots)
 - No automatic detection of bad sectors (yet)
 - Spare pool size is fixed at creation
-
+- Not suitable for production use without further validation
 ---
+## 📚 References
+
+* [Device Mapper documentation](https://www.kernel.org/doc/html/latest/admin-guide/device-mapper/dm-usage.html)
+* [Linux kernel source: drivers/md](https://github.com/torvalds/linux/tree/master/drivers/md)
+* [fio: Flexible I/O tester](https://github.com/axboe/fio)
+* [dmsetup man page](https://man7.org/linux/man-pages/man8/dmsetup.8.html)
+
 
 ## 📜 License
 GPLv2 — Free to use, modify, and distribute.
