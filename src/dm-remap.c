@@ -18,8 +18,15 @@
 #include <linux/seq_file.h>      // For debugfs table output
 #include <linux/kobject.h>       // For sysfs integration
 #include <linux/list.h>          // For multi-instance sysfs support
-
+#include <linux/sysfs.h>
 #define DM_MSG_PREFIX "dm_remap"
+
+static ssize_t name_show(struct kobject *kobj, struct kobj_attribute *attr, char *buf)
+{
+    return sprintf(buf, "%s\n", kobj->name);
+}
+
+static struct kobj_attribute name_attr = __ATTR_RO(name);
 
 // Debugfs trigger for user-space daemon
 static struct dentry *remap_debugfs_dir;
@@ -430,6 +437,7 @@ static int remap_ctr(struct dm_target *ti, unsigned argc, char **argv)
     struct remap_c *rc;
     unsigned long long start, spare_start, spare_total;
     int ret;
+    // pr_info("remap_ctr: creating kobject for target name: %s\n", ti->name);
 
     // Argument parsing and validation
     if (argc != 5)
@@ -489,16 +497,33 @@ static int remap_ctr(struct dm_target *ti, unsigned argc, char **argv)
     }
 
     // Create per-target sysfs directory and attributes
-    char target_name[32];
-    snprintf(target_name, sizeof(target_name), "remap%llu", (unsigned long long)ti->begin); // Use start sector for uniqueness
+    static atomic_t remap_kobj_counter = ATOMIC_INIT(0);
+    char target_name[64];
+    snprintf(target_name, sizeof(target_name), "remap_kobject_%u",
+             atomic_inc_return(&remap_kobj_counter)); // Use index for uniqueness
+    pr_info("remap_ctr: creating kobject with name: %s\n", target_name);
+
     rc->kobj = kobject_create_and_add(target_name, dm_remap_kobj);
     if (!rc->kobj)
     {
+        pr_warn("Failed to create kobject for target %s\n", target_name);
         kfree(rc->remaps);
         dm_put_device(ti, rc->dev);
         dm_put_device(ti, rc->spare_dev);
         kfree(rc);
         ti->error = "Failed to create sysfs kobject";
+        return -ENOMEM;
+    }
+    // Add the 'name' attribute to the kobject
+    if (sysfs_create_file(rc->kobj, &name_attr.attr))
+    {
+        pr_warn("Failed to create 'name' sysfs file for target %s\n", target_name);
+        kobject_put(rc->kobj);
+        kfree(rc->remaps);
+        dm_put_device(ti, rc->dev);
+        dm_put_device(ti, rc->spare_dev);
+        kfree(rc);
+        ti->error = "Failed to create sysfs attribute";
         return -ENOMEM;
     }
     // Register all sysfs attributes for this target
@@ -582,10 +607,17 @@ static const struct file_operations remap_table_fops = {
 static int __init remap_init(void)
 {
     int ret;
-
     ret = dm_register_target(&remap_target);
-    if (ret)
+    if (ret == -EEXIST)
+    {
+        pr_warn("dm-remap: target 'remap' already registered\n");
         return ret;
+    }
+    if (ret)
+    {
+        pr_warn("dm-remap: failed to register target: %d\n", ret);
+        return ret;
+    }
 
     if (!dm_remap_stats_initialized)
     {
@@ -593,8 +625,10 @@ static int __init remap_init(void)
         if (!dm_remap_stats_kobj)
         {
             pr_warn("Failed to create dm_remap_stats kobject\n");
+            dm_unregister_target(&remap_target); // cleanup
             return -ENOMEM;
         }
+        dm_remap_stats_initialized = true;
 
         ret = sysfs_create_group(dm_remap_stats_kobj, &summary_attr_group);
         if (ret)
@@ -602,10 +636,10 @@ static int __init remap_init(void)
             pr_warn("Failed to create sysfs group for dm_remap_stats\n");
             kobject_put(dm_remap_stats_kobj);
             dm_remap_stats_kobj = NULL;
+            dm_remap_stats_initialized = false;
+            dm_unregister_target(&remap_target); // cleanup
             return ret;
         }
-
-        dm_remap_stats_initialized = true;
     }
     remap_debugfs_dir = debugfs_create_dir("dm_remap", NULL);
     debugfs_create_u32("trigger", 0644, remap_debugfs_dir, &remap_trigger);
