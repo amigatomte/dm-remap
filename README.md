@@ -261,7 +261,6 @@ sudo losetup -d /dev/loop1
 
 ## 📚 References
 
-* [Device Mapper documentation](https://www.kernel.org/doc/html/latest/admin-guide/device-mapper/dm-usage.html)
 * [Linux kernel source: drivers/md](https://github.com/torvalds/linux/tree/master/drivers/md)
 * [fio: Flexible I/O tester](https://github.com/axboe/fio)
 * [dmsetup man page](https://man7.org/linux/man-pages/man8/dmsetup.8.html)
