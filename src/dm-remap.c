@@ -38,10 +38,13 @@
 #include <linux/kernel.h>        // For NULL
 #include <linux/bio.h>
 #include <linux/blk_types.h>
-#include <linux/blk_types.h>     // For BLK_STS_OK
-#include <linux/kernel.h>        // For NULL
+#include <linux/blk_types.h> // For BLK_STS_OK
+#include <linux/kernel.h>    // For NULL
 #include <linux/sysfs.h>
 #define DM_MSG_PREFIX "dm_remap"
+
+unsigned long dmr_clone_shallow_count = 0;
+unsigned long dmr_clone_deep_count = 0;
 
 static ssize_t name_show(struct kobject *kobj, struct kobj_attribute *attr, char *buf)
 {
@@ -115,9 +118,7 @@ static struct attribute_group summary_attr_group = {
 static ssize_t auto_remap_enabled_show(struct kobject *kobj, struct kobj_attribute *attr, char *buf)
 {
     struct remap_c *rc;
-    list_for_each_entry(rc, &remap_c_list, list)
-        if (rc->kobj == kobj)
-            return sysfs_emit(buf, "%d\n", rc->auto_remap_enabled ? 1 : 0);
+    list_for_each_entry(rc, &remap_c_list, list) if (rc->kobj == kobj) return sysfs_emit(buf, "%d\n", rc->auto_remap_enabled ? 1 : 0);
     return -ENODEV;
 }
 
@@ -127,11 +128,11 @@ static ssize_t auto_remap_enabled_store(struct kobject *kobj, struct kobj_attrib
     unsigned long val;
     if (kstrtoul(buf, 10, &val))
         return -EINVAL;
-    list_for_each_entry(rc, &remap_c_list, list)
-        if (rc->kobj == kobj) {
-            rc->auto_remap_enabled = !!val;
-            return count;
-        }
+    list_for_each_entry(rc, &remap_c_list, list) if (rc->kobj == kobj)
+    {
+        rc->auto_remap_enabled = !!val;
+        return count;
+    }
     return -ENODEV;
 }
 
@@ -139,27 +140,21 @@ static struct kobj_attribute auto_remap_enabled_attr = __ATTR(auto_remap_enabled
 static ssize_t auto_remap_count_show(struct kobject *kobj, struct kobj_attribute *attr, char *buf)
 {
     struct remap_c *rc;
-    list_for_each_entry(rc, &remap_c_list, list)
-        if (rc->kobj == kobj)
-            return sysfs_emit(buf, "%d\n", atomic_read(&rc->auto_remap_count));
+    list_for_each_entry(rc, &remap_c_list, list) if (rc->kobj == kobj) return sysfs_emit(buf, "%d\n", atomic_read(&rc->auto_remap_count));
     return -ENODEV;
 }
 
 static ssize_t last_bad_sector_show(struct kobject *kobj, struct kobj_attribute *attr, char *buf)
 {
     struct remap_c *rc;
-    list_for_each_entry(rc, &remap_c_list, list)
-        if (rc->kobj == kobj)
-            return sysfs_emit(buf, "%llu\n", (unsigned long long)rc->last_bad_sector);
+    list_for_each_entry(rc, &remap_c_list, list) if (rc->kobj == kobj) return sysfs_emit(buf, "%llu\n", (unsigned long long)rc->last_bad_sector);
     return -ENODEV;
 }
 
 static ssize_t spares_remaining_show(struct kobject *kobj, struct kobj_attribute *attr, char *buf)
 {
     struct remap_c *rc;
-    list_for_each_entry(rc, &remap_c_list, list)
-        if (rc->kobj == kobj)
-            return sysfs_emit(buf, "%llu\n", (unsigned long long)(rc->spare_total - rc->spare_used));
+    list_for_each_entry(rc, &remap_c_list, list) if (rc->kobj == kobj) return sysfs_emit(buf, "%llu\n", (unsigned long long)(rc->spare_total - rc->spare_used));
     return -ENODEV;
 }
 
@@ -302,17 +297,21 @@ static int remap_message(struct dm_target *ti, unsigned argc, char **argv, char 
     int valid, i;
 
     // remap <bad_sector>
-    if (argc == 2 && strcmp(argv[0], "remap") == 0) {
+    if (argc == 2 && strcmp(argv[0], "remap") == 0)
+    {
         if (kstrtoull(argv[1], 10, &bad))
             return -EINVAL;
         spin_lock(&rc->lock);
-        for (i = 0; i < rc->remap_count; i++) {
-            if (bad == rc->remaps[i].orig_sector) {
+        for (i = 0; i < rc->remap_count; i++)
+        {
+            if (bad == rc->remaps[i].orig_sector)
+            {
                 spin_unlock(&rc->lock);
                 return -EEXIST;
             }
         }
-        if (rc->spare_used >= rc->spare_total) {
+        if (rc->spare_used >= rc->spare_total)
+        {
             spin_unlock(&rc->lock);
             return -ENOSPC;
         }
@@ -330,12 +329,15 @@ static int remap_message(struct dm_target *ti, unsigned argc, char **argv, char 
     }
 
     // load <bad> <spare> <valid>
-    if (argc == 4 && strcmp(argv[0], "load") == 0) {
+    if (argc == 4 && strcmp(argv[0], "load") == 0)
+    {
         if (kstrtoull(argv[1], 10, &bad) || kstrtoull(argv[2], 10, &spare) || kstrtoint(argv[3], 10, &valid))
             return -EINVAL;
         spin_lock(&rc->lock);
-        for (i = 0; i < rc->remap_count; i++) {
-            if (bad == rc->remaps[i].orig_sector || rc->remaps[i].spare_sector == spare) {
+        for (i = 0; i < rc->remap_count; i++)
+        {
+            if (bad == rc->remaps[i].orig_sector || rc->remaps[i].spare_sector == spare)
+            {
                 spin_unlock(&rc->lock);
                 return -EEXIST;
             }
@@ -355,7 +357,8 @@ static int remap_message(struct dm_target *ti, unsigned argc, char **argv, char 
     }
 
     // clear: Reset the remap table and usage counters
-    if (argc == 1 && strcmp(argv[0], "clear") == 0) {
+    if (argc == 1 && strcmp(argv[0], "clear") == 0)
+    {
         spin_lock(&rc->lock);
         rc->remap_count = 0;
         rc->spare_used = 0;
@@ -367,12 +370,15 @@ static int remap_message(struct dm_target *ti, unsigned argc, char **argv, char 
     }
 
     // verify <sector>
-    if (argc == 2 && strcmp(argv[0], "verify") == 0) {
+    if (argc == 2 && strcmp(argv[0], "verify") == 0)
+    {
         if (kstrtoull(argv[1], 10, &bad))
             return -EINVAL;
         spin_lock(&rc->lock);
-        for (i = 0; i < rc->remap_count; i++) {
-            if (bad == rc->remaps[i].orig_sector) {
+        for (i = 0; i < rc->remap_count; i++)
+        {
+            if (bad == rc->remaps[i].orig_sector)
+            {
                 snprintf(result, maxlen, "remapped to %llu valid=%d",
                          (unsigned long long)rc->remaps[i].spare_sector,
                          rc->remaps[i].valid);
@@ -403,21 +409,24 @@ static int remap_map(struct dm_target *ti, struct bio *bio)
     struct dm_dev *target_dev = rc->dev;
     sector_t target_sector = rc->start + sector;
     struct remap_io_ctx *ctx = dmr_per_bio_data(bio, struct remap_io_ctx);
-    if (ctx->lba == 0) {
+    if (ctx->lba == 0)
+    {
         ctx->lba = sector;
         ctx->was_write = (bio_data_dir(bio) == WRITE);
         ctx->retry_to_spare = false;
     }
 
     // MVP: Only auto-remap single-sector bios (512 bytes). Multi-sector bios are passed through for now.
-    if (bio->bi_iter.bi_size != 512) {
+    if (bio->bi_iter.bi_size != 512)
+    {
         bio_set_dev(bio, rc->dev->bdev);
         bio->bi_iter.bi_sector = rc->start + bio->bi_iter.bi_sector;
         return DM_MAPIO_REMAPPED;
     }
 
     // Pass through special ops unless remapped
-    if (bio_op(bio) == REQ_OP_FLUSH || bio_op(bio) == REQ_OP_DISCARD || bio_op(bio) == REQ_OP_WRITE_ZEROES) {
+    if (bio_op(bio) == REQ_OP_FLUSH || bio_op(bio) == REQ_OP_DISCARD || bio_op(bio) == REQ_OP_WRITE_ZEROES)
+    {
         bio_set_dev(bio, rc->dev->bdev);
         bio->bi_iter.bi_sector = rc->start + bio->bi_iter.bi_sector;
         return DM_MAPIO_REMAPPED;
@@ -425,8 +434,10 @@ static int remap_map(struct dm_target *ti, struct bio *bio)
 
     // Check if sector is remapped
     spin_lock(&rc->lock);
-    for (i = 0; i < rc->remap_count; i++) {
-        if (sector == rc->remaps[i].orig_sector) {
+    for (i = 0; i < rc->remap_count; i++)
+    {
+        if (sector == rc->remaps[i].orig_sector)
+        {
             // Redirect to spare device and sector
             target_dev = rc->remaps[i].spare_dev ? rc->remaps[i].spare_dev : rc->spare_dev;
             target_sector = rc->remaps[i].spare_sector;
@@ -439,7 +450,8 @@ static int remap_map(struct dm_target *ti, struct bio *bio)
     spin_unlock(&rc->lock);
 
     // Not remapped: submit to primary device, handle errors asynchronously
-    if (!rc->auto_remap_enabled || bio->bi_iter.bi_size != 512) {
+    if (!rc->auto_remap_enabled || bio->bi_iter.bi_size != 512)
+    {
         // Just pass through if auto-remap is disabled or bio is not 1 sector
         bio_set_dev(bio, target_dev->bdev);
         bio->bi_iter.bi_sector = target_sector;
@@ -607,7 +619,6 @@ static struct target_type remap_target = {
     .status = remap_status,
 };
 
-
 // Debugfs: show remap table
 static int remap_table_show(struct seq_file *m, void *v)
 // remap_table_show: Outputs the remap table to debugfs for user-space inspection.
@@ -617,9 +628,11 @@ static int remap_table_show(struct seq_file *m, void *v)
     /* List all remap tables for all targets */
     struct remap_c *rc;
     int i;
-    list_for_each_entry(rc, &remap_c_list, list) {
+    list_for_each_entry(rc, &remap_c_list, list)
+    {
         spin_lock(&rc->lock);
-        for (i = 0; i < rc->remap_count; i++) {
+        for (i = 0; i < rc->remap_count; i++)
+        {
             seq_printf(m, "bad=%llu spare=%llu dev=%s valid=%d\n",
                        (unsigned long long)rc->remaps[i].orig_sector,
                        (unsigned long long)rc->remaps[i].spare_sector,
@@ -643,6 +656,28 @@ static const struct file_operations remap_table_fops = {
     .llseek = seq_lseek,
     .release = single_release,
 };
+static void __init dmr_compat_selftest(void)
+{
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(6, 14, 0)
+    pr_info("dm-remap: per-bio data shim: 2-arg form (bio, sizeof(type))\n");
+    pr_info("dm-remap: bio clone shim: using bio_alloc_clone(bdev, bio, gfp, NULL)\n");
+#elif LINUX_VERSION_CODE >= KERNEL_VERSION(6, 12, 0)
+    pr_info("dm-remap: per-bio data shim: 1-arg form (bio)\n");
+    pr_info("dm-remap: bio clone shim: using bio_dup() / bio_alloc_clone(bdev, bio, gfp, NULL)\n");
+#else
+    pr_info("dm-remap: per-bio data shim: 1-arg form (bio)\n");
+    pr_info("dm-remap: bio clone shim: using bio_clone_fast()/bio_clone_bioset()\n");
+#endif
+}
+
+static void __exit dmr_compat_usage_report(void)
+{
+    if (dmr_clone_shallow_count == 0 && dmr_clone_deep_count == 0)
+        pr_warn("dm-remap: WARNING - clone shims were never used during module lifetime\n");
+    else
+        pr_info("dm-remap: clone shim usage - shallow: %lu, deep: %lu\n",
+                dmr_clone_shallow_count, dmr_clone_deep_count);
+}
 
 // Module init: register target + create debugfs trigger
 // remap_init: Module initialization. Registers target and sets up debugfs.
@@ -695,6 +730,7 @@ static int __init remap_init(void)
     }
 
     pr_info("dm-remap: module loaded\n");
+    dmr_compat_selftest();
     return 0;
 err_kobj:
     debugfs_remove_recursive(remap_debugfs_dir);
@@ -706,9 +742,6 @@ err_kobj:
 // remap_exit: Module cleanup. Unregisters target and removes debugfs entries.
 static void __exit remap_exit(void)
 {
-    // No bioset needed
-    dm_unregister_target(&remap_target);
-
     if (dm_remap_stats_initialized && dm_remap_stats_kobj)
     {
         sysfs_remove_group(dm_remap_stats_kobj, &summary_attr_group);
@@ -717,11 +750,13 @@ static void __exit remap_exit(void)
         dm_remap_stats_initialized = false;
     }
     debugfs_remove_recursive(remap_debugfs_dir);
-
+    dm_unregister_target(&remap_target);
+    dmr_compat_usage_report();
     pr_info("dm-remap: module unloaded\n");
 }
 
 module_init(remap_init);
 module_exit(remap_exit);
-
+MODULE_LICENSE("GPL");
+MODULE_AUTHOR("Christian");
 MODULE_DESCRIPTION("Device Mapper target for dynamic bad sector remapping with external persistence and debugfs signaling");

@@ -1,5 +1,6 @@
 {
     "files.associations": {
-        "device-mapper.h": "c"
+        "device-mapper.h": "c",
+        "bio.h": "c"
     }
 }
