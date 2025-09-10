@@ -673,9 +673,9 @@ static struct target_type remap_target = {
     .ctr = remap_ctr,
     .dtr = remap_dtr,
     .map = remap_map,
+    .end_io = dm_remap_endio,
     .message = remap_message,
     .status = remap_status,
-    .end_io = dm_remap_endio,
 };
 
 // Debugfs: show remap table
