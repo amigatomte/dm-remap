@@ -795,6 +795,10 @@ static int __init remap_init(void)
     return 0;
 
 err_remap_kobj:
+    if (dm_remap_kobj) {
+        kobject_put(dm_remap_kobj);
+        dm_remap_kobj = NULL;
+    }
     debugfs_remove_recursive(remap_debugfs_dir);
     remap_debugfs_dir = NULL;
 err_debugfs:
@@ -810,10 +814,6 @@ err_stats_group:
         dm_remap_stats_kobj = NULL;
     }
 err_stats_kobj:
-    if (dm_remap_kobj) {
-        kobject_put(dm_remap_kobj);
-        dm_remap_kobj = NULL;
-    }
     if (target_registered)
         dm_unregister_target(&remap_target);
 out:
