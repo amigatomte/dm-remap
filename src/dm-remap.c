@@ -461,6 +461,64 @@ static int remap_map(struct dm_target *ti, struct bio *bio)
     return DM_MAPIO_REMAPPED;
 }
 
+static int dm_remap_endio(struct dm_target *ti, struct bio *bio, blk_status_t *status)
+{
+    struct remap_c *rc = ti->private;
+
+    /* Ignore success or errors from spare path */
+    if (*status == BLK_STS_OK || bio->bi_bdev == rc->spare_dev->bdev)
+        return DM_ENDIO_DONE;
+
+    /* Only act if auto-remap is enabled and it's a hard error */
+    if (!rc->auto_remap_enabled)
+        return DM_ENDIO_DONE;
+    if (*status != BLK_STS_IOERR && *status != BLK_STS_MEDIUM)
+        return DM_ENDIO_DONE;
+
+    sector_t logical = bio->bi_iter.bi_sector - rc->start;
+    int i;
+
+    spin_lock(&rc->lock);
+    /* Already remapped? */
+    for (i = 0; i < rc->remap_count; i++)
+    {
+        if (logical == rc->remaps[i].orig_sector)
+        {
+            spin_unlock(&rc->lock);
+            bio_set_dev(bio, (rc->remaps[i].spare_dev ? rc->remaps[i].spare_dev : rc->spare_dev)->bdev);
+            bio->bi_iter.bi_sector = rc->remaps[i].spare_sector;
+            *status = BLK_STS_OK;
+            return DM_ENDIO_REQUEUE;
+        }
+    }
+    /* Spare exhausted? */
+    if (rc->spare_used >= rc->spare_total)
+    {
+        pr_warn("dm-remap: no spare sectors available for auto-remap\n");
+        spin_unlock(&rc->lock);
+        return DM_ENDIO_DONE;
+    }
+    /* Insert new mapping */
+    rc->remaps[rc->remap_count].orig_sector = logical;
+    rc->remaps[rc->remap_count].spare_dev = rc->spare_dev;
+    rc->remaps[rc->remap_count].spare_sector = rc->spare_start + rc->spare_used;
+    rc->remaps[rc->remap_count].valid = false;
+    rc->remap_count++;
+    rc->spare_used++;
+    atomic_inc(&rc->auto_remap_count);
+    rc->last_bad_sector = logical;
+    pr_info("dm-remap: auto-remapped sector %llu to spare %llu\n",
+            (unsigned long long)logical,
+            (unsigned long long)(rc->spare_start + rc->spare_used - 1));
+    spin_unlock(&rc->lock);
+
+    /* Rewrite bio to spare and requeue */
+    bio_set_dev(bio, rc->spare_dev->bdev);
+    bio->bi_iter.bi_sector = rc->spare_start + rc->spare_used - 1;
+    *status = BLK_STS_OK;
+    return DM_ENDIO_REQUEUE;
+}
+
 // Reports status via dmsetup status
 static void remap_status(struct dm_target *ti, status_type_t type,
                          // remap_status: Reports status via dmsetup status.
@@ -617,6 +675,7 @@ static struct target_type remap_target = {
     .map = remap_map,
     .message = remap_message,
     .status = remap_status,
+    .end_io = dm_remap_endio,
 };
 
 // Debugfs: show remap table
