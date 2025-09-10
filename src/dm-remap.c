@@ -742,73 +742,100 @@ static void __exit dmr_compat_usage_report(void)
 // remap_init: Module initialization. Registers target and sets up debugfs.
 static int __init remap_init(void)
 {
-    // No bioset needed
-    int ret;
+    int ret = 0;
+    bool target_registered = false;
+
+    dm_remap_stats_kobj = NULL;
+    dm_remap_kobj = NULL;
+    remap_debugfs_dir = NULL;
+    dm_remap_stats_initialized = false;
+
     ret = dm_register_target(&remap_target);
-    if (ret == -EEXIST)
-    {
+    if (ret == -EEXIST) {
         pr_warn("dm-remap: target 'remap' already registered\n");
-        return ret;
+        goto out;
     }
-    if (ret)
-    {
+    if (ret) {
         pr_warn("dm-remap: failed to register target: %d\n", ret);
-        return ret;
+        goto out;
     }
+    target_registered = true;
 
-    if (!dm_remap_stats_initialized)
-    {
-        dm_remap_stats_kobj = kobject_create_and_add("dm_remap_stats", kernel_kobj);
-        if (!dm_remap_stats_kobj)
-        {
-            pr_warn("Failed to create dm_remap_stats kobject\n");
-            dm_unregister_target(&remap_target); // cleanup
-            return -ENOMEM;
-        }
-        dm_remap_stats_initialized = true;
-
-        ret = sysfs_create_group(dm_remap_stats_kobj, &summary_attr_group);
-        if (ret)
-        {
-            pr_warn("Failed to create sysfs group for dm_remap_stats\n");
-            kobject_put(dm_remap_stats_kobj);
-            dm_remap_stats_kobj = NULL;
-            dm_remap_stats_initialized = false;
-            dm_unregister_target(&remap_target); // cleanup
-            return ret;
-        }
+    dm_remap_stats_kobj = kobject_create_and_add("dm_remap_stats", kernel_kobj);
+    if (!dm_remap_stats_kobj) {
+        pr_warn("Failed to create dm_remap_stats kobject\n");
+        ret = -ENOMEM;
+        goto err_stats_kobj;
     }
+    ret = sysfs_create_group(dm_remap_stats_kobj, &summary_attr_group);
+    if (ret) {
+        pr_warn("Failed to create sysfs group for dm_remap_stats\n");
+        goto err_stats_group;
+    }
+    dm_remap_stats_initialized = true;
+
     remap_debugfs_dir = debugfs_create_dir("dm_remap", NULL);
+    if (!remap_debugfs_dir) {
+        pr_warn("Failed to create debugfs directory\n");
+        ret = -ENOMEM;
+        goto err_debugfs;
+    }
     debugfs_create_u32("trigger", 0644, remap_debugfs_dir, &remap_trigger);
     debugfs_create_file("remap_table", 0444, remap_debugfs_dir, NULL, &remap_table_fops);
+
     dm_remap_kobj = kobject_create_and_add("dm_remap", kernel_kobj);
-    if (!dm_remap_kobj)
-    {
+    if (!dm_remap_kobj) {
         pr_warn("Failed to create dm_remap parent kobject\n");
-        goto err_kobj;
+        ret = -ENOMEM;
+        goto err_remap_kobj;
     }
 
     pr_info("dm-remap: module loaded\n");
     dmr_compat_selftest();
     return 0;
-err_kobj:
+
+err_remap_kobj:
+    if (dm_remap_kobj) {
+        kobject_put(dm_remap_kobj);
+        dm_remap_kobj = NULL;
+    }
     debugfs_remove_recursive(remap_debugfs_dir);
-    dm_unregister_target(&remap_target);
-    return -ENOMEM;
+    remap_debugfs_dir = NULL;
+err_debugfs:
+    if (dm_remap_stats_initialized) {
+        sysfs_remove_group(dm_remap_stats_kobj, &summary_attr_group);
+        kobject_put(dm_remap_stats_kobj);
+        dm_remap_stats_kobj = NULL;
+        dm_remap_stats_initialized = false;
+    }
+err_stats_group:
+    if (dm_remap_stats_kobj) {
+        kobject_put(dm_remap_stats_kobj);
+        dm_remap_stats_kobj = NULL;
+    }
+err_stats_kobj:
+    if (target_registered)
+        dm_unregister_target(&remap_target);
+out:
+    return ret;
 }
 
 // Module exit: unregister target + remove debugfs
 // remap_exit: Module cleanup. Unregisters target and removes debugfs entries.
 static void __exit remap_exit(void)
 {
-    if (dm_remap_stats_initialized && dm_remap_stats_kobj)
-    {
+    if (dm_remap_stats_initialized && dm_remap_stats_kobj) {
         sysfs_remove_group(dm_remap_stats_kobj, &summary_attr_group);
         kobject_put(dm_remap_stats_kobj);
         dm_remap_stats_kobj = NULL;
         dm_remap_stats_initialized = false;
     }
+    if (dm_remap_kobj) {
+        kobject_put(dm_remap_kobj);
+        dm_remap_kobj = NULL;
+    }
     debugfs_remove_recursive(remap_debugfs_dir);
+    remap_debugfs_dir = NULL;
     dm_unregister_target(&remap_target);
     dmr_compat_usage_report();
     pr_info("dm-remap: module unloaded\n");
