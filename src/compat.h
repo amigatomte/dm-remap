@@ -7,6 +7,9 @@
 #include <linux/device-mapper.h>
 #include <linux/bio.h>
 
+/* Endio function typedef for portability */
+typedef void (*dm_remap_endio_fn)(struct bio *);
+
 /* Usage counters for runtime reporting */
 extern unsigned long dmr_clone_shallow_count;
 extern unsigned long dmr_clone_deep_count;
@@ -75,5 +78,16 @@ static inline struct bio *dmr_bio_clone_deep(struct bio *bio, gfp_t gfp)
 }
 
 #endif /* kernel version check */
+
+/* Endio completion shim: maps to dm_endio or bio_endio */
+
+/* Endio completion shim: handle both one and two argument forms */
+#if defined(dm_endio)
+#define dmr_endio(bio, status) dm_endio((bio), (status))
+#elif defined(bio_endio)
+#define dmr_endio(bio, status) bio_endio((bio), (status))
+#else
+#define dmr_endio(bio, status) bio_endio((bio))
+#endif
 
 #endif /* DM_REMAP_COMPAT_H */
