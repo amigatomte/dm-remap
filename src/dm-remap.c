@@ -291,13 +291,19 @@ static void remap_status(struct dm_target *ti, status_type_t type,
 static int remap_ctr(struct dm_target *ti, unsigned argc, char **argv)
 {
     struct remap_c *rc = NULL;
-    unsigned long long __maybe_unused main_start = 0;
     unsigned long long spare_start = 0, spare_len = 0;
+    blk_mode_t mode = FMODE_READ | FMODE_WRITE;
+    int ret, i;
 
-    int ret = 0;
+    pr_info("dm-remap: remap_ctr called, argc=%u\n", argc);
+    for (i = 0; i < argc; i++)
+        pr_info("dm-remap: argv[%d] = %s\n", i, argv[i]);
 
-    if (argc != 5)
+    if (argc != 4)
+    {
+        ti->error = "Invalid argument count: expected 4";
         return -EINVAL;
+    }
 
     rc = kzalloc(sizeof(*rc), GFP_KERNEL);
     if (!rc)
@@ -305,25 +311,8 @@ static int remap_ctr(struct dm_target *ti, unsigned argc, char **argv)
         ti->error = "Failed to allocate remap_c";
         return -ENOMEM;
     }
-    // Parse spare_start and spare_len from argv[2] and argv[3]
-    ret = kstrtoull(argv[2], 10, &spare_start);
-    if (ret)
-    {
-        ti->error = "Invalid spare_start";
-        kfree(rc);
-        return -EINVAL;
-    }
 
-    ret = kstrtoull(argv[3], 10, &spare_len);
-    if (ret)
-    {
-        ti->error = "Invalid spare_len";
-        kfree(rc);
-        return -EINVAL;
-    }
-
-    blk_mode_t mode = FMODE_READ | FMODE_WRITE;
-
+    /* Get main device */
     ret = dm_get_device(ti, argv[0], mode, &rc->main_dev);
     if (ret)
     {
@@ -332,74 +321,108 @@ static int remap_ctr(struct dm_target *ti, unsigned argc, char **argv)
         return ret;
     }
 
+    /* Get spare device */
     ret = dm_get_device(ti, argv[1], mode, &rc->spare_dev);
     if (ret)
     {
-        dm_put_device(ti, rc->main_dev);
         ti->error = "Failed to get spare device";
+        dm_put_device(ti, rc->main_dev);
         kfree(rc);
         return ret;
     }
 
-    pr_info("dm-remap: creating target with spare_start=%llu spare_len=%llu\n", spare_start, spare_len);
+    /* Parse spare_start */
+    ret = kstrtoull(argv[2], 10, &spare_start);
+    if (ret)
+    {
+        ti->error = "Invalid spare_start";
+        goto bad;
+    }
 
-    // ...existing code...
+    /* Parse spare_len */
+    ret = kstrtoull(argv[3], 10, &spare_len);
+    if (ret)
+    {
+        ti->error = "Invalid spare_len";
+        goto bad;
+    }
+
     rc->spare_start = (sector_t)spare_start;
     rc->spare_len = (sector_t)spare_len;
     rc->spare_used = 0;
     spin_lock_init(&rc->lock);
 
-    // Safety: fail if spare is missing or zero length
+    /* Safety check */
     if (!rc->spare_dev || rc->spare_len == 0)
     {
-        dm_put_device(ti, rc->main_dev);
-        dm_put_device(ti, rc->spare_dev);
-        kfree(rc);
         ti->error = "Spare device missing or length zero";
-        return -EINVAL;
+        goto bad;
     }
 
-    // Allocate remap table (volatile, size = spare_len)
+    /* Allocate remap table */
     rc->table = kcalloc(rc->spare_len, sizeof(struct remap_entry), GFP_KERNEL);
     if (!rc->table)
     {
-        dm_put_device(ti, rc->main_dev);
-        dm_put_device(ti, rc->spare_dev);
-        kfree(rc);
         ti->error = "Remap table allocation failed";
-        return -ENOMEM;
+        goto bad;
     }
 
-    // Initialize remap table entries to invalid
-    for (ret = 0; ret < rc->spare_len; ret++)
+    /* Initialize remap table */
+    for (i = 0; i < rc->spare_len; i++)
     {
-        rc->table[ret].main_lba = (sector_t)-1;
-        rc->table[ret].spare_lba = rc->spare_start + ret;
+        rc->table[i].main_lba = (sector_t)-1;
+        rc->table[i].spare_lba = rc->spare_start + i;
     }
 
     ti->private = rc;
+    pr_info("dm-remap: target created successfully\n");
     return 0;
+
+bad:
+    if (rc->main_dev)
+        dm_put_device(ti, rc->main_dev);
+    if (rc->spare_dev)
+        dm_put_device(ti, rc->spare_dev);
+    kfree(rc);
+    return -EINVAL;
 }
 
 static void remap_dtr(struct dm_target *ti)
 {
     struct remap_c *rc = ti->private;
 
-    pr_info("dm-remap: remap_dtr called, cleaning up\n");
+    pr_info("dm-remap: remap_dtr called, starting cleanup\n");
 
     if (!rc)
+    {
+        pr_warn("dm-remap: ti->private is NULL, nothing to clean up\n");
         return;
+    }
 
-    if (rc->main_dev)
-        dm_put_device(ti, rc->main_dev);
-
-    if (rc->spare_dev)
-        dm_put_device(ti, rc->spare_dev);
-
+    /* Free remap table if allocated */
     if (rc->table)
+    {
         kfree(rc->table);
+        pr_info("dm-remap: freed remap table\n");
+    }
 
+    /* Release main device if acquired */
+    if (rc->main_dev)
+    {
+        dm_put_device(ti, rc->main_dev);
+        pr_info("dm-remap: released main device\n");
+    }
+
+    /* Release spare device if acquired */
+    if (rc->spare_dev)
+    {
+        dm_put_device(ti, rc->spare_dev);
+        pr_info("dm-remap: released spare device\n");
+    }
+
+    /* Free the control structure */
     kfree(rc);
+    pr_info("dm-remap: freed remap_c struct\n");
 }
 
 // --- remap_target struct ---
