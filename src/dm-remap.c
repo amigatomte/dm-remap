@@ -295,6 +295,17 @@ static int remap_ctr(struct dm_target *ti, unsigned argc, char **argv)
     unsigned long long spare_start = 0, spare_len = 0;
 
     int ret = 0;
+
+    if (argc != 5)
+        return -EINVAL;
+
+    rc = kzalloc(sizeof(*rc), GFP_KERNEL);
+    if (!rc)
+    {
+        ti->error = "Failed to allocate remap_c";
+        return -ENOMEM;
+    }
+
     // ...existing code...
     rc->spare_start = (sector_t)spare_start;
     rc->spare_len = (sector_t)spare_len;
@@ -336,11 +347,24 @@ static int remap_ctr(struct dm_target *ti, unsigned argc, char **argv)
 static void remap_dtr(struct dm_target *ti)
 {
     struct remap_c *rc = ti->private;
-    dm_put_device(ti, rc->main_dev);
-    dm_put_device(ti, rc->spare_dev);
-    kfree(rc->table);
+
+    pr_info("dm-remap: remap_dtr called, cleaning up\n");
+
+    if (!rc)
+        return;
+
+    if (rc->main_dev)
+        dm_put_device(ti, rc->main_dev);
+
+    if (rc->spare_dev)
+        dm_put_device(ti, rc->spare_dev);
+
+    if (rc->table)
+        kfree(rc->table);
+
     kfree(rc);
 }
+
 
 // --- remap_target struct ---
 static struct target_type remap_target = {
