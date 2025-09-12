@@ -305,6 +305,43 @@ static int remap_ctr(struct dm_target *ti, unsigned argc, char **argv)
         ti->error = "Failed to allocate remap_c";
         return -ENOMEM;
     }
+    // Parse spare_start and spare_len from argv[2] and argv[3]
+    ret = kstrtoull(argv[2], 10, &spare_start);
+    if (ret)
+    {
+        ti->error = "Invalid spare_start";
+        kfree(rc);
+        return -EINVAL;
+    }
+
+    ret = kstrtoull(argv[3], 10, &spare_len);
+    if (ret)
+    {
+        ti->error = "Invalid spare_len";
+        kfree(rc);
+        return -EINVAL;
+    }
+
+    blk_mode_t mode = FMODE_READ | FMODE_WRITE;
+
+    ret = dm_get_device(ti, argv[0], mode, &rc->main_dev);
+    if (ret)
+    {
+        ti->error = "Failed to get main device";
+        kfree(rc);
+        return ret;
+    }
+
+    ret = dm_get_device(ti, argv[1], mode, &rc->spare_dev);
+    if (ret)
+    {
+        dm_put_device(ti, rc->main_dev);
+        ti->error = "Failed to get spare device";
+        kfree(rc);
+        return ret;
+    }
+
+    pr_info("dm-remap: creating target with spare_start=%llu spare_len=%llu\n", spare_start, spare_len);
 
     // ...existing code...
     rc->spare_start = (sector_t)spare_start;
@@ -364,7 +401,6 @@ static void remap_dtr(struct dm_target *ti)
 
     kfree(rc);
 }
-
 
 // --- remap_target struct ---
 static struct target_type remap_target = {
