@@ -135,21 +135,42 @@ static int remap_message(struct dm_target *ti, unsigned argc, char **argv, char 
     // verify <sector>
     if (argc == 2 && strcmp(argv[0], "verify") == 0)
     {
+        sector_t bad;
+
+        /* Parse the sector number first */
         if (kstrtoull(argv[1], 10, &bad))
             return -EINVAL;
+
+        /* Debug: show what we're verifying and current table state */
+        pr_info("dm-remap: verify called for sector %llu, spare_used=%llu\n",
+                (unsigned long long)bad,
+                (unsigned long long)rc->spare_used);
+
+        for (i = 0; i < rc->spare_used; i++)
+        {
+            pr_info("dm-remap: table[%d] main_lba=%llu spare_lba=%llu\n",
+                    i,
+                    (unsigned long long)rc->table[i].main_lba,
+                    (unsigned long long)rc->table[i].spare_lba);
+        }
+
+        /* Look for a match */
         spin_lock(&rc->lock);
         for (i = 0; i < rc->spare_used; i++)
         {
             if (rc->table[i].main_lba == bad)
             {
-                snprintf(result, maxlen, "remapped to %llu",
+                pr_info("dm-remap: result buffer maxlen=%u\n", maxlen);
+                snprintf(result, maxlen, "remapped to %llu\n",
                          (unsigned long long)rc->table[i].spare_lba);
                 spin_unlock(&rc->lock);
                 return 0;
             }
         }
         spin_unlock(&rc->lock);
-        snprintf(result, maxlen, "not remapped");
+
+        /* No match found */
+        snprintf(result, maxlen, "not remapped\n");
         return 0;
     }
 
