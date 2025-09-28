@@ -40,6 +40,8 @@
 #include <linux/blk_types.h> // For BLK_STS_OK
 #include <linux/kernel.h>    // For NULL
 #include <linux/sysfs.h>
+#include <linux/errno.h>
+#include <linux/string.h>
 #define DM_MSG_PREFIX "dm_remap"
 
 unsigned long dmr_clone_shallow_count = 0;
@@ -55,72 +57,117 @@ static void remap_endio(struct bio *bio)
 // If the sector is remapped, redirect the bio to the spare device and sector.
 // Otherwise, pass through to the original device.
 // This function is the main I/O path for the target and must be fast and thread-safe.
+
 static int remap_message(struct dm_target *ti, unsigned argc, char **argv, char *result, unsigned maxlen)
 {
     struct remap_c *rc = ti->private;
     sector_t bad, spare;
     int i;
 
-    // remap <bad_sector>
+    /* Ensure result is a valid NUL-terminated string */
+    if (maxlen)
+    {
+        result[0] = '\0';
+        result[maxlen - 1] = '\0';
+    }
+
+    /* Need at least a command */
+    if (argc < 1)
+    {
+        if (maxlen)
+            scnprintf(result, maxlen, "error: missing command");
+        return 0;
+    }
+
+    /* remap <bad_sector> */
     if (argc == 2 && strcmp(argv[0], "remap") == 0)
     {
         if (kstrtoull(argv[1], 10, &bad))
-            return -EINVAL;
+        {
+            if (maxlen)
+                scnprintf(result, maxlen, "error: invalid sector '%s'", argv[1]);
+            return 0;
+        }
+
         spin_lock(&rc->lock);
-        // Check for duplicate
         for (i = 0; i < rc->spare_used; i++)
         {
             if (rc->table[i].main_lba == bad)
             {
                 spin_unlock(&rc->lock);
-                return -EEXIST;
+                if (maxlen)
+                    scnprintf(result, maxlen, "error: already remapped");
+                return 0;
             }
         }
         if (rc->spare_used >= rc->spare_len)
         {
             spin_unlock(&rc->lock);
-            return -ENOSPC;
+            if (maxlen)
+                scnprintf(result, maxlen, "error: no spare slots");
+            return 0;
         }
+
         rc->table[rc->spare_used].main_lba = bad;
-        // spare_lba is already set in ctr
+        spare = rc->table[rc->spare_used].spare_lba; /* set in ctr */
         rc->spare_used++;
         spin_unlock(&rc->lock);
-        pr_info("dm-remap: manually remapped sector %llu to spare %llu\n",
-                (unsigned long long)bad,
-                (unsigned long long)rc->table[rc->spare_used - 1].spare_lba);
+
+        if (maxlen)
+            scnprintf(result, maxlen, "remapped %llu -> %llu",
+                      (unsigned long long)bad,
+                      (unsigned long long)spare);
+        return 0;
+    }
+    if (argc == 1 && strcmp(argv[0], "ping") == 0)
+    {
+        if (maxlen)
+            scnprintf(result, maxlen, "pong");
         return 0;
     }
 
-    // load <bad> <spare>
+    /* load <bad> <spare> */
     if (argc == 3 && strcmp(argv[0], "load") == 0)
     {
         if (kstrtoull(argv[1], 10, &bad) || kstrtoull(argv[2], 10, &spare))
-            return -EINVAL;
+        {
+            if (maxlen)
+                scnprintf(result, maxlen, "error: invalid args");
+            return 0;
+        }
+
         spin_lock(&rc->lock);
         for (i = 0; i < rc->spare_used; i++)
         {
             if (rc->table[i].main_lba == bad || rc->table[i].spare_lba == spare)
             {
                 spin_unlock(&rc->lock);
-                return -EEXIST;
+                if (maxlen)
+                    scnprintf(result, maxlen, "error: conflict");
+                return 0;
             }
         }
         if (rc->spare_used >= rc->spare_len)
         {
             spin_unlock(&rc->lock);
-            return -ENOSPC;
+            if (maxlen)
+                scnprintf(result, maxlen, "error: no spare slots");
+            return 0;
         }
+
         rc->table[rc->spare_used].main_lba = bad;
         rc->table[rc->spare_used].spare_lba = spare;
         rc->spare_used++;
         spin_unlock(&rc->lock);
-        pr_info("dm-remap: loaded remap %llu → %llu\n",
-                (unsigned long long)bad,
-                (unsigned long long)spare);
+
+        if (maxlen)
+            scnprintf(result, maxlen, "loaded %llu -> %llu",
+                      (unsigned long long)bad,
+                      (unsigned long long)spare);
         return 0;
     }
 
-    // clear: Reset the remap table and usage counters
+    /* clear */
     if (argc == 1 && strcmp(argv[0], "clear") == 0)
     {
         spin_lock(&rc->lock);
@@ -128,55 +175,48 @@ static int remap_message(struct dm_target *ti, unsigned argc, char **argv, char 
         for (i = 0; i < rc->spare_len; i++)
             rc->table[i].main_lba = (sector_t)-1;
         spin_unlock(&rc->lock);
-        pr_info("dm-remap: remap table cleared\n");
+
+        if (maxlen)
+            scnprintf(result, maxlen, "cleared");
         return 0;
     }
 
-    // verify <sector>
+    /* verify <sector> */
     if (argc == 2 && strcmp(argv[0], "verify") == 0)
     {
-        sector_t bad;
-
-        /* Parse the sector number first */
         if (kstrtoull(argv[1], 10, &bad))
-            return -EINVAL;
-
-        /* Debug: show what we're verifying and current table state */
-        pr_info("dm-remap: verify called for sector %llu, spare_used=%llu\n",
-                (unsigned long long)bad,
-                (unsigned long long)rc->spare_used);
-
-        for (i = 0; i < rc->spare_used; i++)
         {
-            pr_info("dm-remap: table[%d] main_lba=%llu spare_lba=%llu\n",
-                    i,
-                    (unsigned long long)rc->table[i].main_lba,
-                    (unsigned long long)rc->table[i].spare_lba);
+            if (maxlen)
+                scnprintf(result, maxlen, "error: invalid sector '%s'", argv[1]);
+            return 0;
         }
 
-        /* Look for a match */
         spin_lock(&rc->lock);
         for (i = 0; i < rc->spare_used; i++)
         {
             if (rc->table[i].main_lba == bad)
             {
-                pr_info("dm-remap: result buffer maxlen=%u\n", maxlen);
-                snprintf(result, maxlen, "remapped to %llu\n",
-                         (unsigned long long)rc->table[i].spare_lba);
+                spare = rc->table[i].spare_lba;
                 spin_unlock(&rc->lock);
+                if (maxlen)
+                    scnprintf(result, maxlen, "remapped to %llu",
+                              (unsigned long long)spare);
                 return 0;
             }
         }
         spin_unlock(&rc->lock);
 
-        /* No match found */
-        snprintf(result, maxlen, "not remapped\n");
+        if (maxlen)
+            scnprintf(result, maxlen, "not remapped");
         return 0;
     }
 
-    // Unknown command
-    return -EINVAL;
+    /* Unknown command */
+    if (maxlen)
+        scnprintf(result, maxlen, "error: unknown command '%s'", argv[0]);
+    return 0;
 }
+
 // Handles runtime messages like: dmsetup message remap0 0 remap <sector>
 // remap_message: Handles runtime messages from dmsetup for runtime control and inspection.
 // Supported commands:
