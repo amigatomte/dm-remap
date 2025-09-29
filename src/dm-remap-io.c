@@ -40,8 +40,31 @@ struct auto_remap_work {
     int error_code;              /* Original error that triggered remap */
 };
 
+/*
+ * Bio context for v2.0 intelligent error handling
+ * 
+ * This structure tracks individual I/O operations for error detection,
+ * retry logic, and automatic remapping decisions.
+ */
+struct dmr_bio_context {
+    struct remap_c *rc;           /* Target context */
+    sector_t original_lba;        /* Original logical block address */
+    u32 retry_count;              /* Number of retries attempted */
+    unsigned long start_time;     /* I/O start time (jiffies) */
+    bio_end_io_t *original_bi_end_io;  /* Original completion callback */
+    void *original_bi_private;    /* Original private data */
+};
+
 /* Work queue for deferred auto-remapping operations */
+/*
+ * Auto-remap work queue for background operations
+ */
 static struct workqueue_struct *auto_remap_wq;
+
+/* Forward declarations */
+static void dmr_schedule_auto_remap(struct remap_c *rc, sector_t lba, int error_code);
+
+
 
 /*
  * dmr_auto_remap_worker() - Work queue handler for automatic remapping
@@ -87,6 +110,16 @@ static void dmr_auto_remap_worker(struct work_struct *work)
  * @lba: Logical block address to potentially remap
  * @error_code: Error code that triggered this request
  */
+/*
+ * dmr_schedule_auto_remap() - Schedule automatic remapping work
+ * 
+ * This function schedules background work to perform automatic remapping
+ * of a sector that has experienced too many errors.
+ * 
+ * @rc: Target context
+ * @lba: Logical block address to remap
+ * @error_code: The error that triggered this remap
+ */
 static void dmr_schedule_auto_remap(struct remap_c *rc, sector_t lba, int error_code)
 {
     struct auto_remap_work *arw;
@@ -117,21 +150,56 @@ static void dmr_schedule_auto_remap(struct remap_c *rc, sector_t lba, int error_
 }
 
 /*
- * dmr_bio_endio() - Bio completion callback for error detection and retry
+ * dmr_bio_endio() - Intelligent bio completion callback for v2.0 error handling
  * 
- * This function is called when a bio completes (successfully or with error).
- * It implements the v2.0 intelligent error handling pipeline.
+ * This is the heart of the v2.0 intelligent error detection system.
+ * It analyzes I/O completion status, updates health statistics,
+ * and triggers automatic remapping when necessary.
  * 
  * @bio: The completed bio
- */
+ */  
 static void dmr_bio_endio(struct bio *bio)
 {
-    /* TODO: Implement v2.0 bio endio callback after structure conflicts are resolved */
-    DMR_DEBUG(2, "Bio endio callback - v2.0 placeholder");
+    struct dmr_bio_context *ctx = bio->bi_private;
+    struct remap_c *rc = ctx->rc;
+    sector_t lba = ctx->original_lba;
+    int error = bio->bi_status;
+    bool is_write = bio_data_dir(bio) == WRITE;
     
-    /* Call the original bio completion function */
-    bio_endio(bio);
+    /* Update health statistics for this sector */
+    dmr_update_sector_health(rc, lba, (error != 0), error);
+    
+    /* Update global error counters */
+    if (error) {
+        if (is_write)
+            rc->write_errors++;
+        else
+            rc->read_errors++;
+            
+        DMR_DEBUG(1, "I/O error %d on sector %llu (%s)", 
+                  error, (unsigned long long)lba, is_write ? "write" : "read");
+    }
+    
+    /* Check if auto-remapping should be triggered */
+    if (error && rc->auto_remap_enabled && dmr_should_auto_remap(rc, lba)) {
+        dmr_schedule_auto_remap(rc, lba, error);
+    }
+    
+    /* Restore original bio completion info */
+    bio->bi_end_io = ctx->original_bi_end_io;
+    bio->bi_private = ctx->original_bi_private;
+    
+    /* Free our context */
+    kfree(ctx);
+    
+    /* Call original completion handler */
+    if (bio->bi_end_io)
+        bio->bi_end_io(bio);
+    else
+        bio_endio(bio);
 }
+
+
 
 /*
  * dmr_setup_bio_tracking() - Setup bio for v2.0 error tracking
@@ -145,9 +213,39 @@ static void dmr_bio_endio(struct bio *bio)
  */
 void dmr_setup_bio_tracking(struct bio *bio, struct remap_c *rc, sector_t lba)
 {
-    /* For v2.0 transition - simplified setup without endio callback for now */
+    struct dmr_bio_context *ctx;
+    
     DMR_DEBUG(3, "Setup bio tracking for sector %llu", (unsigned long long)lba);
-    /* TODO: Add full v2.0 error tracking after structure conflicts are resolved */
+    
+    /* Only track single-sector I/Os to avoid complications */
+    if (bio->bi_iter.bi_size != 512) {
+        DMR_DEBUG(3, "Skipping tracking for multi-sector bio");
+        return;
+    }
+    
+    /* Allocate context for tracking this bio */
+    ctx = kzalloc(sizeof(*ctx), GFP_NOIO);
+    if (!ctx) {
+        /* If we can't allocate context, continue without tracking */
+        DMR_DEBUG(1, "Failed to allocate bio context for sector %llu", (unsigned long long)lba);
+        return;
+    }
+    
+    /* Initialize context */
+    ctx->rc = rc;
+    ctx->original_lba = lba;
+    ctx->retry_count = 0;
+    ctx->start_time = jiffies;
+    
+    /* Store original bio completion info */
+    ctx->original_bi_end_io = bio->bi_end_io;
+    ctx->original_bi_private = bio->bi_private;
+    
+    /* Set up our completion callback */
+    bio->bi_end_io = dmr_bio_endio;
+    bio->bi_private = ctx;
+    
+    DMR_DEBUG(3, "Bio tracking enabled for sector %llu", (unsigned long long)lba);
 }
 
 /*
