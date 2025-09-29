@@ -70,8 +70,14 @@ else
     exit 1
 fi
 
-# Step 4: Test basic I/O
-echo "=== Step 4: Basic I/O test ==="
+# Step 4: Test basic I/O with debug logging verification
+echo "=== Step 4: Basic I/O test with debug logging ==="
+# Enable debug logging
+echo 2 | sudo tee /sys/module/dm_remap/parameters/debug_level >/dev/null
+
+# Clear dmesg buffer for clean debug log capture
+sudo dmesg -C
+
 # Test with exact 16-byte data for precise validation
 TEST_DATA="test data v1 123"
 echo -n "$TEST_DATA" | sudo dd of="/dev/mapper/$DM_NAME" bs=16 seek=100 count=1 conv=notrunc 2>/dev/null
@@ -82,6 +88,16 @@ if [[ "$DATA" == "$TEST_DATA" ]]; then
 else
     echo "❌ Basic I/O failed: expected '$TEST_DATA', got '$DATA'"
     exit 1
+fi
+
+# Verify debug logging is working
+sleep 1  # Give kernel time to process logs
+if sudo dmesg | grep -q "dm-remap: I/O:"; then
+    echo "✅ Debug logging working (I/O operations logged)"
+    DEBUG_COUNT=$(sudo dmesg | grep "dm-remap: I/O:" | wc -l)
+    echo "   Found $DEBUG_COUNT I/O debug messages"
+else
+    echo "⚠️  Debug logging may not be working (no I/O logs found)"
 fi
 
 # Step 4.5: Test multi-sector I/O
@@ -142,7 +158,7 @@ else
     exit 1
 fi
 
-# Step 7: Test remapping functionality
+# Step 7: Test remapping functionality with debug verification
 echo "=== Step 7: Remapping functionality test ==="
 
 # Test 1: Write data, remap sector, verify redirection
@@ -159,6 +175,9 @@ echo "Original data written: '$READ_ORIG'"
 # Remap the sector
 sudo dmsetup message "$DM_NAME" 0 remap 300
 
+# Clear dmesg for clean remap debug capture
+sudo dmesg -C
+
 # Write new data to the same sector (should go to spare)
 echo -n "$REMAP_DATA" | sudo dd of="/dev/mapper/$DM_NAME" bs=16 seek=300 count=1 conv=notrunc 2>/dev/null
 
@@ -170,6 +189,16 @@ if [[ "$READ_REMAP" == "$REMAP_DATA" ]]; then
     echo "✅ Remapping redirection working"
 else
     echo "❌ Remapping failed: expected '$REMAP_DATA', got '$READ_REMAP'"
+fi
+
+# Verify remap debug logging
+sleep 1
+if sudo dmesg | grep -q "dm-remap: REMAP:"; then
+    echo "✅ Remap debug logging working"
+    REMAP_MSG=$(sudo dmesg | grep "dm-remap: REMAP:" | head -1)
+    echo "   Debug: $REMAP_MSG"
+else
+    echo "⚠️  Remap debug logging may not be working"
 fi
 
 # Check if status shows the remap

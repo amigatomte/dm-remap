@@ -44,14 +44,26 @@
 #include <linux/string.h>
 #define DM_MSG_PREFIX "dm_remap"
 
+// Module parameters
+static int debug_level = 0;
+module_param(debug_level, int, 0644);
+MODULE_PARM_DESC(debug_level, "Debug verbosity level (0=quiet, 1=info, 2=debug)");
+
+static int max_remaps = 1024;
+module_param(max_remaps, int, 0644);
+MODULE_PARM_DESC(max_remaps, "Maximum number of remappable sectors per target");
+
 unsigned long dmr_clone_shallow_count = 0;
 unsigned long dmr_clone_deep_count = 0;
-static void remap_endio(struct bio *bio)
-{
-    struct bio *orig = bio->bi_private;
-    dmr_endio(orig, bio->bi_status);
-    bio_put(bio);
-}
+// remap_endio removed - using direct bio remapping instead of cloning
+
+// Debug logging macro
+#define DMR_DEBUG(level, fmt, args...) \
+    do { \
+        if (debug_level >= level) \
+            printk(KERN_INFO "dm-remap: " fmt "\n", ##args); \
+    } while (0)
+
 // Called for every I/O request to the DM target
 // remap_map: Called for every I/O request to the DM target.
 // If the sector is remapped, redirect the bio to the spare device and sector.
@@ -246,8 +258,15 @@ static int remap_map(struct dm_target *ti, struct bio *bio)
     int i;
     struct dm_dev *target_dev = rc->main_dev;
     sector_t target_sector = rc->main_start + sector;
-    struct bio *clone;
     struct remap_io_ctx *ctx = dmr_per_bio_data(bio, struct remap_io_ctx);
+    
+    // I/O debug logging - placed at start to capture ALL I/O operations
+    if (debug_level >= 2) {
+        printk(KERN_INFO "dm-remap: I/O: sector=%llu, size=%u, %s\n", 
+               (unsigned long long)sector, bio->bi_iter.bi_size, 
+               bio_data_dir(bio) == WRITE ? "WRITE" : "READ");
+    }
+    
     if (ctx->lba == 0)
     {
         ctx->lba = sector;
@@ -259,6 +278,9 @@ static int remap_map(struct dm_target *ti, struct bio *bio)
     if (bio->bi_iter.bi_size != 512)
     {
         // For multi-sector bios, just remap directly to main device
+        if (debug_level >= 2) {
+            printk(KERN_INFO "dm-remap: Multi-sector passthrough: %u bytes\n", bio->bi_iter.bi_size);
+        }
         bio_set_dev(bio, rc->main_dev->bdev);
         bio->bi_iter.bi_sector = rc->main_start + bio->bi_iter.bi_sector;
         return DM_MAPIO_REMAPPED;
@@ -273,6 +295,7 @@ static int remap_map(struct dm_target *ti, struct bio *bio)
     }
 
     // Check if sector is remapped
+    
     spin_lock(&rc->lock);
     for (i = 0; i < rc->spare_used; i++)
     {
@@ -282,6 +305,12 @@ static int remap_map(struct dm_target *ti, struct bio *bio)
             target_dev = rc->spare_dev;
             target_sector = rc->table[i].spare_lba;
             spin_unlock(&rc->lock);
+            
+            if (debug_level >= 1) {
+                printk(KERN_INFO "dm-remap: REMAP: sector %llu -> spare sector %llu\n", 
+                       (unsigned long long)sector, (unsigned long long)target_sector);
+            }
+            
             bio_set_dev(bio, target_dev->bdev);
             bio->bi_iter.bi_sector = target_sector;
             return DM_MAPIO_REMAPPED;
@@ -290,6 +319,11 @@ static int remap_map(struct dm_target *ti, struct bio *bio)
     spin_unlock(&rc->lock);
 
     // Not remapped: submit to primary device
+    if (debug_level >= 2) {
+        printk(KERN_INFO "dm-remap: Passthrough: sector %llu to main device\n", 
+               (unsigned long long)sector);
+    }
+    
     bio_set_dev(bio, rc->main_dev->bdev);
     bio->bi_iter.bi_sector = rc->main_start + sector;
     return DM_MAPIO_REMAPPED;
@@ -395,12 +429,22 @@ static int remap_ctr(struct dm_target *ti, unsigned argc, char **argv)
     rc->spare_used = 0;
     spin_lock_init(&rc->lock);
 
+    /* Apply max_remaps limit */
+    if (rc->spare_len > max_remaps) {
+        DMR_DEBUG(0, "Limiting spare_len from %llu to %d (max_remaps parameter)", 
+                  (unsigned long long)rc->spare_len, max_remaps);
+        rc->spare_len = max_remaps;
+    }
+
     /* Safety check */
     if (!rc->spare_dev || rc->spare_len == 0)
     {
         ti->error = "Spare device missing or length zero";
         goto bad;
     }
+    
+    DMR_DEBUG(0, "Constructor: main_dev=%s, spare_dev=%s, spare_start=%llu, spare_len=%llu", 
+              argv[0], argv[1], (unsigned long long)spare_start, (unsigned long long)rc->spare_len);
 
     /* Allocate remap table */
     rc->table = kcalloc(rc->spare_len, sizeof(struct remap_entry), GFP_KERNEL);
