@@ -258,34 +258,18 @@ static int remap_map(struct dm_target *ti, struct bio *bio)
     // Only auto-remap single-sector bios (512 bytes). Multi-sector bios are passed through for now.
     if (bio->bi_iter.bi_size != 512)
     {
-        if (!clone)
-        {
-            dmr_endio(bio, BLK_STS_IOERR);
-            return DM_MAPIO_SUBMITTED;
-        }
-        bio_set_dev(clone, rc->main_dev->bdev);
-        clone->bi_iter.bi_sector = rc->main_start + bio->bi_iter.bi_sector;
-        clone->bi_end_io = (dm_remap_endio_fn)remap_endio;
-        clone->bi_private = bio;
-        submit_bio(clone);
-        return DM_MAPIO_SUBMITTED;
+        // For multi-sector bios, just remap directly to main device
+        bio_set_dev(bio, rc->main_dev->bdev);
+        bio->bi_iter.bi_sector = rc->main_start + bio->bi_iter.bi_sector;
+        return DM_MAPIO_REMAPPED;
     }
 
     // Pass through special ops unless remapped
     if (bio_op(bio) == REQ_OP_FLUSH || bio_op(bio) == REQ_OP_DISCARD || bio_op(bio) == REQ_OP_WRITE_ZEROES)
     {
-        clone = dmr_bio_clone_shallow(bio, GFP_NOIO);
-        if (!clone)
-        {
-            dmr_endio(bio, BLK_STS_IOERR);
-            return DM_MAPIO_SUBMITTED;
-        }
-        bio_set_dev(clone, rc->main_dev->bdev);
-        clone->bi_iter.bi_sector = rc->main_start + bio->bi_iter.bi_sector;
-        clone->bi_end_io = (dm_remap_endio_fn)remap_endio;
-        clone->bi_private = bio;
-        submit_bio(clone);
-        return DM_MAPIO_SUBMITTED;
+        bio_set_dev(bio, rc->main_dev->bdev);
+        bio->bi_iter.bi_sector = rc->main_start + bio->bi_iter.bi_sector;
+        return DM_MAPIO_REMAPPED;
     }
 
     // Check if sector is remapped
@@ -298,34 +282,17 @@ static int remap_map(struct dm_target *ti, struct bio *bio)
             target_dev = rc->spare_dev;
             target_sector = rc->table[i].spare_lba;
             spin_unlock(&rc->lock);
-            clone = dmr_bio_clone_shallow(bio, GFP_NOIO);
-            if (!clone)
-            {
-                dmr_endio(bio, BLK_STS_IOERR);
-                return DM_MAPIO_SUBMITTED;
-            }
-            bio_set_dev(clone, target_dev->bdev);
-            clone->bi_iter.bi_sector = target_sector;
-            clone->bi_end_io = (dm_remap_endio_fn)remap_endio;
-            clone->bi_private = bio;
-            submit_bio(clone);
-            return DM_MAPIO_SUBMITTED;
+            bio_set_dev(bio, target_dev->bdev);
+            bio->bi_iter.bi_sector = target_sector;
+            return DM_MAPIO_REMAPPED;
         }
     }
     spin_unlock(&rc->lock);
 
     // Not remapped: submit to primary device
-    clone = dmr_bio_clone_shallow(bio, GFP_NOIO);
-    if (!clone)
-    {
-        dmr_endio(bio, BLK_STS_IOERR);
-        return DM_MAPIO_SUBMITTED;
-    }
-    bio_set_dev(clone, rc->main_dev->bdev);
-    clone->bi_iter.bi_sector = rc->main_start + sector;
-    clone->bi_end_io = (dm_remap_endio_fn)remap_endio;
-    submit_bio(clone);
-    return DM_MAPIO_SUBMITTED;
+    bio_set_dev(bio, rc->main_dev->bdev);
+    bio->bi_iter.bi_sector = rc->main_start + sector;
+    return DM_MAPIO_REMAPPED;
 }
 
 // Reports status via dmsetup status
