@@ -45,6 +45,11 @@ int main(int argc, char *argv[]) {
     }
 
     const char *user_msg = argv[2];
+    
+    /* Store original message for comparison */
+    char original_msg[256];
+    strncpy(original_msg, user_msg, sizeof(original_msg) - 1);
+    original_msg[sizeof(original_msg) - 1] = '\0';
 
     int fd = open("/dev/mapper/control", O_RDWR);
     if (fd < 0) {
@@ -88,30 +93,60 @@ int main(int argc, char *argv[]) {
 
     /* Read reply area */
     buffer[DM_BUFFER_SIZE - 1] = '\0';
-    const char *endbuf = buffer + DM_BUFFER_SIZE;
-    const char *base   = buffer + io->data_start;                 /* start of region */
-    const char *post   = base + sizeof(struct dm_target_msg);     /* after header */
+    const char *base = buffer + io->data_start;                 /* start of region */
+    const char *reply_start = base + sizeof(struct dm_target_msg);     /* after header */
 
     /* Debug: metadata + hex dump */
     fprintf(stderr, "data_start=%u data_size=%u\n", io->data_start, io->data_size);
-    fprintf(stderr, "Raw @data_start (first 64):\n");
-    for (int i = 0; i < 64 && (io->data_start + i) < DM_BUFFER_SIZE; i++)
+    fprintf(stderr, "Raw @data_start (first 128):\n");
+    for (int i = 0; i < 128 && (io->data_start + i) < DM_BUFFER_SIZE; i++) {
         fprintf(stderr, "%02x ", (unsigned char)base[i]);
+        if ((i + 1) % 16 == 0) fprintf(stderr, "\n");
+    }
+    fprintf(stderr, "\n");
+    
+    /* Also dump as ASCII to see strings */
+    fprintf(stderr, "ASCII view:\n");
+    for (int i = 0; i < 128 && (io->data_start + i) < DM_BUFFER_SIZE; i++) {
+        char c = base[i];
+        fprintf(stderr, "%c", (c >= 32 && c <= 126) ? c : '.');
+        if ((i + 1) % 16 == 0) fprintf(stderr, "\n");
+    }
     fprintf(stderr, "\n");
 
-    /* 1) Try from base (skip leading zeros) */
-    const char *p = skip_zeros(base, endbuf);
-    if (print_cstr_region(p, endbuf)) return 0;
-
-    /* 2) Try right after dm_target_msg header */
-    p = skip_zeros(post, endbuf);
-    if (print_cstr_region(p, endbuf)) return 0;
-
-    /* 3) Fallback: scan next 1 KiB for the first NUL-terminated string */
-    for (int off = 0; off < 1024 && (io->data_start + off) < DM_BUFFER_SIZE; off++) {
-        const char *s = base + off;
-        const char *q = skip_zeros(s, endbuf);
-        if (print_cstr_region(q, endbuf)) return 0;
+    /* According to device-mapper protocol, the response overwrites the input */
+    /* The key insight: device-mapper copies the result buffer back to the */
+    /* same location where the original message was, but AFTER the dm_target_msg header */
+    
+    /* The response should be in the message field of dm_target_msg */
+    struct dm_target_msg *tmsg_response = (struct dm_target_msg *)(buffer + io->data_start);
+    char *response_area = (char *)tmsg_response->message;
+    
+    /* Check if the message area now contains something different than the input */
+    if (response_area < buffer + DM_BUFFER_SIZE && response_area[0] != '\0') {
+        /* If it's not the same as what we sent, it's the response */
+        if (strcmp(response_area, original_msg) != 0) {
+            printf("%s\n", response_area);
+            return 0;
+        }
+        /* If it's the same as input, the kernel might have written the response elsewhere */
+        /* Try looking right after the input message */
+        char *after_input = response_area + strlen(original_msg) + 1;
+        if (after_input < buffer + DM_BUFFER_SIZE && *after_input != '\0') {
+            printf("%s\n", after_input);
+            return 0;
+        }
+    }
+    
+    /* Last resort: search entire data area for any string that's not the input */
+    char *data_start = buffer + io->data_start;
+    for (int offset = 0; offset < 512 && (data_start + offset) < buffer + DM_BUFFER_SIZE; offset++) {
+        char *candidate = data_start + offset;
+        if (*candidate != '\0' && strcmp(candidate, original_msg) != 0) {
+            /* Found a string that's different from input - likely the response */
+            printf("%s\n", candidate);
+            return 0;
+        }
     }
 
     fprintf(stderr, "(empty reply)\n");

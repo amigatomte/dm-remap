@@ -64,6 +64,11 @@ static int remap_message(struct dm_target *ti, unsigned argc, char **argv, char 
     sector_t bad, spare;
     int i;
 
+    pr_info("dm-remap: message handler called, argc=%u, maxlen=%u\n", argc, maxlen);
+    for (i = 0; i < argc; i++) {
+        pr_info("dm-remap: argv[%d] = '%s'\n", i, argv[i]);
+    }
+
     /* Ensure result is a valid NUL-terminated string */
     if (maxlen)
     {
@@ -121,8 +126,18 @@ static int remap_message(struct dm_target *ti, unsigned argc, char **argv, char 
     }
     if (argc == 1 && strcmp(argv[0], "ping") == 0)
     {
-        if (maxlen)
-            scnprintf(result, maxlen, "pong");
+        pr_info("dm-remap: handling ping, argc=%u, maxlen=%u\n", argc, maxlen);
+        pr_info("dm-remap: argv[0]='%s' at %p, result at %p\n", argv[0], argv[0], result);
+        
+        /* Try writing response directly over the input argument */
+        strcpy(argv[0], "pong");
+        pr_info("dm-remap: overwrote argv[0] with 'pong'\n");
+        
+        /* Also write to result buffer */
+        if (maxlen > 4) {
+            strcpy(result, "pong");
+            pr_info("dm-remap: also wrote 'pong' to result buffer\n");
+        }
         return 0;
     }
 
