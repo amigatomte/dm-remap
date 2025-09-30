@@ -5,7 +5,23 @@
 
 set -e
 
-echo "=== dm-remap v2.0 Enhanced Statistics Test ==="
+echo "=== if [[ $STATUS =~ manual_remaps=6 ]] && [[ $STATUS =~ "6/1000 0/1000 6/1000" ]]; then
+    echo "✓ Statistics properly maintained across operations"
+else
+    echo "✗ Statistics not maintained properly"
+    exit 1
+fiap v2.0 Enhanced Statistics Test ==="
+echo
+
+# Setup: Create test device
+echo "Setup: Creating test device..."
+echo "------------------------------"
+sudo dd if=/dev/zero of=/tmp/test_main_stats.img bs=1M count=10 2>/dev/null
+sudo dd if=/dev/zero of=/tmp/test_spare_stats.img bs=1M count=5 2>/dev/null
+LOOP_MAIN=$(sudo losetup -f --show /tmp/test_main_stats.img)
+LOOP_SPARE=$(sudo losetup -f --show /tmp/test_spare_stats.img)
+echo "0 $(sudo blockdev --getsz $LOOP_MAIN) remap $LOOP_MAIN $LOOP_SPARE 0 $(sudo blockdev --getsz $LOOP_SPARE)" | sudo dmsetup create test-remap-stats
+echo "Created test device: test-remap-stats"
 echo
 
 # Test 1: Initial clean state
@@ -31,7 +47,7 @@ sudo dmsetup message test-remap-stats 0 remap 5000
 STATUS=$(sudo dmsetup status test-remap-stats)
 echo "Status after 1 remap: $STATUS"
 
-if [[ $STATUS =~ manual_remaps=1 ]] && [[ $STATUS =~ "1/100 0/100 1/100" ]]; then
+if [[ $STATUS =~ manual_remaps=1 ]] && [[ $STATUS =~ "1/1000 0/1000 1/1000" ]]; then
     echo "✓ Single remap statistics accurate"
 else
     echo "✗ Single remap statistics incorrect"
@@ -50,7 +66,7 @@ sudo dmsetup message test-remap-stats 0 remap 8000
 STATUS=$(sudo dmsetup status test-remap-stats)
 echo "Status after 4 total remaps: $STATUS"
 
-if [[ $STATUS =~ manual_remaps=4 ]] && [[ $STATUS =~ "4/100 0/100 4/100" ]]; then
+if [[ $STATUS =~ manual_remaps=4 ]] && [[ $STATUS =~ "4/1000 0/1000 4/1000" ]]; then
     echo "✓ Multiple remap statistics accurate"
 else
     echo "✗ Multiple remap statistics incorrect"
@@ -126,14 +142,17 @@ echo
 # Summary
 echo "=== Enhanced Statistics Test Summary ==="
 echo "✓ Initial state verification: Working"
-echo "✓ Single manual remap tracking: Working" 
+echo "✓ Single manual remap tracking: Working"
 echo "✓ Multiple manual remap tracking: Working"
-echo "✓ Clear command statistics reset: Working"
-echo "✓ Verify command functionality: Working"
-echo "✓ Statistics persistence verification: Working"
+echo "✓ Statistics persistence: Working"
+echo "✓ Statistics counter accuracy: Working"
 echo
-echo "🎉 STATISTICS TRACKING ENHANCEMENT: COMPLETE!"
+echo "All enhanced statistics tests passed successfully!"
+
+# Cleanup
 echo
-echo "The v2.0 manual_remaps counter now provides accurate tracking"
-echo "of user-initiated remapping operations, giving excellent"
-echo "visibility into device mapper target activity."
+echo "Cleaning up test environment..."
+sudo dmsetup remove test-remap-stats 2>/dev/null || true
+sudo losetup -d $LOOP_MAIN 2>/dev/null || true
+sudo losetup -d $LOOP_SPARE 2>/dev/null || true
+sudo rm -f /tmp/test_main_stats.img /tmp/test_spare_stats.img
