@@ -217,11 +217,14 @@ void dmr_setup_bio_tracking(struct bio *bio, struct remap_c *rc, sector_t lba)
     
     DMR_DEBUG(3, "Setup bio tracking for sector %llu", (unsigned long long)lba);
     
-    /* Only track single-sector I/Os to avoid complications */
-    if (bio->bi_iter.bi_size != 512) {
-        DMR_DEBUG(3, "Skipping tracking for multi-sector bio");
+    /* Track I/Os up to 64KB to handle kernel bio coalescing */
+    if (bio->bi_iter.bi_size > 65536) {
+        DMR_DEBUG(3, "Skipping tracking for very large bio (%u bytes)", bio->bi_iter.bi_size);
         return;
     }
+    
+    DMR_DEBUG(3, "Tracking bio: %u bytes starting at sector %llu", 
+              bio->bi_iter.bi_size, (unsigned long long)lba);
     
     /* Allocate context for tracking this bio */
     ctx = kzalloc(sizeof(*ctx), GFP_NOIO);
