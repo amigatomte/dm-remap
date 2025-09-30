@@ -17,6 +17,7 @@
 #include <linux/kernel.h>         /* For printk, kstrtoull */
 #include <linux/string.h>         /* For strcmp, scnprintf */
 #include <linux/device-mapper.h>  /* For struct dm_target */
+#include <linux/jiffies.h>        /* For jiffies timestamp */
 
 #include "dm-remap-core.h"        /* Our core data structures */
 #include "dm-remap-messages.h"    /* Our message function declarations */
@@ -149,8 +150,16 @@ int remap_message(struct dm_target *ti, unsigned argc, char **argv,
         spare_sector = rc->spare_start + rc->spare_used;
         rc->table[rc->spare_used].spare_lba = spare_sector;
         
-        /* Increment the count of used spare sectors */
+        /* v2.0: Initialize entry metadata */
+        rc->table[rc->spare_used].error_count = 0;
+        rc->table[rc->spare_used].access_count = 0;
+        rc->table[rc->spare_used].last_error_time = jiffies;
+        rc->table[rc->spare_used].remap_reason = DMR_REMAP_MANUAL;
+        rc->table[rc->spare_used].health_status = DMR_HEALTH_UNKNOWN;
+        
+        /* Increment the count of used spare sectors and manual remaps */
         rc->spare_used++;
+        rc->manual_remaps++;
         
         /* Release the lock - we're done modifying the table */
         spin_unlock(&rc->lock);
@@ -287,8 +296,11 @@ int remap_message(struct dm_target *ti, unsigned argc, char **argv,
             /* spare_lba stays the same - it's pre-calculated */
         }
         
-        /* Reset the used counter */
+        /* Reset the used counter and v2.0 statistics */
         rc->spare_used = 0;
+        rc->manual_remaps = 0;
+        rc->auto_remaps = 0;
+        /* Note: Keep error counters for historical tracking */
         
         spin_unlock(&rc->lock);
         

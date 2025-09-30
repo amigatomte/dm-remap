@@ -15,12 +15,31 @@
 #include <linux/types.h>          /* For sector_t, basic types */
 #include <linux/spinlock.h>       /* For spinlock_t */
 #include <linux/device-mapper.h>  /* For struct dm_dev, dm_target */
+#include <linux/kobject.h>        /* For struct kobject (sysfs support) */
 
 /*
- * REMAP_ENTRY - Represents a single bad sector remapping
+ * v2.0 REMAP REASONS - Why a sector was remapped
+ */
+#define DMR_REMAP_MANUAL     0  /* Manually remapped via message interface */
+#define DMR_REMAP_WRITE_ERR  1  /* Automatic remap due to write error */
+#define DMR_REMAP_READ_ERR   2  /* Automatic remap due to read error */
+#define DMR_REMAP_PROACTIVE  3  /* Proactive remap during health scan */
+
+/*
+ * v2.0 HEALTH STATUS - Current assessment of sector health
+ */
+#define DMR_HEALTH_UNKNOWN   0  /* Health status not yet determined */
+#define DMR_HEALTH_GOOD      1  /* Sector appears healthy */
+#define DMR_HEALTH_SUSPECT   2  /* Some errors but still usable */
+#define DMR_HEALTH_BAD       3  /* Sector is unreliable, should be remapped */
+#define DMR_HEALTH_REMAPPED  4  /* Sector has been remapped */
+
+/*
+ * REMAP_ENTRY - Represents a single bad sector remapping (v2.0 Enhanced)
  * 
  * This structure stores the mapping between a bad sector on the main device
- * and its replacement sector on the spare device.
+ * and its replacement sector on the spare device. v2.0 adds intelligence
+ * tracking for automatic bad sector detection and health monitoring.
  */
 struct remap_entry {
     sector_t main_lba;    /* Original bad sector number on main device */
@@ -28,18 +47,41 @@ struct remap_entry {
     
     sector_t spare_lba;   /* Replacement sector number on spare device */
                          /* Always valid - pre-calculated during target creation */
+    
+    /* v2.0 Intelligence & Health Tracking */
+    u32 error_count;      /* Number of I/O errors detected on this sector */
+    u32 access_count;     /* Total number of I/O operations to this sector */
+    u64 last_error_time;  /* Timestamp of last error (jiffies) */
+    u8 remap_reason;      /* Why this sector was remapped (DMR_REMAP_*) */
+    u8 health_status;     /* Current health assessment (DMR_HEALTH_*) */
+    u16 reserved;         /* Reserved for future expansion */
 };
 
 /*
- * REMAP_IO_CTX - Per-I/O context for tracking operations
+ * REMAP_IO_CTX - Per-I/O context for tracking operations (v2.0 Enhanced)
  * 
  * This structure is embedded in each bio's per-target data area.
- * It tracks information needed for error handling and retry logic.
+ * v2.0 adds comprehensive error handling and retry logic tracking.
  */
 struct remap_io_ctx {
-    sector_t lba;            /* Logical block address being accessed */
-    bool was_write;          /* True if this was a write operation */
-    bool retry_to_spare;     /* True if we should retry failed ops to spare */
+    sector_t original_lba;      /* Original logical block address */
+    sector_t current_lba;       /* Current target (may be remapped) */
+    struct dm_target *ti;       /* Target pointer for error handling */
+    
+    /* I/O Operation Tracking */
+    unsigned int operation;     /* REQ_OP_READ, REQ_OP_WRITE, etc. */
+    u32 retry_count;           /* Number of retry attempts made */
+    u64 start_time;            /* When this I/O started (jiffies) */
+    
+    /* v2.0 Error Handling State */
+    bool was_write;            /* True if this was a write operation */
+    bool is_retry;             /* True if this is a retry attempt */
+    bool try_spare_on_error;   /* Try spare device if main device fails */
+    bool auto_remap_candidate; /* This sector is candidate for auto-remap */
+    
+    /* Error Recovery */
+    int last_error;            /* Last error code encountered */
+    u8 error_flags;            /* Bit flags for error types encountered */
 };
 
 /*
@@ -64,8 +106,25 @@ struct remap_c {
     struct remap_entry *table;   /* Array of remap entries */
                                 /* Size is spare_len (one entry per spare sector) */
     
+    /* v2.0 Intelligence & Statistics */
+    u32 write_errors;           /* Total write errors detected */
+    u32 read_errors;            /* Total read errors detected */
+    u32 auto_remaps;            /* Number of automatic remappings */
+    u32 manual_remaps;          /* Number of manual remappings */
+    u32 scan_progress;          /* Health scan progress (percentage) */
+    u64 last_scan_time;         /* Last health scan timestamp */
+    
+    /* v2.0 Health Assessment */
+    u8 overall_health;          /* Overall device health (DMR_HEALTH_*) */
+    bool auto_remap_enabled;    /* Enable automatic remapping on errors */
+    bool background_scan;       /* Enable background health scanning */
+    u8 error_threshold;         /* Error count threshold for auto-remap */
+    
+    /* v2.0 Sysfs Interface */
+    struct kobject kobj;        /* Kernel object for sysfs representation */
+    
     /* Concurrency control */
-    spinlock_t lock;            /* Protects table and spare_used counter */
+    spinlock_t lock;            /* Protects table and statistics */
                                /* Must be held when reading/writing remap table */
 };
 
@@ -77,10 +136,39 @@ extern unsigned long dmr_clone_shallow_count;  /* Number of shallow bio clones *
 extern unsigned long dmr_clone_deep_count;     /* Number of deep bio clones */
 
 /*
+ * v2.0 CONFIGURATION CONSTANTS
+ */
+#define DMR_DEFAULT_ERROR_THRESHOLD  3    /* Auto-remap after 3 errors */
+#define DMR_ERROR_TIME_WINDOW        300   /* Consider errors in 5min window (seconds) */
+#define DMR_MAX_RETRIES              3    /* Maximum retry attempts before giving up */
+#define DMR_HEALTH_SCAN_INTERVAL     3600  /* Background scan every hour (seconds) */
+
+/*
+ * v2.0 OVERALL DEVICE HEALTH STATES
+ */
+#define DMR_DEVICE_HEALTH_EXCELLENT  0  /* No errors detected */
+#define DMR_DEVICE_HEALTH_GOOD       1  /* Few errors, well within limits */
+#define DMR_DEVICE_HEALTH_FAIR       2  /* Some sectors showing problems */
+#define DMR_DEVICE_HEALTH_POOR       3  /* Many bad sectors, consider replacement */
+#define DMR_DEVICE_HEALTH_CRITICAL   4  /* Spare area nearly full */
+
+/*
+ * v2.0 HELPER MACROS
+ */
+#define DMR_IS_REMAPPED_ENTRY(entry) ((entry)->main_lba != (sector_t)-1)
+#define DMR_ENTRY_AGE_SECONDS(entry) ((jiffies - (entry)->last_error_time) / HZ)
+#define DMR_SHOULD_AUTO_REMAP(rc, entry) \
+    ((rc)->auto_remap_enabled && \
+     (entry)->error_count >= (rc)->error_threshold && \
+     (entry)->health_status != DMR_HEALTH_REMAPPED)
+
+/*
  * Module parameters - can be set at module load time or changed at runtime
  */
-extern int debug_level;    /* 0=quiet, 1=info, 2=debug */
-extern int max_remaps;     /* Maximum remaps per target */
+extern int debug_level;         /* 0=quiet, 1=info, 2=debug */
+extern int max_remaps;          /* Maximum remaps per target */
+extern int auto_remap_enabled;  /* v2.0: Enable automatic remapping */
+extern int error_threshold;     /* v2.0: Error count threshold for auto-remap */
 
 /*
  * Debug logging macro
@@ -95,6 +183,12 @@ extern int max_remaps;     /* Maximum remaps per target */
         if (debug_level >= (level)) \
             printk(KERN_INFO "dm-remap: " fmt "\n", ##args); \
     } while (0)
+
+/*
+ * Error logging macro - always outputs
+ */
+#define DMR_ERROR(fmt, args...) \
+    printk(KERN_ERR "dm-remap: ERROR: " fmt "\n", ##args)
 
 /*
  * Helper macro for per-bio data access

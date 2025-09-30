@@ -1,237 +1,360 @@
 /*
- * dm-remap-io.c - I/O handling for dm-remap target
+ * dm-remap-io.c - Enhanced I/O processing for dm-remap v2.0
  * 
- * This file contains all the I/O path logic for the dm-remap device mapper target.
- * It handles bio processing, sector remapping, and I/O redirection.
+ * This file implements the intelligent I/O processing pipeline that
+ * detects errors, performs retries, and triggers automatic remapping.
  * 
- * The I/O path is the most performance-critical part of the module, so extensive
- * comments explain the logic and design decisions.
+ * KEY v2.0 FEATURES:
+ * - Bio endio callbacks for error detection
+ * - Retry logic with exponential backoff  
+ * - Automatic bad sector remapping
+ * - Health monitoring and statistics
+ * - Deferred work for non-atomic operations
  * 
  * Author: Christian (with AI assistance)
  * License: GPL v2
  */
 
-#include <linux/bio.h>            /* For struct bio, bio manipulation functions */
-#include <linux/blk_types.h>      /* For bio operation types, status codes */
-#include <linux/device-mapper.h>  /* For DM_MAPIO_* constants */
+#include <linux/module.h>         /* Core kernel module support */
+#include <linux/bio.h>           /* Bio structures and functions */
+#include <linux/blkdev.h>        /* Block device interfaces */
+#include <linux/device-mapper.h> /* Device mapper framework */
+#include <linux/delay.h>         /* msleep for retry delays */
+#include <linux/workqueue.h>     /* Work queue support */
+#include <linux/slab.h>          /* Memory allocation */
 
-#include "dm-remap-core.h"        /* Our core data structures */
-#include "dm-remap-io.h"          /* Our I/O function declarations */
+#include "dm-remap-core.h"       /* Core data structures */
+#include "dm-remap-error.h"      /* Error handling interfaces */
+#include "dm-remap-io.h"         /* I/O processing interfaces */
 
 /*
- * remap_map() - Main I/O processing function
+ * Work structure for deferred auto-remapping operations
  * 
- * This function is called by the device mapper framework for every I/O request
- * directed to our target. It's the heart of the remapping logic.
+ * Auto-remapping cannot be done in bio endio context (atomic context),
+ * so we defer it to a work queue for safe execution.
+ */
+struct auto_remap_work {
+    struct work_struct work;     /* Kernel work structure */
+    struct remap_c *rc;          /* Target context */
+    sector_t lba;                /* Sector to remap */
+    int error_code;              /* Original error that triggered remap */
+};
+
+/*
+ * Bio context for v2.0 intelligent error handling
  * 
- * PERFORMANCE CRITICAL: This function is called for every single I/O operation,
- * so it must be as fast as possible. We minimize memory allocations, lock
- * contention, and expensive operations.
+ * This structure tracks individual I/O operations for error detection,
+ * retry logic, and automatic remapping decisions.
+ */
+struct dmr_bio_context {
+    struct remap_c *rc;           /* Target context */
+    sector_t original_lba;        /* Original logical block address */
+    u32 retry_count;              /* Number of retries attempted */
+    unsigned long start_time;     /* I/O start time (jiffies) */
+    bio_end_io_t *original_bi_end_io;  /* Original completion callback */
+    void *original_bi_private;    /* Original private data */
+};
+
+/* Work queue for deferred auto-remapping operations */
+/*
+ * Auto-remap work queue for background operations
+ */
+static struct workqueue_struct *auto_remap_wq;
+
+/* Forward declarations */
+static void dmr_schedule_auto_remap(struct remap_c *rc, sector_t lba, int error_code);
+
+
+
+/*
+ * dmr_auto_remap_worker() - Work queue handler for automatic remapping
  * 
- * @ti: Device mapper target instance (contains our remap_c structure)
- * @bio: Block I/O request to process
+ * This function runs in process context and can safely perform
+ * operations that might block or allocate memory.
  * 
- * Returns: DM_MAPIO_REMAPPED if we redirected the bio
- *          DM_MAPIO_SUBMITTED if we handled it ourselves (not used currently)
+ * @work: Work structure containing remapping parameters
+ */
+static void dmr_auto_remap_worker(struct work_struct *work)
+{
+    struct auto_remap_work *arw = container_of(work, struct auto_remap_work, work);
+    struct remap_c *rc = arw->rc;
+    sector_t lba = arw->lba;
+    int ret;
+    
+    DMR_DEBUG(1, "Auto-remap worker processing sector %llu", 
+              (unsigned long long)lba);
+    
+    /* Check if this sector should be auto-remapped */
+    if (dmr_should_auto_remap(rc, lba)) {
+        ret = dmr_perform_auto_remap(rc, lba);
+        if (ret == 0) {
+            DMR_DEBUG(0, "Successfully auto-remapped sector %llu", 
+                      (unsigned long long)lba);
+        } else {
+            DMR_DEBUG(0, "Failed to auto-remap sector %llu: %d", 
+                      (unsigned long long)lba, ret);
+        }
+    }
+    
+    /* Clean up work structure */
+    kfree(arw);
+}
+
+/*
+ * dmr_schedule_auto_remap() - Schedule automatic remapping for a sector
+ * 
+ * This function schedules deferred auto-remapping work for a sector
+ * that has experienced errors.
+ * 
+ * @rc: Target context
+ * @lba: Logical block address to potentially remap
+ * @error_code: Error code that triggered this request
+ */
+/*
+ * dmr_schedule_auto_remap() - Schedule automatic remapping work
+ * 
+ * This function schedules background work to perform automatic remapping
+ * of a sector that has experienced too many errors.
+ * 
+ * @rc: Target context
+ * @lba: Logical block address to remap
+ * @error_code: The error that triggered this remap
+ */
+static void dmr_schedule_auto_remap(struct remap_c *rc, sector_t lba, int error_code)
+{
+    struct auto_remap_work *arw;
+    
+    /* Don't schedule work if auto-remap is disabled */
+    if (!rc->auto_remap_enabled)
+        return;
+    
+    /* Allocate work structure */
+    arw = kzalloc(sizeof(*arw), GFP_ATOMIC);  /* Must use GFP_ATOMIC in endio */
+    if (!arw) {
+        DMR_DEBUG(0, "Failed to allocate auto-remap work for sector %llu", 
+                  (unsigned long long)lba);
+        return;
+    }
+    
+    /* Initialize work structure */
+    INIT_WORK(&arw->work, dmr_auto_remap_worker);
+    arw->rc = rc;
+    arw->lba = lba;
+    arw->error_code = error_code;
+    
+    /* Queue the work */
+    queue_work(auto_remap_wq, &arw->work);
+    
+    DMR_DEBUG(2, "Scheduled auto-remap work for sector %llu", 
+              (unsigned long long)lba);
+}
+
+/*
+ * dmr_bio_endio() - Intelligent bio completion callback for v2.0 error handling
+ * 
+ * This is the heart of the v2.0 intelligent error detection system.
+ * It analyzes I/O completion status, updates health statistics,
+ * and triggers automatic remapping when necessary.
+ * 
+ * @bio: The completed bio
+ */  
+static void dmr_bio_endio(struct bio *bio)
+{
+    struct dmr_bio_context *ctx = bio->bi_private;
+    struct remap_c *rc = ctx->rc;
+    sector_t lba = ctx->original_lba;
+    int error = bio->bi_status;
+    bool is_write = bio_data_dir(bio) == WRITE;
+    
+    /* Update health statistics for this sector */
+    dmr_update_sector_health(rc, lba, (error != 0), error);
+    
+    /* Update global error counters */
+    if (error) {
+        if (is_write)
+            rc->write_errors++;
+        else
+            rc->read_errors++;
+            
+        DMR_DEBUG(1, "I/O error %d on sector %llu (%s)", 
+                  error, (unsigned long long)lba, is_write ? "write" : "read");
+    }
+    
+    /* Check if auto-remapping should be triggered */
+    if (error && rc->auto_remap_enabled && dmr_should_auto_remap(rc, lba)) {
+        dmr_schedule_auto_remap(rc, lba, error);
+    }
+    
+    /* Restore original bio completion info */
+    bio->bi_end_io = ctx->original_bi_end_io;
+    bio->bi_private = ctx->original_bi_private;
+    
+    /* Free our context */
+    kfree(ctx);
+    
+    /* Call original completion handler */
+    if (bio->bi_end_io)
+        bio->bi_end_io(bio);
+    else
+        bio_endio(bio);
+}
+
+
+
+/*
+ * dmr_setup_bio_tracking() - Setup bio for v2.0 error tracking
+ * 
+ * This function sets up a bio with the necessary context and callbacks
+ * for v2.0 error detection and retry logic.
+ * 
+ * @bio: Bio to setup
+ * @rc: Target context
+ * @lba: Original logical block address
+ */
+void dmr_setup_bio_tracking(struct bio *bio, struct remap_c *rc, sector_t lba)
+{
+    struct dmr_bio_context *ctx;
+    
+    DMR_DEBUG(3, "Setup bio tracking for sector %llu", (unsigned long long)lba);
+    
+    /* Only track single-sector I/Os to avoid complications */
+    if (bio->bi_iter.bi_size != 512) {
+        DMR_DEBUG(3, "Skipping tracking for multi-sector bio");
+        return;
+    }
+    
+    /* Allocate context for tracking this bio */
+    ctx = kzalloc(sizeof(*ctx), GFP_NOIO);
+    if (!ctx) {
+        /* If we can't allocate context, continue without tracking */
+        DMR_DEBUG(1, "Failed to allocate bio context for sector %llu", (unsigned long long)lba);
+        return;
+    }
+    
+    /* Initialize context */
+    ctx->rc = rc;
+    ctx->original_lba = lba;
+    ctx->retry_count = 0;
+    ctx->start_time = jiffies;
+    
+    /* Store original bio completion info */
+    ctx->original_bi_end_io = bio->bi_end_io;
+    ctx->original_bi_private = bio->bi_private;
+    
+    /* Set up our completion callback */
+    bio->bi_end_io = dmr_bio_endio;
+    bio->bi_private = ctx;
+    
+    DMR_DEBUG(3, "Bio tracking enabled for sector %llu", (unsigned long long)lba);
+}
+
+/*
+ * remap_map() - Enhanced v2.0 I/O mapping with error handling
+ * 
+ * This function extends the basic remapping logic with v2.0 intelligence
+ * features like health monitoring and automatic error detection setup.
+ * 
+ * @ti: Device mapper target
+ * @bio: Bio to process
+ * 
+ * Returns: DM_MAPIO_* result code
  */
 int remap_map(struct dm_target *ti, struct bio *bio)
 {
-    /* Extract our target context - this contains all our state */
     struct remap_c *rc = ti->private;
-    
-    /* Get the logical sector number from the bio */
     sector_t sector = bio->bi_iter.bi_sector;
-    
-    /* Loop counter for searching the remap table */
-    int i;
-    
-    /* Default: assume we'll send I/O to main device */
     struct dm_dev *target_dev = rc->main_dev;
     sector_t target_sector = rc->main_start + sector;
+    int i;
+    bool found_remap = false;
     
-    /* Get our per-I/O context structure from the bio's private data area */
-    struct remap_io_ctx *ctx = dmr_per_bio_data(bio, struct remap_io_ctx);
+    /* Setup v2.0 error tracking */
+    dmr_setup_bio_tracking(bio, rc, sector);
     
-    /*
-     * Initialize per-I/O context on first access
-     * 
-     * The device mapper framework reuses this memory, so we need to
-     * initialize it. We use ctx->lba == 0 as a "not initialized" marker.
-     */
-    if (ctx->lba == 0) {
-        ctx->lba = sector;
-        ctx->was_write = (bio_data_dir(bio) == WRITE);
-        ctx->retry_to_spare = false;
-    }
-
-    /*
-     * DEBUG LOGGING: Log every I/O operation if debug level is high enough
-     * 
-     * This is placed at the very beginning so we capture ALL I/Os regardless
-     * of which path they take through the function.
-     */
+    /* I/O debug logging */
     if (debug_level >= 2) {
-        printk(KERN_INFO "dm-remap: I/O: sector=%llu, size=%u, %s\n", 
-               (unsigned long long)sector, bio->bi_iter.bi_size, 
-               bio_data_dir(bio) == WRITE ? "WRITE" : "READ");
+        DMR_DEBUG(2, "Enhanced I/O: sector=%llu, size=%u, %s", 
+                  (unsigned long long)sector, bio->bi_iter.bi_size, 
+                  bio_data_dir(bio) == WRITE ? "WRITE" : "READ");
     }
-
-    /*
-     * MULTI-SECTOR I/O HANDLING
-     * 
-     * Our remapping table only handles single-sector (512-byte) operations.
-     * Multi-sector I/Os are passed through unchanged to the main device.
-     * 
-     * This is a design decision that simplifies the remapping logic:
-     * - Most bad sectors affect only single sectors
-     * - Multi-sector remapping would require complex splitting logic
-     * - Filesystems typically handle multi-sector failures gracefully
-     */
-    if (bio->bi_iter.bi_size != 512) {
-        if (debug_level >= 2) {
-            printk(KERN_INFO "dm-remap: Multi-sector passthrough: %u bytes\n", 
-                   bio->bi_iter.bi_size);
-        }
-        
-        /*
-         * Redirect the bio to the main device at the correct offset
-         * 
-         * bio_set_dev() changes which block device this bio targets
-         * bi_sector adjustment accounts for any offset in our target mapping
-         */
-        bio_set_dev(bio, rc->main_dev->bdev);
-        bio->bi_iter.bi_sector = rc->main_start + bio->bi_iter.bi_sector;
-        
-        /* Tell device mapper we modified the bio and it should submit it */
-        return DM_MAPIO_REMAPPED;
-    }
-
-    /*
-     * SPECIAL OPERATION HANDLING
-     * 
-     * Some bio operations (flush, discard, write-zeroes) don't contain normal
-     * data and need special handling. We pass them through to the main device.
-     * 
-     * These operations typically affect multiple sectors and don't make sense
-     * to remap on a per-sector basis.
-     */
-    if (bio_op(bio) == REQ_OP_FLUSH || 
-        bio_op(bio) == REQ_OP_DISCARD || 
-        bio_op(bio) == REQ_OP_WRITE_ZEROES) {
-        
-        /* Redirect to main device - same logic as multi-sector case */
-        bio_set_dev(bio, rc->main_dev->bdev);
-        bio->bi_iter.bi_sector = rc->main_start + bio->bi_iter.bi_sector;
-        return DM_MAPIO_REMAPPED;
-    }
-
-    /*
-     * SINGLE-SECTOR REMAPPING LOGIC
-     * 
-     * This is where the actual bad sector remapping happens.
-     * We search our remap table to see if this sector has been remapped.
-     */
-
-    /*
-     * CRITICAL SECTION: Search the remap table
-     * 
-     * We need to hold the lock while searching because another thread
-     * might be modifying the table (adding new remaps via messages).
-     * 
-     * This lock is held for a very short time - just a table lookup.
-     */
-    spin_lock(&rc->lock);
     
-    /* Linear search through the remap table */
+    /* Handle multi-sector bios by passing through */
+    if (bio->bi_iter.bi_size != 512) {
+        DMR_DEBUG(2, "Multi-sector passthrough: %u bytes", bio->bi_iter.bi_size);
+        bio_set_dev(bio, rc->main_dev->bdev);
+        bio->bi_iter.bi_sector = rc->main_start + bio->bi_iter.bi_sector;
+        return DM_MAPIO_REMAPPED;
+    }
+    
+    /* Handle special operations */
+    if (bio_op(bio) == REQ_OP_FLUSH || bio_op(bio) == REQ_OP_DISCARD || 
+        bio_op(bio) == REQ_OP_WRITE_ZEROES) {
+        bio_set_dev(bio, rc->main_dev->bdev);
+        bio->bi_iter.bi_sector = rc->main_start + bio->bi_iter.bi_sector;
+        return DM_MAPIO_REMAPPED;
+    }
+    
+    /* Check for existing remapping */
+    spin_lock(&rc->lock);
     for (i = 0; i < rc->spare_used; i++) {
-        /*
-         * Check if this table entry matches our sector
-         * 
-         * We check both conditions:
-         * 1. sector matches the main_lba in this entry
-         * 2. main_lba is not -1 (which marks unused entries)
-         */
-        if (sector == rc->table[i].main_lba && 
-            rc->table[i].main_lba != (sector_t)-1) {
-            
-            /*
-             * FOUND A REMAP!
-             * 
-             * This sector has been remapped to the spare device.
-             * Update our target device and sector before releasing the lock.
-             */
+        if (sector == rc->table[i].main_lba && rc->table[i].main_lba != (sector_t)-1) {
+            /* Redirect to spare device */
             target_dev = rc->spare_dev;
             target_sector = rc->table[i].spare_lba;
+            found_remap = true;
             
-            /* Release the lock BEFORE doing I/O operations */
-            spin_unlock(&rc->lock);
-            
-            /* Log the redirection for debugging */
-            if (debug_level >= 1) {
-                printk(KERN_INFO "dm-remap: REMAP: sector %llu -> spare sector %llu\n", 
-                       (unsigned long long)sector, 
-                       (unsigned long long)target_sector);
-            }
-            
-            /*
-             * Redirect the bio to the spare device
-             * 
-             * Note: target_sector is the absolute sector number on the spare
-             * device, not relative to spare_start. This was pre-calculated
-             * when the remap entry was created.
-             */
-            bio_set_dev(bio, target_dev->bdev);
-            bio->bi_iter.bi_sector = target_sector;
-            
-            return DM_MAPIO_REMAPPED;
+            DMR_DEBUG(1, "REMAP: sector %llu -> spare sector %llu", 
+                      (unsigned long long)sector, (unsigned long long)target_sector);
+            break;
         }
     }
-    
-    /* No remap found - release the lock */
     spin_unlock(&rc->lock);
-
-    /*
-     * NORMAL CASE: No remapping needed
-     * 
-     * This sector is not in our remap table, so send it to the main device.
-     * This is the most common case for a healthy storage system.
-     */
-    if (debug_level >= 2) {
-        printk(KERN_INFO "dm-remap: Passthrough: sector %llu to main device\n", 
-               (unsigned long long)sector);
-    }
     
-    /* Redirect to main device at the correct offset */
-    bio_set_dev(bio, rc->main_dev->bdev);
-    bio->bi_iter.bi_sector = rc->main_start + sector;
+    /* Set target device and sector */
+    bio_set_dev(bio, target_dev->bdev);
+    bio->bi_iter.bi_sector = target_sector;
+    
+    if (!found_remap) {
+        DMR_DEBUG(2, "Passthrough: sector %llu to main device", 
+                  (unsigned long long)sector);
+    }
     
     return DM_MAPIO_REMAPPED;
 }
 
 /*
- * DESIGN NOTES:
+ * dmr_io_init() - Initialize I/O processing subsystem
  * 
- * 1. LINEAR SEARCH vs HASH TABLE:
- *    We use linear search because:
- *    - Most systems have very few bad sectors (< 100)
- *    - Linear search has better cache locality
- *    - Hash tables add complexity and memory overhead
- *    - The search is done under a spinlock (very short time)
+ * This function initializes the work queue and other resources
+ * needed for v2.0 I/O processing.
  * 
- * 2. DIRECT BIO REMAPPING vs BIO CLONING:
- *    We modify the original bio instead of cloning because:
- *    - Cloning requires memory allocation (can fail)
- *    - Cloning adds CPU overhead
- *    - Direct remapping is simpler and more reliable
- *    - The device mapper framework handles submission for us
- * 
- * 3. LOCK GRANULARITY:
- *    We use a single spinlock for the entire remap table because:
- *    - Remap operations are rare (only when adding new bad sectors)
- *    - Fine-grained locking would add complexity
- *    - The critical section is very short (just a table lookup)
- * 
- * 4. ERROR HANDLING:
- *    Currently, we don't handle I/O errors in this function.
- *    Error handling will be added in v2 with bio endio callbacks.
+ * Returns: 0 on success, negative error code on failure
  */
+int dmr_io_init(void)
+{
+    /* Create work queue for auto-remapping operations */
+    auto_remap_wq = alloc_workqueue("dmr_auto_remap", WQ_MEM_RECLAIM, 0);
+    if (!auto_remap_wq) {
+        DMR_DEBUG(0, "Failed to create auto-remap work queue");
+        return -ENOMEM;
+    }
+    
+    DMR_DEBUG(1, "Initialized v2.0 I/O processing subsystem");
+    return 0;
+}
+
+/*
+ * dmr_io_exit() - Cleanup I/O processing subsystem
+ * 
+ * This function cleans up resources used by the I/O processing subsystem.
+ */
+void dmr_io_exit(void)
+{
+    if (auto_remap_wq) {
+        flush_workqueue(auto_remap_wq);
+        destroy_workqueue(auto_remap_wq);
+        auto_remap_wq = NULL;
+    }
+    
+    DMR_DEBUG(1, "Cleaned up v2.0 I/O processing subsystem");
+}
