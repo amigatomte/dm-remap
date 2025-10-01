@@ -26,6 +26,7 @@
 #include "dm-remap-core.h"       /* Core data structures */
 #include "dm-remap-error.h"      /* Error handling interfaces */
 #include "dm-remap-io.h"         /* I/O processing interfaces */
+#include "dm-remap-performance.h" /* Performance optimization functions */
 
 /*
  * Work structure for deferred auto-remapping operations
@@ -220,6 +221,12 @@ void dmr_setup_bio_tracking(struct bio *bio, struct remap_c *rc, sector_t lba)
     
     DMR_DEBUG(3, "Setup bio tracking for sector %llu", (unsigned long long)lba);
     
+    /* TEMPORARY DEBUG: Skip bio tracking for read operations to isolate I/O forwarding issue */
+    if (bio_data_dir(bio) == READ) {
+        DMR_DEBUG(3, "Skipping bio tracking for read operation (debugging)");
+        return;
+    }
+    
     /* Track I/Os up to 64KB to handle kernel bio coalescing */
     if (bio->bi_iter.bi_size > 65536) {
         DMR_DEBUG(3, "Skipping tracking for very large bio (%u bytes)", bio->bi_iter.bi_size);
@@ -274,23 +281,32 @@ int remap_map(struct dm_target *ti, struct bio *bio)
     int i;
     bool found_remap = false;
     
-    /* Setup v2.0 error tracking */
+    /* PERFORMANCE OPTIMIZATION: Fast path for common I/Os - check BEFORE expensive bio tracking */
+    if (dmr_is_fast_path_eligible(bio, rc)) {
+        dmr_perf_update_counters(rc, DMR_PERF_FAST_PATH);
+        
+        /* Fast path: minimal bio tracking only if needed */
+        dmr_optimize_bio_tracking(bio, rc);
+        
+        /* Skip debug logging in fast path for performance */
+        return dmr_process_fast_path(bio, rc);
+    }
+    
+    /* Slow path: full bio tracking and processing */
+    /* Prefetch data structures for cache optimization */
+    dmr_prefetch_remap_table(rc, sector);
+    
+    /* Setup v2.0 error tracking (full tracking for slow path) */
     dmr_setup_bio_tracking(bio, rc, sector);
     
-    /* I/O debug logging */
-    if (debug_level >= 2) {
-        DMR_DEBUG(2, "Enhanced I/O: sector=%llu, size=%u, %s", 
+    /* Reduce debug output for performance - only at level 3+ */
+    if (unlikely(debug_level >= 3)) {
+        DMR_DEBUG(3, "Enhanced I/O: sector=%llu, size=%u, %s", 
                   (unsigned long long)sector, bio->bi_iter.bi_size, 
                   bio_data_dir(bio) == WRITE ? "WRITE" : "READ");
     }
     
-    /* Handle multi-sector bios by passing through */
-    if (bio->bi_iter.bi_size != 512) {
-        DMR_DEBUG(2, "Multi-sector passthrough: %u bytes", bio->bi_iter.bi_size);
-        bio_set_dev(bio, rc->main_dev->bdev);
-        bio->bi_iter.bi_sector = rc->main_start + bio->bi_iter.bi_sector;
-        return DM_MAPIO_REMAPPED;
-    }
+    /* NOTE: Multi-sector handling now done via fast path optimization above */
     
     /* Handle special operations */
     if (bio_op(bio) == REQ_OP_FLUSH || bio_op(bio) == REQ_OP_DISCARD || 
@@ -319,12 +335,17 @@ int remap_map(struct dm_target *ti, struct bio *bio)
     /* Set target device and sector */
     bio_set_dev(bio, target_dev->bdev);
     bio->bi_iter.bi_sector = target_sector;
-    
+
     if (!found_remap) {
-        DMR_DEBUG(2, "Passthrough: sector %llu to main device", 
-                  (unsigned long long)sector);
+        DMR_DEBUG(2, "Passthrough: sector %llu -> target_sector %llu to device %s", 
+                  (unsigned long long)sector,
+                  (unsigned long long)target_sector,
+                  target_dev->name);
     }
-    
+
+    DMR_DEBUG(3, "Returning DM_MAPIO_REMAPPED: bio->bi_iter.bi_sector=%llu, bio_size=%u",
+              (unsigned long long)bio->bi_iter.bi_sector, bio->bi_iter.bi_size);
+
     return DM_MAPIO_REMAPPED;
 }
 

@@ -32,6 +32,7 @@
 #include <linux/time64.h>        // Time functions for v2.0 timestamping
 #include "dm-remap-io.h"         // I/O processing functions
 #include "dm-remap-error.h"      // Error handling functions
+#include "dm-remap-debug.h"      // Debug interface for testing
 
 /*
  * Module parameters - configurable via modprobe or /sys/module/
@@ -255,6 +256,13 @@ static int remap_ctr(struct dm_target *ti, unsigned int argc, char **argv)
         /* Continue without sysfs - not a fatal error */
     }
 
+    /* Create debug interface for testing */
+    ret = dmr_debug_add_target(rc, target_name);
+    if (ret) {
+        DMR_DEBUG(0, "Failed to create debug interface for target: %d", ret);
+        /* Continue without debug - not a fatal error */
+    }
+
     pr_info("dm-remap: v2.0 target created successfully\n");
     return 0;
 
@@ -278,6 +286,9 @@ static void remap_dtr(struct dm_target *ti)
 
     /* Remove sysfs interface */
     dmr_sysfs_remove_target(rc);
+
+    /* Remove debug interface */
+    dmr_debug_remove_target(rc);
 
     /* Free remap table */
     if (rc->table) {
@@ -336,6 +347,13 @@ static int __init dm_remap_init(void)
         DMR_ERROR("Failed to initialize sysfs interface: %d", result);
         return result;
     }
+
+    /* Initialize debug interface */
+    result = dmr_debug_init();
+    if (result) {
+        DMR_DEBUG(0, "Failed to initialize debug interface: %d", result);
+        /* Continue without debug - not fatal */
+    }
     
     result = dm_register_target(&remap_target);
     if (result < 0) {
@@ -354,6 +372,7 @@ static void __exit dm_remap_exit(void)
     
     dm_unregister_target(&remap_target);
     dmr_sysfs_exit();
+    dmr_debug_exit();
     
     DMR_DEBUG(1, "dm-remap module exited");
 }

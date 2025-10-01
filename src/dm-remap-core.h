@@ -179,6 +179,9 @@ extern unsigned int global_write_errors;  /* Total write errors detected */
 extern unsigned int global_read_errors;   /* Total read errors detected */
 extern unsigned int global_auto_remaps;   /* Total automatic remaps performed */
 
+/* Forward declaration for production hardening */
+struct dmr_production_context;
+
 /*
  * Debug logging macro
  * 
