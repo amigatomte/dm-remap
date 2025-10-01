@@ -109,9 +109,9 @@ void dmr_update_sector_health(struct remap_c *rc, sector_t lba,
     /* Find the entry for this sector (if it exists in our tracking) */
     spin_lock_irqsave(&rc->lock, flags);
     
-    /* Look for existing entry */
+    /* Look for existing entry - search all health tracking entries */
     entry = NULL;
-    for (i = 0; i < rc->spare_used; i++) {
+    for (i = 0; i < rc->health_entries; i++) {
         if (rc->table[i].main_lba == lba) {
             entry = &rc->table[i];
             break;
@@ -119,20 +119,20 @@ void dmr_update_sector_health(struct remap_c *rc, sector_t lba,
     }
     
     /* If no entry exists and this is an error, we may need to create one */
-    if (!entry && was_error && rc->spare_used < rc->spare_len) {
+    if (!entry && was_error && rc->health_entries < rc->spare_len) {
         /* Create new tracking entry for this problematic sector */
-        entry = &rc->table[rc->spare_used];
+        entry = &rc->table[rc->health_entries];
         entry->main_lba = lba;
-        entry->spare_lba = rc->spare_start + rc->spare_used;
+        entry->spare_lba = rc->spare_start + rc->health_entries;  /* Reserved spare slot */
         entry->error_count = 0;
         entry->access_count = 0;
         entry->last_error_time = 0;
         entry->remap_reason = 0;  /* Not remapped yet */
         entry->health_status = DMR_HEALTH_UNKNOWN;
-        /* Note: We don't increment spare_used yet - only when actually remapped */
+        rc->health_entries++;  /* Track this new health entry */
         
-        DMR_DEBUG(1, "Created health tracking entry for sector %llu", 
-                  (unsigned long long)lba);
+        DMR_DEBUG(1, "Created health tracking entry for sector %llu (entry %llu)", 
+                  (unsigned long long)lba, (unsigned long long)(rc->health_entries - 1));
     }
     
     /* Update statistics if we have an entry */
@@ -192,7 +192,7 @@ bool dmr_should_auto_remap(struct remap_c *rc, sector_t lba)
     spin_lock_irqsave(&rc->lock, flags);
     
     /* Find the health tracking entry for this sector */
-    for (i = 0; i < rc->spare_len; i++) {
+    for (i = 0; i < rc->health_entries; i++) {
         entry = &rc->table[i];
         if (entry->main_lba == lba) {
             /* Check if this sector meets auto-remap criteria */
@@ -267,6 +267,7 @@ int dmr_perform_auto_remap(struct remap_c *rc, sector_t lba)
         rc->spare_used++;  /* Only increment if this is a new entry */
     }
     rc->auto_remaps++;
+    global_auto_remaps++;  /* Global counter for testing */
     
     DMR_DEBUG(0, "Auto-remapped sector %llu to spare %llu (reason: %s)", 
               (unsigned long long)lba, 

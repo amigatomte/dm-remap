@@ -17,6 +17,8 @@
  */
 
 #include <linux/module.h>        // Core kernel module support
+#include <linux/moduleparam.h>   // Module parameter support
+#include <linux/types.h>         // Basic kernel types
 #include "dm-remap-core.h"       // Core data structures and debug macros
 #include "dm-remap-messages.h"   // Debug macros and messaging support
 #include "dm-remap-sysfs.h"      // Sysfs interface declarations
@@ -35,6 +37,11 @@
  */
 int debug_level = 1;             // Debug verbosity: 0=quiet, 1=info, 2=debug
 int max_remaps = 1000;           // Maximum remappable sectors per target
+int error_threshold = 3;         // Default error threshold for auto-remap
+int auto_remap_enabled = 0;      // Enable automatic remapping (disabled by default)
+unsigned int global_write_errors = 0;     // Global write error counter for testing
+unsigned int global_read_errors = 0;      // Global read error counter for testing  
+unsigned int global_auto_remaps = 0;      // Global auto-remap counter for testing
 
 /* Module parameter registration */
 module_param(debug_level, int, 0644);
@@ -43,6 +50,22 @@ MODULE_PARM_DESC(debug_level, "Debug verbosity level (0=quiet, 1=info, 2=debug)"
 // Maximum number of sectors that can be remapped per target instance
 module_param(max_remaps, int, 0644);
 MODULE_PARM_DESC(max_remaps, "Maximum number of remappable sectors per target");
+
+// Error detection and auto-remap parameters
+module_param(error_threshold, int, 0644);
+MODULE_PARM_DESC(error_threshold, "Number of errors before auto-remap is triggered");
+
+module_param(auto_remap_enabled, int, 0644);
+MODULE_PARM_DESC(auto_remap_enabled, "Enable automatic remapping on errors (0=disabled, 1=enabled)");
+
+module_param(global_write_errors, uint, 0444);
+MODULE_PARM_DESC(global_write_errors, "Total write errors detected (read-only)");
+
+module_param(global_read_errors, uint, 0444);
+MODULE_PARM_DESC(global_read_errors, "Total read errors detected (read-only)");
+
+module_param(global_auto_remaps, uint, 0444);
+MODULE_PARM_DESC(global_auto_remaps, "Total automatic remaps performed (read-only)");
 
 /* 
  * EXPORTED VARIABLES 
@@ -159,6 +182,7 @@ static int remap_ctr(struct dm_target *ti, unsigned int argc, char **argv)
 
     /* Initialize spare usage tracking */
     rc->spare_used = 0;
+    rc->health_entries = 0;
 
     /* Initialize v2.0 fields */
     rc->write_errors = 0;
@@ -168,9 +192,9 @@ static int remap_ctr(struct dm_target *ti, unsigned int argc, char **argv)
     rc->scan_progress = 0;
     rc->last_scan_time = 0;
     rc->overall_health = DMR_HEALTH_GOOD;
-    rc->auto_remap_enabled = false;  /* Disabled by default for safety */
+    rc->auto_remap_enabled = auto_remap_enabled;  /* Use global parameter */
     rc->background_scan = false;
-    rc->error_threshold = 3;         /* Default: auto-remap after 3 errors */
+    rc->error_threshold = error_threshold;  /* Use global parameter */
 
     /* Enforce module parameter limits */
     if (rc->spare_len > max_remaps) {

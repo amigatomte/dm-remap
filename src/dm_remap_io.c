@@ -171,10 +171,13 @@ static void dmr_bio_endio(struct bio *bio)
     
     /* Update global error counters */
     if (error) {
-        if (is_write)
+        if (is_write) {
             rc->write_errors++;
-        else
+            global_write_errors++;  /* Global counter for testing */
+        } else {
             rc->read_errors++;
+            global_read_errors++;   /* Global counter for testing */
+        }
             
         DMR_DEBUG(1, "I/O error %d on sector %llu (%s)", 
                   error, (unsigned long long)lba, is_write ? "write" : "read");

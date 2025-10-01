@@ -100,6 +100,7 @@ struct remap_c {
     sector_t spare_start;        /* First sector number in spare area */
     sector_t spare_len;          /* Number of sectors available in spare area */
     sector_t spare_used;         /* Number of spare sectors currently used */
+    sector_t health_entries;     /* Number of health tracking entries (includes remapped) */
     sector_t main_start;         /* Starting sector on main device (usually 0) */
     
     /* Remapping table - dynamically allocated array */
@@ -169,6 +170,11 @@ extern int debug_level;         /* 0=quiet, 1=info, 2=debug */
 extern int max_remaps;          /* Maximum remaps per target */
 extern int auto_remap_enabled;  /* v2.0: Enable automatic remapping */
 extern int error_threshold;     /* v2.0: Error count threshold for auto-remap */
+
+/* Global counters for testing and monitoring */
+extern unsigned int global_write_errors;  /* Total write errors detected */
+extern unsigned int global_read_errors;   /* Total read errors detected */
+extern unsigned int global_auto_remaps;   /* Total automatic remaps performed */
 
 /*
  * Debug logging macro
