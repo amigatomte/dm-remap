@@ -127,6 +127,9 @@ struct remap_c {
     /* Concurrency control */
     spinlock_t lock;            /* Protects table and statistics */
                                /* Must be held when reading/writing remap table */
+    
+    /* Production hardening context (v2.0 Enterprise) */
+    struct dmr_production_context *prod_ctx;  /* Production hardening features */
 };
 
 /*

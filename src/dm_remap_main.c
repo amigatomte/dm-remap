@@ -25,6 +25,7 @@
 #include <linux/device-mapper.h> // Device mapper framework
 #include <linux/bio.h>           // Block I/O structures
 #include <linux/init.h>          // Module initialization
+#include "dm-remap-production.h" // Production hardening features
 #include <linux/kernel.h>        // Kernel utilities  
 #include <linux/vmalloc.h>       // Virtual memory allocation
 #include <linux/string.h>        // String functions
@@ -183,6 +184,19 @@ static int remap_ctr(struct dm_target *ti, unsigned int argc, char **argv)
     /* Initialize spare usage tracking */
     rc->spare_used = 0;
     rc->health_entries = 0;
+    
+    /* Initialize production hardening context */
+    rc->prod_ctx = kzalloc(sizeof(struct dmr_production_context), GFP_KERNEL);
+    if (rc->prod_ctx) {
+        ret = dmr_production_init(rc->prod_ctx);
+        if (ret != 0) {
+            DMR_DEBUG(0, "Production hardening initialization failed: %d", ret);
+            kfree(rc->prod_ctx);
+            rc->prod_ctx = NULL;
+        }
+    } else {
+        DMR_DEBUG(0, "Failed to allocate production context");
+    }
 
     /* Initialize v2.0 fields */
     rc->write_errors = 0;
@@ -284,6 +298,13 @@ static void remap_dtr(struct dm_target *ti)
 
     /* Cleanup v2.0 I/O processing subsystem */
     dmr_io_exit();
+    
+    /* Cleanup production hardening */
+    if (rc->prod_ctx) {
+        dmr_production_cleanup(rc->prod_ctx);
+        kfree(rc->prod_ctx);
+        pr_info("dm-remap: cleaned up production context\n");
+    }
     
     /* Free context structure */
     kfree(rc);
