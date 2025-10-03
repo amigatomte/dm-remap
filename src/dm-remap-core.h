@@ -228,4 +228,9 @@ struct dmr_production_context;
 /* DM_MAPIO_REMAPPED - we modified the bio and want DM to submit it */
 /* DM_MAPIO_REQUEUE - temporary failure, please retry this bio */
 
+/*
+ * Function prototypes for recovery operations
+ */
+int dm_remap_recovery_remove_remap(struct remap_c *rc, sector_t main_sector);
+
 #endif /* DM_REMAP_CORE_H */

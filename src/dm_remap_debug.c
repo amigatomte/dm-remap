@@ -97,7 +97,7 @@ ssize_t dmr_debug_remap_write(struct file *file, const char __user *buf,
         
     } else if (strcmp(cmd, "list") == 0) {
         spin_lock(&debug_target->lock);
-        DMR_DEBUG(0, "DEBUG: Remap table (%d entries):", debug_target->spare_used);
+        DMR_DEBUG(0, "DEBUG: Remap table (%llu entries):", (unsigned long long)debug_target->spare_used);
         for (i = 0; i < debug_target->spare_used; i++) {
             DMR_DEBUG(0, "  [%d] %llu -> %llu", i,
                       (unsigned long long)debug_target->table[i].main_lba,
@@ -124,7 +124,7 @@ static const struct file_operations dmr_debug_remap_fops = {
  */
 int dmr_debug_add_target(struct remap_c *rc, const char *name)
 {
-    struct dentry *target_dir, *remap_file;
+    struct dentry *remap_file;
     
     if (!dmr_debug_dir)
         return -ENODEV;

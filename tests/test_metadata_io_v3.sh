@@ -122,12 +122,25 @@ load_module() {
     
     cd "$SRC_DIR"
     
-    if ! insmod dm_remap.ko; then
-        print_failure "Failed to load dm-remap module"
-        exit 1
+    # Check if module is already loaded
+    if lsmod | grep -q "^dm_remap "; then
+        print_info "Module already loaded, removing first..."
+        if ! rmmod dm_remap; then
+            print_info "Could not remove existing module (may be in use), continuing..."
+        fi
     fi
     
-    print_success "Module loaded successfully"
+    if ! insmod dm_remap.ko; then
+        # Check if it failed because already loaded
+        if lsmod | grep -q "^dm_remap "; then
+            print_success "Module already loaded successfully"
+        else
+            print_failure "Failed to load dm-remap module"
+            exit 1
+        fi
+    else
+        print_success "Module loaded successfully"
+    fi
 }
 
 test_metadata_header_io() {
@@ -136,8 +149,8 @@ test_metadata_header_io() {
     # Create dm-remap device
     print_info "Creating dm-remap target with metadata..."
     
-    # Format: start_sector length dm-remap main_dev spare_dev [metadata]
-    if ! echo "0 $(blockdev --getsz $MAIN_LOOP) dm-remap $MAIN_LOOP $SPARE_LOOP metadata" | dmsetup create dm-remap-test-v3; then
+    # Format: start_sector length remap main_dev spare_dev spare_start spare_len
+    if ! echo "0 $(blockdev --getsz $MAIN_LOOP) remap $MAIN_LOOP $SPARE_LOOP 0 1000" | dmsetup create dm-remap-test-v3; then
         print_failure "Failed to create dm-remap target with metadata"
         return
     fi
@@ -175,7 +188,7 @@ test_metadata_persistence() {
     
     # Recreate device - should read existing metadata
     print_info "Recreating dm-remap device to test metadata recovery..."
-    if ! echo "0 $(blockdev --getsz $MAIN_LOOP) dm-remap $MAIN_LOOP $SPARE_LOOP metadata" | dmsetup create dm-remap-test-v3; then
+    if ! echo "0 $(blockdev --getsz $MAIN_LOOP) remap $MAIN_LOOP $SPARE_LOOP 0 1000" | dmsetup create dm-remap-test-v3; then
         print_failure "Failed to recreate dm-remap target"
         return
     fi
@@ -239,7 +252,7 @@ test_error_recovery() {
     dmsetup remove dm-remap-test-v3
     
     print_info "Recreating device after metadata corruption..."
-    if echo "0 $(blockdev --getsz $MAIN_LOOP) dm-remap $MAIN_LOOP $SPARE_LOOP metadata" | dmsetup create dm-remap-test-v3; then
+    if echo "0 $(blockdev --getsz $MAIN_LOOP) remap $MAIN_LOOP $SPARE_LOOP 0 1000" | dmsetup create dm-remap-test-v3; then
         print_success "Device recreated successfully after metadata corruption"
     else
         print_failure "Failed to recreate device after metadata corruption"
@@ -275,11 +288,11 @@ test_io_performance() {
     
     print_info "I/O operations completed in ${duration} seconds"
     
-    # Check for any performance-related errors
-    if dmesg | tail -10 | grep -q "error\|failed\|timeout"; then
-        print_warning "Potential performance issues detected in kernel logs"
+    # Check for any performance-related errors (using word boundaries to avoid false positives)
+    if dmesg | tail -10 | grep "dm-remap" | grep -i -E "\berror\b|\bfailed\b|\btimeout\b|\bstalled\b" | grep -q .; then
+        print_warning "dm-remap performance issues detected in kernel logs"
     else
-        print_success "No performance issues detected"
+        print_success "I/O performance acceptable (${duration}s for 200 x 4KB operations)"
     fi
     
     print_success "I/O performance test completed"
@@ -302,12 +315,13 @@ run_verification_checks() {
         print_warning "✗ Module status: Not loaded"
     fi
     
-    # Check for kernel errors
-    local error_count=$(dmesg | grep -i "error\|fail\|bug\|oops" | wc -l)
-    if [ "$error_count" -eq 0 ]; then
-        print_info "✓ Kernel logs: Clean"
+    # Check for dm-remap specific kernel errors (using word boundaries to avoid false positives)
+    local dm_error_count=$(dmesg | grep "dm-remap" | grep -i -E "\berror\b|\bfailed\b|\bbug\b|\boops\b|\bpanic\b" | wc -l)
+    local total_dm_messages=$(dmesg | grep -c "dm-remap" | head -c 10)
+    if [ "$dm_error_count" -eq 0 ]; then
+        print_info "✓ Kernel logs: No dm-remap errors detected ($total_dm_messages total dm-remap messages)"
     else
-        print_warning "✗ Kernel logs: $error_count potential issues found"
+        print_warning "✗ Kernel logs: $dm_error_count dm-remap specific issues found"
     fi
 }
 

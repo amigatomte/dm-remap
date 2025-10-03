@@ -104,16 +104,35 @@ static void remap_status(struct dm_target *ti, status_type_t type,
 
     switch (type) {
     case STATUSTYPE_INFO:
-        // Format: remapped/total_spare lost/total_spare used/total_spare
-        scnprintf(result, maxlen, 
-                 "v2.0 %d/%llu %d/%llu %llu/%llu health=%u errors=W%u:R%u auto_remaps=%u manual_remaps=%u scan=%u%%",
-                 remapped, (unsigned long long)rc->spare_len,
-                 lost, (unsigned long long)rc->spare_len, 
-                 (unsigned long long)rc->spare_used, (unsigned long long)rc->spare_len,
-                 rc->overall_health,
-                 rc->write_errors, rc->read_errors,
-                 rc->auto_remaps, rc->manual_remaps,
-                 rc->scan_progress);
+        // v3.0 Enhanced status with metadata information
+        if (rc->metadata) {
+            u64 successful, failed;
+            bool active;
+            dm_remap_recovery_get_stats(rc, &successful, &failed, &active);
+            
+            scnprintf(result, maxlen, 
+                     "v3.0 %d/%llu %d/%llu %llu/%llu health=%u errors=W%u:R%u auto_remaps=%u manual_remaps=%u scan=%u%% metadata=enabled autosave=%s saves=%llu/%llu",
+                     remapped, (unsigned long long)rc->spare_len,
+                     lost, (unsigned long long)rc->spare_len, 
+                     (unsigned long long)rc->spare_used, (unsigned long long)rc->spare_len,
+                     rc->overall_health,
+                     rc->write_errors, rc->read_errors,
+                     rc->auto_remaps, rc->manual_remaps,
+                     rc->scan_progress,
+                     active ? "active" : "inactive",
+                     successful, failed);
+        } else {
+            // Fallback for targets without metadata
+            scnprintf(result, maxlen, 
+                     "v3.0 %d/%llu %d/%llu %llu/%llu health=%u errors=W%u:R%u auto_remaps=%u manual_remaps=%u scan=%u%% metadata=disabled",
+                     remapped, (unsigned long long)rc->spare_len,
+                     lost, (unsigned long long)rc->spare_len, 
+                     (unsigned long long)rc->spare_used, (unsigned long long)rc->spare_len,
+                     rc->overall_health,
+                     rc->write_errors, rc->read_errors,
+                     rc->auto_remaps, rc->manual_remaps,
+                     rc->scan_progress);
+        }
         break;
         
     case STATUSTYPE_TABLE:

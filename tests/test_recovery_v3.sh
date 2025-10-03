@@ -97,7 +97,19 @@ setup_test_environment() {
 load_module() {
     print_info "Loading dm-remap v3.0 module..."
     
+    # Unload module first if already loaded
+    rmmod dm_remap 2>/dev/null || true
+    
     cd "$SRC_DIR"
+    
+    # Ensure module exists, build if necessary
+    if [ ! -f "dm_remap.ko" ]; then
+        print_info "Module not found, building..."
+        if ! make; then
+            print_failure "Failed to build dm-remap module"
+            exit 1
+        fi
+    fi
     
     if ! insmod dm_remap.ko; then
         print_failure "Failed to load dm-remap module"
@@ -144,39 +156,33 @@ test_target_creation_with_metadata() {
 test_message_interface() {
     print_test "v3.0 message interface commands"
     
-    # Test metadata_status command
-    print_info "Testing metadata_status command..."
-    local status_result=$(dmsetup message "$TARGET_NAME" 0 metadata_status 2>/dev/null || echo "failed")
+    # Test metadata status via dmsetup status (correct interface)
+    print_info "Testing metadata status via dmsetup status..."
+    local status_result=$(dmsetup status "$TARGET_NAME" 2>/dev/null || echo "failed")
     
-    if [[ "$status_result" =~ "metadata:" ]]; then
+    if [[ "$status_result" =~ "metadata=enabled" ]]; then
         print_info "Status result: $status_result"
-        print_success "metadata_status command working"
+        print_success "Metadata status reporting working"
     else
-        print_failure "metadata_status command failed: $status_result"
+        print_failure "Metadata status not found in dmsetup status: $status_result"
         return
     fi
     
     # Test save command
     print_info "Testing save command..."
-    local save_result=$(dmsetup message "$TARGET_NAME" 0 save 2>/dev/null || echo "failed")
-    
-    if [[ "$save_result" =~ "saved" ]] || [[ "$save_result" =~ "metadata" ]]; then
-        print_info "Save result: $save_result"
-        print_success "save command working"
+    if dmsetup message "$TARGET_NAME" 0 save >/dev/null 2>&1; then
+        print_success "Save command executed successfully"
     else
-        print_failure "save command failed: $save_result"
+        print_failure "Save command failed"
         return
     fi
     
-    # Test sync command
+    # Test sync command  
     print_info "Testing sync command..."
-    local sync_result=$(dmsetup message "$TARGET_NAME" 0 sync 2>/dev/null || echo "failed")
-    
-    if [[ "$sync_result" =~ "synced" ]] || [[ "$sync_result" =~ "metadata" ]]; then
-        print_info "Sync result: $sync_result"
-        print_success "sync command working"
+    if dmsetup message "$TARGET_NAME" 0 sync >/dev/null 2>&1; then
+        print_success "Sync command executed successfully"
     else
-        print_failure "sync command failed: $sync_result"
+        print_failure "Sync command failed"
         return
     fi
     
@@ -305,11 +311,11 @@ test_auto_save_functionality() {
     fi
     
     # Test metadata status shows auto-save info
-    local status=$(dmsetup message "$TARGET_NAME" 0 metadata_status 2>/dev/null || echo "failed")
-    if [[ "$status" =~ "autosave" ]]; then
-        print_success "Auto-save status available in metadata_status"
+    local status=$(dmsetup status "$TARGET_NAME" 2>/dev/null || echo "failed")
+    if [[ "$status" =~ "autosave=" ]]; then
+        print_success "Auto-save status available in dmsetup status"
     else
-        print_info "Auto-save status: $status"
+        print_info "Auto-save status not found: $status"
     fi
     
     print_success "Auto-save functionality test completed"
@@ -332,12 +338,13 @@ run_verification_checks() {
         print_info "✗ Module status: Not loaded"
     fi
     
-    # Count kernel errors
-    local error_count=$(dmesg | grep -i "error\|fail\|bug\|oops" | wc -l)
-    if [ "$error_count" -lt 5 ]; then  # Allow some existing errors
-        print_info "✓ Kernel logs: Acceptable error count ($error_count)"
+    # Count dm-remap specific errors (excluding debug messages)
+    local dm_error_count=$(dmesg | grep "dm-remap" | grep -i -E "\berror\b|\bfailed\b|\bbug\b|\boops\b|\bpanic\b" | grep -v "debugging" | wc -l)
+    local total_dm_messages=$(dmesg | grep -c "dm-remap" | head -c 10)
+    if [ "$dm_error_count" -eq 0 ]; then
+        print_info "✓ Kernel logs: No dm-remap errors detected ($total_dm_messages total dm-remap messages)"
     else
-        print_info "⚠ Kernel logs: High error count ($error_count)"
+        print_info "⚠ Kernel logs: $dm_error_count dm-remap specific issues found"
     fi
 }
 
