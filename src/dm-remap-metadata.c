@@ -68,19 +68,19 @@ struct dm_remap_metadata *dm_remap_metadata_create(struct block_device *spare_bd
 	meta->state = DM_REMAP_META_CLEAN;
 	mutex_init(&meta->metadata_lock);
 	
-	/* Initialize work queue for async writes */
-	INIT_WORK(&meta->write_work, dm_remap_metadata_write_work);
-	atomic_set(&meta->pending_writes, 0);
-	
 	/* Initialize statistics */
 	atomic64_set(&meta->metadata_reads, 0);
 	atomic64_set(&meta->metadata_writes, 0);
 	atomic64_set(&meta->checksum_errors, 0);
+	atomic_set(&meta->pending_writes, 0);
 	
-	/* Initialize auto-save configuration */
-	meta->auto_save_enabled = true;
-	meta->save_interval = DM_REMAP_DEFAULT_SAVE_INTERVAL;
-	timer_setup(&meta->save_timer, dm_remap_metadata_save_timer, 0);
+	/* Initialize auto-save system via separate function */
+	if (dm_remap_autosave_init(meta) != 0) {
+		DMREMAP_META_ERROR(meta, "Failed to initialize auto-save system");
+		kfree(meta->entries);
+		kfree(meta);
+		return NULL;
+	}
 	
 	/* Calculate initial checksum */
 	dm_remap_metadata_calculate_checksum(meta);
@@ -99,11 +99,8 @@ void dm_remap_metadata_destroy(struct dm_remap_metadata *meta)
 		
 	DMREMAP_META_DEBUG(meta, "Destroying metadata context");
 	
-	/* Stop auto-save timer */
-	del_timer_sync(&meta->save_timer);
-	
-	/* Wait for pending writes to complete */
-	flush_work(&meta->write_work);
+	/* Clean up auto-save system */
+	dm_remap_autosave_cleanup(meta);
 	
 	/* Free resources */
 	vfree(meta->entries);
@@ -168,7 +165,7 @@ bool dm_remap_metadata_validate(struct dm_remap_metadata *meta)
 	/* Check entry count bounds */
 	entry_count = le32_to_cpu(meta->header.entry_count);
 	if (entry_count > DM_REMAP_MAX_METADATA_ENTRIES) {
-		DMREMAP_META_ERROR(meta, "Entry count %u exceeds maximum %u",
+		DMREMAP_META_ERROR(meta, "Entry count %u exceeds maximum %zu",
 				  entry_count, DM_REMAP_MAX_METADATA_ENTRIES);
 		return false;
 	}
@@ -319,41 +316,7 @@ const char *dm_remap_metadata_result_string(enum dm_remap_metadata_result result
 }
 
 /*
- * Async work function for metadata writes
- */
-static void dm_remap_metadata_write_work(struct work_struct *work)
-{
-	struct dm_remap_metadata *meta = container_of(work, struct dm_remap_metadata, write_work);
-	enum dm_remap_metadata_result result;
-	
-	result = dm_remap_metadata_write(meta);
-	if (result != DM_REMAP_META_SUCCESS) {
-		DMREMAP_META_ERROR(meta, "Async metadata write failed: %s",
-				  dm_remap_metadata_result_string(result));
-	}
-}
-
-/*
- * Timer callback for periodic auto-save
- */
-static void dm_remap_metadata_save_timer(struct timer_list *timer)
-{
-	struct dm_remap_metadata *meta = container_of(timer, struct dm_remap_metadata, save_timer);
-	
-	if (dm_remap_metadata_is_dirty(meta)) {
-		DMREMAP_META_DEBUG(meta, "Auto-save triggered");
-		queue_work(system_wq, &meta->write_work);
-	}
-	
-	/* Reschedule timer */
-	mod_timer(&meta->save_timer, jiffies + meta->save_interval * HZ);
-}
-
-/*
- * TODO: Implement the actual I/O functions
- * These will be implemented in the next phase:
- * - dm_remap_metadata_read()
- * - dm_remap_metadata_write()  
- * - dm_remap_metadata_sync()
- * - dm_remap_metadata_recover()
+ * End of dm-remap-metadata.c
+ * I/O operations are implemented in dm-remap-io.c
+ * Auto-save system is implemented in dm-remap-autosave.c
  */

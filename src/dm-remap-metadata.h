@@ -38,6 +38,12 @@
 #define DM_REMAP_MAX_METADATA_ENTRIES ((DM_REMAP_METADATA_SIZE - 64) / sizeof(struct dm_remap_entry))
 
 /*
+ * Auto-save configuration
+ */
+#define DM_REMAP_DEFAULT_AUTOSAVE_INTERVAL 60  /* Default auto-save interval in seconds */
+#define DM_REMAP_DEFAULT_SAVE_INTERVAL 60      /* Legacy save interval name */
+
+/*
  * Metadata states
  */
 enum dm_remap_metadata_state {
@@ -122,6 +128,13 @@ struct dm_remap_metadata {
 	bool auto_save_enabled;            /* Automatic metadata saving */
 	unsigned int save_interval;       /* Seconds between automatic saves */
 	struct timer_list save_timer;      /* Timer for periodic saves */
+	
+	/* Auto-save system */
+	struct workqueue_struct *autosave_wq;    /* Dedicated workqueue for auto-save */
+	struct delayed_work autosave_work;       /* Delayed work for auto-save */
+	bool autosave_active;                    /* Auto-save system active flag */
+	atomic64_t autosaves_successful;         /* Successful auto-save count */
+	atomic64_t autosaves_failed;             /* Failed auto-save count */
 };
 
 /*
@@ -166,6 +179,18 @@ bool dm_remap_metadata_find_entry(struct dm_remap_metadata *meta,
 bool dm_remap_metadata_validate(struct dm_remap_metadata *meta);
 enum dm_remap_metadata_result dm_remap_metadata_recover(struct dm_remap_metadata *meta);
 
+/* Auto-save system */
+int dm_remap_autosave_init(struct dm_remap_metadata *meta);
+void dm_remap_autosave_start(struct dm_remap_metadata *meta);
+void dm_remap_autosave_stop(struct dm_remap_metadata *meta);
+void dm_remap_autosave_cleanup(struct dm_remap_metadata *meta);
+enum dm_remap_metadata_result dm_remap_autosave_force(struct dm_remap_metadata *meta);
+void dm_remap_autosave_trigger(struct dm_remap_metadata *meta, bool immediate);
+void dm_remap_autosave_stats(struct dm_remap_metadata *meta,
+			    u64 *successful, u64 *failed, bool *active);
+void dm_remap_autosave_set_interval(unsigned int interval_seconds);
+void dm_remap_autosave_set_enabled(bool enabled);
+
 /* Utility functions */
 void dm_remap_metadata_calculate_checksum(struct dm_remap_metadata *meta);
 const char *dm_remap_metadata_result_string(enum dm_remap_metadata_result result);
@@ -179,6 +204,7 @@ const char *dm_remap_metadata_result_string(enum dm_remap_metadata_result result
 #define dm_remap_metadata_is_dirty(meta) ((meta)->state == DM_REMAP_META_DIRTY)
 #define dm_remap_metadata_is_clean(meta) ((meta)->state == DM_REMAP_META_CLEAN)
 #define dm_remap_metadata_is_error(meta) ((meta)->state == DM_REMAP_META_ERROR)
+#define dm_remap_metadata_mark_dirty(meta) ((meta)->state = DM_REMAP_META_DIRTY)
 
 /*
  * Debug and logging helpers
