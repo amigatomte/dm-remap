@@ -191,6 +191,14 @@ void dm_remap_autosave_stats(struct dm_remap_metadata *meta,
 void dm_remap_autosave_set_interval(unsigned int interval_seconds);
 void dm_remap_autosave_set_enabled(bool enabled);
 
+/* Recovery system integration */
+struct remap_c;  /* Forward declaration */
+int dm_remap_recovery_restore_table(struct remap_c *rc);
+int dm_remap_recovery_sync_metadata(struct remap_c *rc);
+int dm_remap_recovery_add_remap(struct remap_c *rc, sector_t main_sector, sector_t spare_sector);
+int dm_remap_recovery_validate_consistency(struct remap_c *rc);
+void dm_remap_recovery_get_stats(struct remap_c *rc, u64 *successful_saves, u64 *failed_saves, bool *autosave_active);
+
 /* Utility functions */
 void dm_remap_metadata_calculate_checksum(struct dm_remap_metadata *meta);
 const char *dm_remap_metadata_result_string(enum dm_remap_metadata_result result);

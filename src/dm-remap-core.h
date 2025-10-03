@@ -130,6 +130,9 @@ struct remap_c {
     
     /* Production hardening context (v2.0 Enterprise) */
     struct dmr_production_context *prod_ctx;  /* Production hardening features */
+    
+    /* v3.0 Metadata persistence system */
+    struct dm_remap_metadata *metadata;      /* Persistent metadata context */
 };
 
 /*

@@ -33,6 +33,7 @@
 #include "dm-remap-io.h"         // I/O processing functions
 #include "dm-remap-error.h"      // Error handling functions
 #include "dm-remap-debug.h"      // Debug interface for testing
+#include "dm-remap-metadata.h"   // v3.0 metadata persistence system
 
 /*
  * Module parameters - configurable via modprobe or /sys/module/
@@ -210,6 +211,9 @@ static int remap_ctr(struct dm_target *ti, unsigned int argc, char **argv)
     rc->auto_remap_enabled = auto_remap_enabled;  /* Use global parameter */
     rc->background_scan = false;
     rc->error_threshold = error_threshold;  /* Use global parameter */
+    
+    /* Initialize v3.0 metadata system */
+    rc->metadata = NULL;  /* Will be initialized after device validation */
 
     /* Enforce module parameter limits */
     if (rc->spare_len > max_remaps) {
@@ -262,8 +266,36 @@ static int remap_ctr(struct dm_target *ti, unsigned int argc, char **argv)
         DMR_DEBUG(0, "Failed to create debug interface for target: %d", ret);
         /* Continue without debug - not a fatal error */
     }
+    
+    /* Initialize v3.0 metadata system */
+    rc->metadata = dm_remap_metadata_create(rc->spare_dev->bdev, 
+                                           bdev_nr_sectors(rc->main_dev->bdev),
+                                           bdev_nr_sectors(rc->spare_dev->bdev));
+    if (!rc->metadata) {
+        DMR_DEBUG(0, "Failed to create metadata context - continuing without persistence");
+        /* Continue without metadata - not a fatal error in v3.0 development */
+    } else {
+        /* Try to read existing metadata */
+        enum dm_remap_metadata_result result = dm_remap_metadata_read(rc->metadata);
+        if (result == DM_REMAP_META_SUCCESS) {
+            DMR_DEBUG(0, "Successfully restored metadata from spare device");
+            /* Restore remap table from metadata */
+            int restored = dm_remap_recovery_restore_table(rc);
+            if (restored > 0) {
+                DMR_DEBUG(0, "Restored %d remap entries from persistent storage", restored);
+            }
+        } else if (result == DM_REMAP_META_ERROR_MAGIC) {
+            DMR_DEBUG(0, "No existing metadata found - starting with clean state");
+        } else {
+            DMR_DEBUG(0, "Metadata read failed (%d) - starting with clean state", result);
+        }
+        
+        /* Start auto-save system */
+        dm_remap_autosave_start(rc->metadata);
+    }
 
-    pr_info("dm-remap: v2.0 target created successfully\n");
+    pr_info("dm-remap: v3.0 target created successfully (metadata: %s)\n",
+            rc->metadata ? "enabled" : "disabled");
     return 0;
 
 bad:
@@ -289,6 +321,15 @@ static void remap_dtr(struct dm_target *ti)
 
     /* Remove debug interface */
     dmr_debug_remove_target(rc);
+    
+    /* Cleanup v3.0 metadata system */
+    if (rc->metadata) {
+        /* Force final save before shutdown */
+        dm_remap_autosave_force(rc->metadata);
+        /* Clean up metadata context */
+        dm_remap_metadata_destroy(rc->metadata);
+        pr_info("dm-remap: cleaned up metadata system\n");
+    }
 
     /* Free remap table */
     if (rc->table) {
@@ -325,7 +366,7 @@ static void remap_dtr(struct dm_target *ti)
 // Device mapper target structure - defines our target interface
 static struct target_type remap_target = {
     .name            = "remap",
-    .version         = {2, 0, 0},
+    .version         = {3, 0, 0},
     .features        = DM_TARGET_PASSES_INTEGRITY,
     .module          = THIS_MODULE,
     .ctr             = remap_ctr,

@@ -21,6 +21,7 @@
 
 #include "dm-remap-core.h"        /* Our core data structures */
 #include "dm-remap-messages.h"    /* Our message function declarations */
+#include "dm-remap-metadata.h"    /* v3.0 metadata system */
 
 /*
  * remap_message() - Handle dmsetup message commands
@@ -314,12 +315,122 @@ int remap_message(struct dm_target *ti, unsigned argc, char **argv,
     }
 
     /*
+     * COMMAND: "save"
+     * 
+     * Force immediate metadata synchronization to spare device.
+     * Usage: dmsetup message target-name 0 save
+     */
+    if (argc == 1 && strcmp(argv[0], "save") == 0) {
+        if (rc->metadata) {
+            enum dm_remap_metadata_result res = dm_remap_autosave_force(rc->metadata);
+            if (res == DM_REMAP_META_SUCCESS) {
+                if (maxlen)
+                    scnprintf(result, maxlen, "metadata saved successfully");
+                printk(KERN_INFO "dm-remap: Metadata saved via message command\n");
+            } else {
+                if (maxlen)
+                    scnprintf(result, maxlen, "metadata save failed: %d", res);
+                printk(KERN_ERR "dm-remap: Metadata save failed: %d\n", res);
+            }
+        } else {
+            if (maxlen)
+                scnprintf(result, maxlen, "metadata system not available");
+            printk(KERN_WARNING "dm-remap: Save command issued but metadata disabled\n");
+        }
+        return 0;
+    }
+
+    /*
+     * COMMAND: "restore"
+     * 
+     * Reload remap table from persistent metadata.
+     * Usage: dmsetup message target-name 0 restore
+     */
+    if (argc == 1 && strcmp(argv[0], "restore") == 0) {
+        if (rc->metadata) {
+            enum dm_remap_metadata_result res = dm_remap_metadata_read(rc->metadata);
+            if (res == DM_REMAP_META_SUCCESS) {
+                int restored = dm_remap_recovery_restore_table(rc);
+                if (restored >= 0) {
+                    if (maxlen)
+                        scnprintf(result, maxlen, "restored %d remap entries", restored);
+                    printk(KERN_INFO "dm-remap: Restored %d entries from metadata\n", restored);
+                } else {
+                    if (maxlen)
+                        scnprintf(result, maxlen, "restore failed: %d", restored);
+                    printk(KERN_ERR "dm-remap: Restore failed: %d\n", restored);
+                }
+            } else {
+                if (maxlen)
+                    scnprintf(result, maxlen, "metadata read failed: %d", res);
+                printk(KERN_ERR "dm-remap: Metadata read failed: %d\n", res);
+            }
+        } else {
+            if (maxlen)
+                scnprintf(result, maxlen, "metadata system not available");
+            printk(KERN_WARNING "dm-remap: Restore command issued but metadata disabled\n");
+        }
+        return 0;
+    }
+
+    /*
+     * COMMAND: "metadata_status"
+     * 
+     * Show metadata system status and statistics.
+     * Usage: dmsetup message target-name 0 metadata_status
+     */
+    if (argc == 1 && strcmp(argv[0], "metadata_status") == 0) {
+        if (rc->metadata) {
+            u64 successful, failed;
+            bool active;
+            dm_remap_recovery_get_stats(rc, &successful, &failed, &active);
+            
+            if (maxlen)
+                scnprintf(result, maxlen, 
+                         "metadata: enabled, autosave: %s, saves: %llu/%llu (success/fail)",
+                         active ? "active" : "inactive", successful, failed);
+            printk(KERN_INFO "dm-remap: Metadata status requested via message\n");
+        } else {
+            if (maxlen)
+                scnprintf(result, maxlen, "metadata: disabled");
+            printk(KERN_INFO "dm-remap: Metadata status: disabled\n");
+        }
+        return 0;
+    }
+
+    /*
+     * COMMAND: "sync"
+     * 
+     * Synchronize current remap table to metadata (force consistency).
+     * Usage: dmsetup message target-name 0 sync
+     */
+    if (argc == 1 && strcmp(argv[0], "sync") == 0) {
+        if (rc->metadata) {
+            int synced = dm_remap_recovery_sync_metadata(rc);
+            if (synced >= 0) {
+                if (maxlen)
+                    scnprintf(result, maxlen, "synced %d entries to metadata", synced);
+                printk(KERN_INFO "dm-remap: Synced %d entries to metadata\n", synced);
+            } else {
+                if (maxlen)
+                    scnprintf(result, maxlen, "sync failed: %d", synced);
+                printk(KERN_ERR "dm-remap: Sync failed: %d\n", synced);
+            }
+        } else {
+            if (maxlen)
+                scnprintf(result, maxlen, "metadata system not available");
+            printk(KERN_WARNING "dm-remap: Sync command issued but metadata disabled\n");
+        }
+        return 0;
+    }
+
+    /*
      * UNKNOWN COMMAND
      * 
      * If we get here, the user sent a command we don't recognize.
      */
     if (maxlen)
-        scnprintf(result, maxlen, "error: unknown command '%s'", argv[0]);
+        scnprintf(result, maxlen, "error: unknown command '%s' (try: ping, remap, verify, clear, save, restore, metadata_status, sync)", argv[0]);
     
     printk(KERN_WARNING "dm-remap: Unknown message command: %s\n", argv[0]);
     
