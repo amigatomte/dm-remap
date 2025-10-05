@@ -109,12 +109,24 @@ build_module() {
         sed -i 's/dm_remap-objs := dm_remap.o/dm_remap-objs := dm_remap.o dm-remap-metadata.o dm-remap-io.o dm-remap-autosave.o/' Makefile
     fi
     
-    if ! make clean && make; then
+    print_info "Cleaning previous build..."
+    make clean
+    print_info "Building module..."
+    if ! make; then
         print_failure "Failed to build dm-remap module"
+        ls -la *.ko 2>/dev/null || echo "No .ko files found"
+        exit 1
+    fi
+    
+    # Verify the module file exists
+    if [ ! -f "dm_remap.ko" ]; then
+        print_failure "Module file dm_remap.ko not created"
+        ls -la *.ko 2>/dev/null || echo "No .ko files found"
         exit 1
     fi
     
     print_success "Module built successfully"
+    ls -la dm_remap.ko
 }
 
 load_module() {
@@ -125,17 +137,26 @@ load_module() {
     # Check if module is already loaded
     if lsmod | grep -q "^dm_remap "; then
         print_info "Module already loaded, removing first..."
-        if ! rmmod dm_remap; then
-            print_info "Could not remove existing module (may be in use), continuing..."
+        if ! sudo rmmod dm_remap 2>/dev/null; then
+            print_info "Could not remove existing module (may be in use), trying to continue..."
+            # Wait a moment and try again
+            sleep 1
+            if ! sudo rmmod dm_remap 2>/dev/null; then
+                print_failure "Cannot remove existing module"
+                exit 1
+            fi
         fi
+        print_info "Module removed successfully"
     fi
     
-    if ! insmod dm_remap.ko; then
+    # Load the module
+    if ! sudo insmod dm_remap.ko 2>/dev/null; then
         # Check if it failed because already loaded
         if lsmod | grep -q "^dm_remap "; then
             print_success "Module already loaded successfully"
         else
             print_failure "Failed to load dm-remap module"
+            dmesg | tail -10
             exit 1
         fi
     else
@@ -176,6 +197,13 @@ test_metadata_header_io() {
         return
     fi
     
+    # Check for kernel log errors after this test (exclude expected initialization messages)
+    local dm_error_count=$(dmesg | grep "dm-remap" | grep -i -E "\berror\b|\bfailed\b|\bbug\b|\boops\b|\bpanic\b" | grep -v "error 0" | grep -v "Failed to read metadata header" | grep -v "starting with clean state" | grep -v "No existing metadata found" | grep -v "Metadata I/O failed with error -5" | grep -v "Metadata read failed (1)" | wc -l)
+    if [ "$dm_error_count" -ne 0 ]; then
+        print_failure "Kernel log errors detected after metadata header I/O test"
+        dmesg | grep "dm-remap" | grep -i -E "\berror\b|\bfailed\b|\bbug\b|\boops\b|\bpanic\b" | grep -v "error 0" | tail -5
+        return
+    fi
     print_success "Metadata header I/O test completed"
 }
 
@@ -202,7 +230,37 @@ test_metadata_persistence() {
         return
     fi
     
+    # Check for kernel log errors after this test (exclude expected initialization messages)
+    local dm_error_count=$(dmesg | grep "dm-remap" | grep -i -E "\berror\b|\bfailed\b|\bbug\b|\boops\b|\bpanic\b" | grep -v "error 0" | grep -v "Failed to read metadata header" | grep -v "starting with clean state" | grep -v "No existing metadata found" | grep -v "Metadata I/O failed with error -5" | grep -v "Metadata read failed (1)" | wc -l)
+    if [ "$dm_error_count" -ne 0 ]; then
+        print_failure "Kernel log errors detected after metadata persistence test"
+        dmesg | grep "dm-remap" | grep -i -E "\berror\b|\bfailed\b|\bbug\b|\boops\b|\bpanic\b" | grep -v "error 0" | tail -5
+        return
+    fi
     print_success "Metadata persistence test completed"
+}
+
+test_duplicate_remap() {
+    print_test "Duplicate remap entry detection"
+    # Add a remap entry
+    local main_sector=12345
+    local spare_sector=54321
+    # First add should succeed
+    dmsetup message dm-remap-test-v3 0 "remap $main_sector $spare_sector"
+    # Second add (duplicate) should fail or be rejected
+    if dmsetup message dm-remap-test-v3 0 "remap $main_sector $spare_sector" 2>&1 | grep -i "duplicate\|error\|corrupt"; then
+        print_success "Duplicate remap entry correctly detected and rejected"
+    else
+        print_failure "Duplicate remap entry was not detected or rejected"
+    fi
+    # Check for kernel log errors after this test (exclude expected initialization messages)
+    local dm_error_count=$(dmesg | grep "dm-remap" | grep -i -E "\berror\b|\bfailed\b|\bbug\b|\boops\b|\bpanic\b" | grep -v "error 0" | grep -v "Failed to read metadata header" | grep -v "starting with clean state" | grep -v "No existing metadata found" | grep -v "Metadata I/O failed with error -5" | grep -v "Metadata read failed (1)" | wc -l)
+    if [ "$dm_error_count" -ne 0 ]; then
+        print_failure "Kernel log errors detected after duplicate remap test"
+        dmesg | grep "dm-remap" | grep -i -E "\berror\b|\bfailed\b|\bbug\b|\boops\b|\bpanic\b" | grep -v "error 0" | tail -5
+        return
+    fi
+    print_success "Duplicate remap test completed"
 }
 
 test_autosave_system() {
@@ -231,6 +289,13 @@ test_autosave_system() {
         print_success "Auto-save system test completed (no errors detected)"
     fi
     
+    # Check for kernel log errors after this test (exclude expected initialization messages)
+    local dm_error_count=$(dmesg | grep "dm-remap" | grep -i -E "\berror\b|\bfailed\b|\bbug\b|\boops\b|\bpanic\b" | grep -v "error 0" | grep -v "Failed to read metadata header" | grep -v "starting with clean state" | grep -v "No existing metadata found" | grep -v "Metadata I/O failed with error -5" | grep -v "Metadata read failed (1)" | wc -l)
+    if [ "$dm_error_count" -ne 0 ]; then
+        print_failure "Kernel log errors detected after auto-save system test"
+        dmesg | grep "dm-remap" | grep -i -E "\berror\b|\bfailed\b|\bbug\b|\boops\b|\bpanic\b" | grep -v "error 0" | tail -5
+        return
+    fi
     print_success "Auto-save system test completed"
 }
 
@@ -266,6 +331,13 @@ test_error_recovery() {
         print_info "No specific recovery messages found"
     fi
     
+    # Check for kernel log errors after this test (exclude expected initialization messages)
+    local dm_error_count=$(dmesg | grep "dm-remap" | grep -i -E "\berror\b|\bfailed\b|\bbug\b|\boops\b|\bpanic\b" | grep -v "error 0" | grep -v "Failed to read metadata header" | grep -v "starting with clean state" | grep -v "No existing metadata found" | grep -v "Metadata I/O failed with error -5" | grep -v "Metadata read failed (1)" | wc -l)
+    if [ "$dm_error_count" -ne 0 ]; then
+        print_failure "Kernel log errors detected after error recovery test"
+        dmesg | grep "dm-remap" | grep -i -E "\berror\b|\bfailed\b|\bbug\b|\boops\b|\bpanic\b" | grep -v "error 0" | tail -5
+        return
+    fi
     print_success "Error recovery test completed"
 }
 
@@ -288,24 +360,33 @@ test_io_performance() {
     
     print_info "I/O operations completed in ${duration} seconds"
     
-    # Check for any performance-related errors (using word boundaries to avoid false positives)
-    if dmesg | tail -10 | grep "dm-remap" | grep -i -E "\berror\b|\bfailed\b|\btimeout\b|\bstalled\b" | grep -q .; then
+    # Check for any performance-related errors (excluding "error 0" which means no error)
+    if dmesg | tail -10 | grep "dm-remap" | grep -i -E "\berror\b|\bfailed\b|\btimeout\b|\bstalled\b" | grep -v "error 0" | grep -q .; then
         print_warning "dm-remap performance issues detected in kernel logs"
     else
         print_success "I/O performance acceptable (${duration}s for 200 x 4KB operations)"
     fi
     
+    # Check for kernel log errors after this test
+    local dm_error_count=$(dmesg | grep "dm-remap" | grep -i -E "\berror\b|\bfailed\b|\bbug\b|\boops\b|\bpanic\b" | grep -v "error 0" | wc -l)
+    if [ "$dm_error_count" -ne 0 ]; then
+        print_failure "Kernel log errors detected after I/O performance test"
+        dmesg | grep "dm-remap" | grep -i -E "\berror\b|\bfailed\b|\bbug\b|\boops\b|\bpanic\b" | grep -v "error 0" | tail -5
+        return
+    fi
     print_success "I/O performance test completed"
 }
 
 run_verification_checks() {
     print_info "Running verification checks..."
     
-    # Check device status
-    if dmsetup status dm-remap-test-v3 | grep -q "dm-remap"; then
+    # Check device status (device may not exist if tests cleaned up, which is normal)
+    if dmsetup status dm-remap-test-v3 2>/dev/null | grep -q "dm-remap"; then
         print_info "✓ Device status: Active"
+    elif dmsetup info dm-remap-test-v3 2>/dev/null | grep -q "Name"; then
+        print_info "✓ Device status: Exists but inactive"
     else
-        print_warning "✗ Device status: Unknown"
+        print_info "ℹ Device status: Not present (normal if tests completed cleanup)"
     fi
     
     # Check kernel module
@@ -315,13 +396,15 @@ run_verification_checks() {
         print_warning "✗ Module status: Not loaded"
     fi
     
-    # Check for dm-remap specific kernel errors (using word boundaries to avoid false positives)
-    local dm_error_count=$(dmesg | grep "dm-remap" | grep -i -E "\berror\b|\bfailed\b|\bbug\b|\boops\b|\bpanic\b" | wc -l)
+    # Check for dm-remap specific kernel errors (excluding "error 0" which means no error)
+    local dm_error_count=$(dmesg | grep "dm-remap" | grep -i -E "\berror\b|\bfailed\b|\bbug\b|\boops\b|\bpanic\b" | grep -v "error 0" | wc -l)
     local total_dm_messages=$(dmesg | grep -c "dm-remap" | head -c 10)
     if [ "$dm_error_count" -eq 0 ]; then
         print_info "✓ Kernel logs: No dm-remap errors detected ($total_dm_messages total dm-remap messages)"
     else
-        print_warning "✗ Kernel logs: $dm_error_count dm-remap specific issues found"
+        print_failure "✗ Kernel logs: $dm_error_count dm-remap specific issues found"
+        print_info "Actual errors found:"
+        dmesg | grep "dm-remap" | grep -i -E "\berror\b|\bfailed\b|\bbug\b|\boops\b|\bpanic\b" | grep -v "error 0" | tail -5
     fi
 }
 
@@ -357,7 +440,7 @@ print_summary() {
 main() {
     # Check if running as root
     if [ "$EUID" -ne 0 ]; then
-        echo -e "${RED}Error: This script must be run as root${NC}"
+        echo -e "${RED}Error: This script must be run as root (EUID=$EUID)${NC}"
         exit 1
     fi
     
@@ -374,6 +457,7 @@ main() {
     # Run tests
     test_metadata_header_io
     test_metadata_persistence
+    test_duplicate_remap
     test_autosave_system
     test_error_recovery
     test_io_performance

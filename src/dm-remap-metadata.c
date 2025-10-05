@@ -205,8 +205,11 @@ enum dm_remap_metadata_result dm_remap_metadata_add_entry(struct dm_remap_metada
 	u32 entry_count;
 	struct dm_remap_entry *entry;
 	
-	if (!meta)
+	if (!meta) {
+		DMREMAP_META_ERROR(NULL, "Add entry failed: meta=NULL (main_sector=%llu, spare_sector=%llu)",
+						  (unsigned long long)main_sector, (unsigned long long)spare_sector);
 		return DM_REMAP_META_ERROR_CORRUPT;
+	}
 		
 	dm_remap_metadata_lock(meta);
 	
@@ -223,8 +226,9 @@ enum dm_remap_metadata_result dm_remap_metadata_add_entry(struct dm_remap_metada
 	/* Check for duplicate entries */
 	for (u32 i = 0; i < entry_count; i++) {
 		if (le64_to_cpu(meta->entries[i].main_sector) == main_sector) {
-			DMREMAP_META_WARN(meta, "Duplicate entry for sector %llu",
-					 (unsigned long long)main_sector);
+			DMREMAP_META_ERROR(meta, "Duplicate entry for sector %llu (spare=%llu)",
+							  (unsigned long long)main_sector,
+							  (unsigned long long)spare_sector);
 			dm_remap_metadata_unlock(meta);
 			return DM_REMAP_META_ERROR_CORRUPT;
 		}

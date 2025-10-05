@@ -57,6 +57,12 @@ static enum dm_remap_metadata_result dm_remap_metadata_io_sync(struct dm_remap_m
 	io.error = 0;
 	io.meta = meta;
 	
+	/* Check if spare device is accessible */
+	if (!meta->spare_bdev) {
+		DMREMAP_META_ERROR(meta, "Spare device not available for metadata I/O");
+		return DM_REMAP_META_ERROR_IO;
+	}
+
 	/* Allocate and setup bio */
 	bio = bio_alloc(meta->spare_bdev, 1, op, GFP_KERNEL);
 	if (!bio) {

@@ -338,13 +338,16 @@ run_verification_checks() {
         print_info "✗ Module status: Not loaded"
     fi
     
-    # Count dm-remap specific errors (excluding debug messages)
-    local dm_error_count=$(dmesg | grep "dm-remap" | grep -i -E "\berror\b|\bfailed\b|\bbug\b|\boops\b|\bpanic\b" | grep -v "debugging" | wc -l)
+    # Count dm-remap specific errors (excluding debug messages and "error 0" which means no error)
+    local dm_error_count=$(dmesg | grep "dm-remap" | grep -i -E "\berror\b|\bfailed\b|\bbug\b|\boops\b|\bpanic\b" | grep -v "debugging" | grep -v "error 0" | wc -l)
     local total_dm_messages=$(dmesg | grep -c "dm-remap" | head -c 10)
     if [ "$dm_error_count" -eq 0 ]; then
         print_info "✓ Kernel logs: No dm-remap errors detected ($total_dm_messages total dm-remap messages)"
     else
         print_info "⚠ Kernel logs: $dm_error_count dm-remap specific issues found"
+        # Show the actual errors for debugging
+        print_info "Actual errors found:"
+        dmesg | grep "dm-remap" | grep -i -E "\berror\b|\bfailed\b|\bbug\b|\boops\b|\bpanic\b" | grep -v "debugging" | grep -v "error 0" | tail -5
     fi
 }
 

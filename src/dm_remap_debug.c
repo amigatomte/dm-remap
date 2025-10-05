@@ -132,12 +132,14 @@ int dmr_debug_add_target(struct remap_c *rc, const char *name)
     /* For simplicity, support only one target at a time */
     debug_target = rc;
     
-    /* Create remap control file */
-    remap_file = debugfs_create_file("remap_control", 0200, dmr_debug_dir, 
-                                    NULL, &dmr_debug_remap_fops);
+    /* Create remap control file if it doesn't exist */
     if (!remap_file) {
-        DMR_DEBUG(0, "Failed to create remap_control file");
-        return -ENOMEM;
+        remap_file = debugfs_create_file("remap_control", 0200, dmr_debug_dir, 
+                                        NULL, &dmr_debug_remap_fops);
+        if (!remap_file) {
+            DMR_DEBUG(0, "Failed to create remap_control file");
+            return -ENOMEM;
+        }
     }
     
     DMR_DEBUG(1, "Created debug interface for target %s", name);

@@ -84,10 +84,23 @@ run_test_suite() {
         return 1
     fi
     
-    if chmod +x "$script_path" && "$script_path" 2>&1 | tee "$log_file"; then
-        echo -e "${GREEN}✓ SUITE PASSED: $suite_name${NC}"
-        PASSED_SUITES=$((PASSED_SUITES + 1))
-        echo "SUITE PASSED" >> "$log_file"
+    if chmod +x "$script_path"; then
+        if "$script_path" 2>&1 | tee "$log_file"; then
+            local exit_code=${PIPESTATUS[0]}
+            if [ $exit_code -eq 0 ]; then
+                echo -e "${GREEN}✓ SUITE PASSED: $suite_name${NC}"
+                PASSED_SUITES=$((PASSED_SUITES + 1))
+                echo "SUITE PASSED" >> "$log_file"
+            else
+                echo -e "${RED}✗ SUITE FAILED: $suite_name (exit code: $exit_code)${NC}"
+                FAILED_SUITES=$((FAILED_SUITES + 1))
+                echo "SUITE FAILED" >> "$log_file"
+            fi
+        else
+            echo -e "${RED}✗ SUITE FAILED: $suite_name (script execution failed)${NC}"
+            FAILED_SUITES=$((FAILED_SUITES + 1))
+            echo "SUITE FAILED" >> "$log_file"
+        fi
     else
         echo -e "${RED}✗ SUITE FAILED: $suite_name${NC}"
         FAILED_SUITES=$((FAILED_SUITES + 1))
