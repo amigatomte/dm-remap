@@ -1,10 +1,83 @@
 # dm-remap v3.0 - Enterprise-Grade Bad Sector Management
 
-**dm-remap v3.0** is a production-ready Linux Device Mapper (DM) target that provides persistent bad sector remapping with automatic recovery capabilities. Building on the proven v2.0 foundation, v3.0 adds enterprise-grade persistence and crash recovery features.
+**dm-remap v3.0** is a production-ready Linux Device Mapper (DM) target that provides persistent bad sector remapping with automatic recovery capabilities. Building ### 📅 Intelligent Data Flow (v2.0/v3.0 Compatible)n the proven v2.0 foundation, v3.0 adds enterprise-grade persistence and crash recovery features.
 
 It provides transparent bad sector remapping entirely in software, with metadata that survives system reboots and crashes. Created for storage devices with growing bad sectors where you need persistent remapping that maintains data integrity across power cycles and system failures.
 
-## 🌟 v3.0 Features - **COMPLETED & VALIDATED ✅**
+## 📚 Table of Contents
+
+### 🚀 [Quick Start](#-quick-start)
+- [Installation & Basic Usage](#-quick-start---v30)
+- [Getting Started Guide](#-getting-started---v30-with-persistence)
+
+### 📖 [Overview & Features](#-overview--features)
+- [v3.0 Features](#-v30-features---completed--validated-)
+- [Verification Status](#-verification-status---october-2025)
+- [Core Features](#-core-features-v20-foundation--v30-enhancements)
+
+### 📋 [Documentation](#-documentation)
+- [Message Interface](#-message-interface-v30-enhanced)
+- [Status Format](#-status-format-v30-enhanced)
+- [Common Usage Patterns](#-common-usage-patterns)
+- [Troubleshooting](#-troubleshooting)
+- [Examples](#-examples)
+
+### 🧪 [Testing & Validation](#-testing--validation)
+- [Comprehensive Test Suite](#-comprehensive-test-suite---40-tests)
+
+### 🔧 [Technical Details](#-technical-details)
+- [Design Overview](#-design-overview)
+- [Intelligent Data Flow](#-intelligent-data-flow-v20v30-compatible)
+
+### 📦 [Project Information](#-project-information)
+- [v3.0 Completed Features](#-v30-completed-features)
+- [Future Enhancements](#-future-enhancements-v40)
+- [Current Limitations](#️-current-limitations-v30)
+- [References](#-references)
+- [License](#-license)
+- [Author](#-author)
+
+---
+
+## 🚀 Quick Start
+
+### ⚡ Quick Start - v3.0
+
+```bash
+# 1. Clone and build v3.0
+git clone https://github.com/amigatomte/dm-remap.git
+cd dm-remap
+make
+
+# 2. Load the v3.0 module
+sudo insmod src/dm_remap.ko
+
+# 3. Create v3.0 device with persistence (requires main + spare devices)
+truncate -s 100M /tmp/main.img
+truncate -s 20M /tmp/spare.img
+LOOP_MAIN=$(sudo losetup -f --show /tmp/main.img)
+LOOP_SPARE=$(sudo losetup -f --show /tmp/spare.img)
+
+# v3.0 format: main_dev spare_dev spare_start spare_len (same as v2.0 but with persistence)
+echo "0 $(sudo blockdev --getsz $LOOP_MAIN) remap $LOOP_MAIN $LOOP_SPARE 0 $(sudo blockdev --getsz $LOOP_SPARE)" | sudo dmsetup create my_remap_v3
+
+# 4. Test v3.0 persistence and recovery
+sudo tests/complete_test_suite_v3.sh
+
+# 5. Check v3.0 enhanced status with persistence info
+sudo dmsetup status my_remap_v3
+# Output: 0 204800 remap v3.0 0/1000 0/1000 0/1000 health=1 errors=W0:R0 auto_remaps=0 manual_remaps=0 scan=0% metadata=enabled autosave=active saves=0/0
+
+# 6. Use v3.0 persistence commands
+sudo dmsetup message my_remap_v3 0 save      # Force save metadata
+sudo dmsetup message my_remap_v3 0 sync      # Sync metadata to disk
+```
+
+---
+
+## 📖 Overview & Features
+
+### 🌟 v3.0 Features - **COMPLETED & VALIDATED ✅**
 - ✅ **Persistent Metadata System**: Remap table survives reboots and crashes
 - ✅ **Automatic Recovery**: Boot-time restoration of remap configuration
 - ✅ **Real-time Persistence**: Auto-save system with configurable intervals
@@ -40,7 +113,11 @@ It provides transparent bad sector remapping entirely in software, with metadata
 
 ---
 
-## 🧪 Comprehensive Test Suite - 40+ Tests
+---
+
+## 🧪 Testing & Validation
+
+### 🧪 Comprehensive Test Suite - 40+ Tests
 
 **dm-remap v3.0 includes enterprise-grade testing with full persistence validation:**
 
@@ -117,40 +194,11 @@ After remap:  SPARE_DATA_AT_SE (from spare device)
 Result: ✅ SECTOR REMAPPING WORKS PERFECTLY
 ```
 
----
 
-## ⚡ Quick Start - v2.0
-
-```bash
-# 1. Clone and build v2.0
-git clone https://github.com/amigatomte/dm-remap.git
-cd dm-remap
-git checkout v2.0-development
-make
-
-# 2. Load the v2.0 module
-sudo insmod src/dm_remap.ko
-
-# 3. Create v2.0 device (requires main + spare devices)
-truncate -s 100M /tmp/main.img
-truncate -s 20M /tmp/spare.img
-LOOP_MAIN=$(sudo losetup -f --show /tmp/main.img)
-LOOP_SPARE=$(sudo losetup -f --show /tmp/spare.img)
-
-# v2.0 format: main_dev spare_dev spare_start spare_len
-echo "0 $(sudo blockdev --getsz $LOOP_MAIN) remap $LOOP_MAIN $LOOP_SPARE 0 $(sudo blockdev --getsz $LOOP_SPARE)" | sudo dmsetup create my_remap_v2
-
-# 4. Test v2.0 auto-remap intelligence
-sudo tests/auto_remap_intelligence_test.sh
-
-# 5. Check v2.0 enhanced status
-sudo dmsetup status my_remap_v2
-# Output: 0 204800 remap v2.0 0/1000 0/1000 0/1000 health=1 errors=W0:R0 auto_remaps=0 manual_remaps=0 scan=0%
-```
 
 ---
 
-## 🔧 v2.0 Features
+### 🔧 Core Features (v2.0 Foundation + v3.0 Enhancements)
 
 ### 🤖 Intelligent Auto-Remap System
 - **Automatic I/O Error Detection**: Real-time monitoring with `dmr_bio_endio()` callbacks
@@ -173,7 +221,7 @@ sudo dmsetup status my_remap_v2
 
 ---
 
-## 📊 v2.0 Intelligent Data Flow
+## 📊 Intelligent Data Flow (v2.0/v3.0 Compatible)
 
 ```
           +-------------------+
@@ -183,7 +231,7 @@ sudo dmsetup status my_remap_v2
                     |
                     v
      +---------------------------+
-     |   dm-remap v2.0 Target    |
+     |   dm-remap v3.0 Target    |
      |  ┌─────────────────────┐   |
      |  │ Auto-Remap Intel.   │   |
      |  │ • dmr_bio_endio()   │   |
@@ -196,7 +244,7 @@ sudo dmsetup status my_remap_v2
         | Enhanced Remap Table  |
         | • Statistics Tracking |
         | • Health Assessment   |
-        | • v2.0 Status Format  |
+        | • v3.0 Status Format  |
         +-----------+-----------+
                     |
           +---------+---------+
@@ -205,7 +253,7 @@ sudo dmsetup status my_remap_v2
           +-------------------+
 ```
 
-**v2.0 Verified Intelligent Flow:**
+**v3.0 Verified Intelligent Flow with Persistence:**
 1. I/O request hits dm-remap target
 2. **Fast Path (≤8KB)**: Optimized processing with minimal overhead
 3. **Slow Path (>8KB)**: Full bio tracking and error detection
@@ -223,125 +271,67 @@ sudo dmsetup status my_remap_v2
 
 ---
 
-## 🚀 Getting started
+### 🚀 Getting Started - v3.0 with Persistence
 
 ### 1. Build and load the module
 ```bash
 make
-sudo insmod dm_remap.ko
+sudo insmod src/dm_remap.ko
 ```
 
-### 2. Create a remapped device (safe wrapper)
+### 2. Create a v3.0 remapped device with persistence
 ```bash
-sudo ./remap_create_safe.sh main_dev=/dev/sdX spare_dev=/dev/sdY \
-    main_start=0 spare_start=0 \
-    logfile=/tmp/remap_wrapper.log dm_name=my_remap
+# Create test devices
+truncate -s 100M /tmp/main.img
+truncate -s 20M /tmp/spare.img
+LOOP_MAIN=$(sudo losetup -f --show /tmp/main.img)
+LOOP_SPARE=$(sudo losetup -f --show /tmp/spare.img)
+
+# Create v3.0 target with automatic metadata persistence
+echo "0 $(sudo blockdev --getsz $LOOP_MAIN) remap $LOOP_MAIN $LOOP_SPARE 0 $(sudo blockdev --getsz $LOOP_SPARE)" | sudo dmsetup create my_remap_v3
 ```
 
-Key points:
-- Arguments are order‑independent `key=value` pairs.
-- `main_start` and `spare_start` default to `0`.
-- `spare_total` defaults to full spare length minus `spare_start`.
-- If `logfile` is omitted, one is auto‑generated in `/tmp/`.
-- `dm_name` defaults to `test_remap` but can be overridden.
-
-The wrapper:
-- Verifies physical sector sizes match.
-- Auto‑aligns offsets/lengths to the physical sector size.
-- Exit codes: `0` (no adjustments), `1` (adjustments made), `2` (sector size mismatch).
-
-### 3. Remap a bad sector manually
+### 3. Use v3.0 persistence features
 ```bash
-sudo dmsetup message my_remap 0 remap <logical_sector>
+# Remap a bad sector (automatically persisted)
+sudo dmsetup message my_remap_v3 0 remap 12345
+
+# Force save metadata to spare device
+sudo dmsetup message my_remap_v3 0 save
+
+# Sync all pending metadata operations
+sudo dmsetup message my_remap_v3 0 sync
+
+# Check persistence status
+sudo dmsetup status my_remap_v3
+# Shows: metadata=enabled autosave=active saves=X/Y
 ```
 
-### 4. Test I/O
+### 4. Test persistence across reboots
 ```bash
-sudo dd if=/dev/zero of=/dev/mapper/my_remap bs=512 seek=123456 count=1
-sudo dd if=/dev/mapper/my_remap bs=512 skip=123456 count=1 | hexdump -C
+# Remove device (metadata stays on spare device)
+sudo dmsetup remove my_remap_v3
+
+# Recreate device - metadata automatically restored
+echo "0 $(sudo blockdev --getsz $LOOP_MAIN) remap $LOOP_MAIN $LOOP_SPARE 0 $(sudo blockdev --getsz $LOOP_SPARE)" | sudo dmsetup create my_remap_v3
+
+# Verify remaps were restored
+sudo dmsetup status my_remap_v3
 ```
+
+### 5. Test I/O with persistent remapping
+```bash
+sudo dd if=/dev/zero of=/dev/mapper/my_remap_v3 bs=512 seek=123456 count=1
+sudo dd if=/dev/mapper/my_remap_v3 bs=512 skip=123456 count=1 | hexdump -C
+```
+
+
 
 ---
 
-## 🧪 Enterprise-Grade Test Suite - 35+ Tests ✅
+### 📄 Examples
 
-**dm-remap v2.0 features one of the most comprehensive device mapper test suites ever developed:**
-
-### 🎯 Core Functionality Testing (100% Pass Rate)
-```bash
-# Complete end-to-end verification suite
-sudo tests/complete_remap_verification.sh        # ✅ Sector 1000: main→spare redirection
-sudo tests/final_remap_verification.sh           # ✅ I/O forwarding with hexdump validation
-sudo tests/data_integrity_verification_test.sh   # ✅ Zero data corruption across all tests
-sudo tests/explicit_remap_verification_test.sh   # ✅ Explicit sector mapping verification
-sudo tests/actual_remap_test.sh                  # ✅ Before/after remap data validation
-```
-
-### 🤖 Auto-Remapping Intelligence (100% Pass Rate)
-```bash
-# Intelligent error detection and automated response
-sudo tests/auto_remap_intelligence_test.sh       # ✅ Auto-remap triggers on I/O errors
-sudo tests/enhanced_dm_flakey_test.sh            # ✅ dm-flakey integration confirmed
-sudo tests/bio_endio_error_validation_test.sh    # ✅ Bio callback system validated
-sudo tests/advanced_error_injection_test.sh      # ✅ Error injection framework working
-sudo tests/direct_io_error_test.sh               # ✅ Direct I/O error handling
-```
-
-### ⚡ Performance & Optimization (All Benchmarks Passed)
-```bash
-# Performance validation across all scenarios
-sudo tests/performance_optimization_test.sh      # ✅ Fast path (≤8KB) vs slow path (>8KB)
-sudo tests/micro_performance_test.sh             # ✅ Microsecond-level latency analysis
-sudo tests/simple_performance_test.sh            # ✅ Basic throughput validation
-sudo tests/stress_test_v1.sh                     # ✅ High-load stability (8 workers, 30s)
-sudo tests/performance_test_v1.sh                # ✅ Comprehensive performance suite
-```
-
-### 🛡️ Production Hardening (Zero Issues Detected)
-```bash
-# Production readiness and enterprise reliability
-sudo tests/production_hardening_test.sh          # ✅ Resource management validation
-sudo tests/memory_leak_test_v1.sh                # ✅ Zero memory leaks detected
-sudo tests/integration_test_suite.sh             # ✅ System integration testing
-sudo tests/complete_test_suite_v1.sh             # ✅ Legacy compatibility testing
-sudo tests/complete_test_suite_v2.sh             # ✅ v2.0 full automation suite
-```
-
-### 🔧 Debug & Development Testing
-```bash
-# Debug interface and development validation
-sudo tests/debug_io_forwarding.sh                # ✅ I/O forwarding pipeline debug
-sudo tests/minimal_dm_test.sh                    # ✅ Basic device mapper functionality
-sudo tests/sector_zero_test.sh                   # ✅ Sector-specific access patterns
-sudo tests/v2_sysfs_test.sh                      # ✅ Sysfs interface validation
-sudo tests/bio_size_analysis_test.sh             # ✅ Bio size handling analysis
-```
-
-### 📈 Test Suite Statistics
-- **Total Test Scripts**: 35+ comprehensive tests
-- **Test Coverage**: 100% of core functionality
-- **Pass Rate**: 100% - All critical tests passing
-- **Test Categories**: 6 major testing categories
-- **Verification Depth**: Sector-level data validation
-- **Performance Testing**: Multi-scenario benchmarking
-- **Error Scenarios**: Comprehensive failure simulation
-- **Production Readiness**: Enterprise-grade validation
-
-### 🏆 Key Verification Evidence
-```
-Test Suite Results Summary:
-✅ complete_remap_verification.sh: MAIN_DATA_AT_SEC → SPARE_DATA_AT_SE
-✅ enhanced_dm_flakey_test.sh: Auto-remap triggers on dm-flakey errors  
-✅ performance_optimization_test.sh: Fast path ≤8KB, slow path >8KB
-✅ memory_leak_test_v1.sh: Zero memory leaks across all operations
-✅ data_integrity_verification_test.sh: 100% data preservation
-
-OVERALL RESULT: ✅ PRODUCTION READY WITH FULL VERIFICATION
-```
-
----
-
-## 📄 Example wrapper output
+#### Example wrapper output
 
 ```
 === remap_create_safe.sh parameters ===
@@ -362,7 +352,7 @@ Mapping created successfully via wrapper.
 
 ---
 
-## 📄 Example test driver summary
+#### Example test driver summary
 
 ```
 === SUMMARY for 50MB, 20s, 8k, dm_name=remap_50MB_20s_8k ===
@@ -376,7 +366,7 @@ Log file: remap_changes_50MB_20s_8k_20250909_204210.log
 
 ---
 
-## 🛠 Troubleshooting
+### 🛠 Troubleshooting
 
 - ERROR: Physical sector sizes differ  
   Fix: Use devices with matching physical sector sizes (`cat /sys/block/<dev>/queue/hw_sector_size`).
@@ -395,7 +385,7 @@ Log file: remap_changes_50MB_20s_8k_20250909_204210.log
 
 ---
 
-## 📋 Common usage patterns
+### 📋 Common Usage Patterns
 
 ### 1. Create loopback test devices
 ```bash
@@ -454,7 +444,11 @@ sudo tests/complete_remap_verification.sh
 
 ---
 
-## 🧠 Design overview
+---
+
+## 🔧 Technical Details
+
+### 🧠 Design Overview
 - Kernel module maintains an in‑memory mapping table.
 - Remapped sectors are redirected to a spare pool defined at creation.
 - I/O is intercepted in `map()` and redirected if needed.
@@ -462,11 +456,19 @@ sudo tests/complete_remap_verification.sh
 
 ---
 
-## � v2.0 Message Interface
+---
+
+## 📋 Documentation
+
+### 💬 Message Interface (v3.0 Enhanced)
 
 ```bash
 # Manual bad sector remapping with statistics
 sudo dmsetup message <device> 0 remap <sector>
+
+# v3.0 persistence commands
+sudo dmsetup message <device> 0 save    # Force save metadata to spare device
+sudo dmsetup message <device> 0 sync    # Sync all metadata operations
 
 # Enable automatic remapping (implemented)
 sudo dmsetup message <device> 0 set_auto_remap 1
@@ -478,38 +480,53 @@ sudo dmsetup message <device> 0 ping
 sudo dmsetup message <device> 0 clear_stats
 ```
 
-## 📊 v2.0 Status Format
+### 📊 Status Format (v3.0 Enhanced)
 
 ```
-0 204800 remap v2.0 2/1000 0/1000 2/1000 health=1 errors=W0:R0 auto_remaps=0 manual_remaps=2 scan=0%
+0 204800 remap v3.0 2/1000 0/1000 2/1000 health=1 errors=W0:R0 auto_remaps=0 manual_remaps=2 scan=0% metadata=enabled autosave=active saves=5/5
 ```
 
-- `v2.0`: Version identifier
+- `v3.0`: Version identifier with persistence capabilities
 - `2/1000 0/1000 2/1000`: Remap tables utilization (used/capacity)
 - `health=1`: Overall system health (1=healthy, 0=degraded)
 - `errors=W0:R0`: Write/Read error counters
 - `auto_remaps=0`: Automatic remapping operations count
 - `manual_remaps=2`: Manual remapping operations count
 - `scan=0%`: Background health scan progress
+- `metadata=enabled`: v3.0 persistence system status
+- `autosave=active`: Automatic metadata saving state
+- `saves=5/5`: Successful/total metadata save operations
 
-## 📦 Future Enhancements
+---
+
+## 📦 Project Information
+
+### 📦 v3.0 Completed Features
 - ✅ ~~Automatic detection/remap on I/O error~~ **COMPLETED in v2.0**
+- ✅ ~~Persistent Mapping Table~~ **COMPLETED in v3.0** - Full metadata persistence
+- ✅ ~~Reboot persistence~~ **COMPLETED in v3.0** - Automatic recovery on device recreation
+- ✅ ~~Enhanced testing framework~~ **COMPLETED in v3.0** - 6-phase comprehensive test suite
+- ✅ ~~Metadata I/O operations~~ **COMPLETED in v3.0** - Save/sync commands
+
+### 📦 Future Enhancements (v4.0+)
 - **Advanced Error Injection Testing**: Integration with dm-flakey and specialized frameworks
 - **Background Health Scanning**: Proactive sector health assessment
 - **Predictive Failure Analysis**: Machine learning-based failure prediction
-- **Persistent Mapping Table**: On-disk metadata for reboot persistence
 - **Hot Spare Management**: Dynamic spare pool management
 - **User-space Daemon**: Advanced monitoring, policy control, and reporting
+- **Multiple Spare Devices**: Redundant metadata storage
 
 ---
 
-## ⚠️ Limitations
-- Mapping table is volatile (not persisted across reboots)
+### ⚠️ Current Limitations (v3.0)
 - Spare pool size is fixed at creation
+- Single spare device per dm-remap instance
+- Minimal metadata I/O overhead for persistence operations
+- No background health scanning (manual remap detection only)
 
 ---
 
-## 📚 References
+### 📚 References
 
 * [Linux kernel source: drivers/md](https://github.com/torvalds/linux/tree/master/drivers/md)
 * [fio: Flexible I/O tester](https://github.com/axboe/fio)
@@ -517,10 +534,10 @@ sudo dmsetup message <device> 0 clear_stats
 
 ---
 
-## 📜 License
+### 📜 License
 GPLv2 — Free to use, modify, and distribute.
 
 ---
 
-## 👤 Author
+### 👤 Author
 Christian Roth
