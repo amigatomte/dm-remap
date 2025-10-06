@@ -65,7 +65,7 @@ It provides transparent bad sector remapping entirely in software, with metadata
 +-------------------+  |    |   remapping)      |
                        |    +-------------------+
                        |             |
-             Good Sectors |             | Bad Sectors
+          Good Sectors |             | Bad Sectors
                        |             | (redirected)
                        v             v
         +-------------------+    +-------------------+
@@ -326,12 +326,12 @@ Result: ✅ SECTOR REMAPPING WORKS PERFECTLY
                     v
      +---------------------------+
      |   dm-remap v3.0 Target    |
-     |  +---------------------+   |
-     |  | Auto-Remap Intel.   |   |
-     |  | • dmr_bio_endio()   |   |
-     |  | • Error Detection   |   |
-     |  | • Work Queue System |   |
-     |  +---------------------+   |
+     |  +---------------------+  |
+     |  | Auto-Remap Intel.   |  |
+     |  | • dmr_bio_endio()   |  |
+     |  | • Error Detection   |  |
+     |  | • Work Queue System |  |
+     |  +---------------------+  |
      +---------------------------+
                     |
         +-----------+-----------+
