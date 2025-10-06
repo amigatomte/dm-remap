@@ -37,7 +37,7 @@ It provides transparent bad sector remapping entirely in software, with metadata
 
 ### 📦 [Project Information](#-project-information)
 - [v3.0 Completed Features](#-v30-completed-features)
-- [Future Enhancements](#-future-enhancements-v40)
+- [v4.0 Advanced Features (In Planning)](#-v40-advanced-features-in-planning)
 - [Current Limitations](#️-current-limitations-v30)
 - [References](#-references)
 - [License](#-license)
@@ -603,12 +603,38 @@ sudo dmsetup message <device> 0 clear_stats
 - ✅ ~~Metadata I/O operations~~ **COMPLETED in v3.0** - Save/sync commands
 - ✅ ~~Advanced Error Injection Testing~~ **COMPLETED in v3.0** - dm-flakey integration and specialized frameworks
 
-### 📦 Future Enhancements (v4.0+)
-- **Background Health Scanning**: Proactive sector health assessment
-- **Predictive Failure Analysis**: Machine learning-based failure prediction
-- **Hot Spare Management**: Dynamic spare pool management
-- **User-space Daemon**: Advanced monitoring, policy control, and reporting
-- **Multiple Spare Devices**: Redundant metadata storage
+### � v4.0 Advanced Features (In Planning)
+
+**Vision**: Transform dm-remap from reactive bad sector management to proactive storage intelligence with predictive failure analysis and autonomous optimization.
+
+**Timeline**: Q1-Q4 2026 | **Status**: Planning & Research Phase
+
+#### 🔍 Priority 1: Background Health Scanning
+- **Goal**: Proactive sector health assessment 24-48 hours before failure
+- **Features**: Non-intrusive scanning, health scoring, predictive wear analysis
+- **Impact**: 90%+ reduction in unexpected storage failures
+
+#### 🧠 Priority 2: Predictive Failure Analysis  
+- **Goal**: Machine learning-based failure prediction with 85%+ accuracy
+- **Features**: Pattern recognition, risk scoring, adaptive remapping strategies
+- **Impact**: Early warning system with automatic preventive actions
+
+#### 🔄 Priority 3: Hot Spare Management
+- **Goal**: Dynamic spare pool management without downtime
+- **Features**: Hot-swap support, automatic spare selection, load balancing
+- **Impact**: Zero-downtime maintenance and optimal spare utilization
+
+#### 👁️ Priority 4: User-space Daemon (dm-remapd)
+- **Goal**: Centralized monitoring and policy-based automation
+- **Features**: REST API, web UI, integration with monitoring systems
+- **Impact**: Manage 100+ instances with automated policy responses
+
+#### 🔗 Priority 5: Multiple Spare Devices & Redundancy
+- **Goal**: Redundant metadata storage and enhanced reliability
+- **Features**: RAID-like metadata redundancy, automatic repair, load distribution
+- **Impact**: Zero data loss even with multiple component failures
+
+**📋 See [V4_ROADMAP.md](V4_ROADMAP.md) for detailed technical specifications and development timeline.**
 
 ---
 
