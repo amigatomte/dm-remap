@@ -59,19 +59,19 @@ It provides transparent bad sector remapping entirely in software, with metadata
 ### 🛠️ How It Works
 
 ```
-┌───────────────────┐       ┌───────────────────┐
-│   Application I/O    │  ┌────→ │   dm-remap Target   │
-│   (reads/writes)    │  │     │  (intelligent          │
-└───────────────────┘  │     │   remapping)          │
-                      │     └───────────────────┘
-                      │              │
-            Good Sectors │              │ Bad Sectors
-                      │              │ (redirected)
-                      ▼              ▼
-        ┌───────────────────┐    ┌───────────────────┐
-        │   Main Device      │    │   Spare Device     │
-        │   (primary data)   │    │   (remapped data)  │
-        └───────────────────┘    └───────────────────┘
++-------------------+       +-------------------+
+|   Application I/O |  +--> |   dm-remap Target |
+|   (reads/writes)  |  |    |  (intelligent     |
++-------------------+  |    |   remapping)      |
+                       |    +-------------------+
+                       |             |
+             Good Sectors |             | Bad Sectors
+                       |             | (redirected)
+                       v             v
+        +-------------------+    +-------------------+
+        |   Main Device     |    |   Spare Device    |
+        |   (primary data)  |    |   (remapped data) |
+        +-------------------+    +-------------------+
 ```
 
 1. **Transparent Operation**: Applications read/write normally through the dm-remap device
@@ -326,12 +326,12 @@ Result: ✅ SECTOR REMAPPING WORKS PERFECTLY
                     v
      +---------------------------+
      |   dm-remap v3.0 Target    |
-     |  ┌─────────────────────┐   |
-     |  │ Auto-Remap Intel.   │   |
-     |  │ • dmr_bio_endio()   │   |
-     |  │ • Error Detection   │   |
-     |  │ • Work Queue System │   |
-     |  └─────────────────────┘   |
+     |  +---------------------+   |
+     |  | Auto-Remap Intel.   |   |
+     |  | • dmr_bio_endio()   |   |
+     |  | • Error Detection   |   |
+     |  | • Work Queue System |   |
+     |  +---------------------+   |
      +---------------------------+
                     |
         +-----------+-----------+
