@@ -534,7 +534,19 @@ sudo dmsetup message <device> 0 clear_stats
 
 ---
 
-### 📜 License
+### � Project Organization
+
+The project maintains a clean structure with historical files archived:
+- **`archive/v2_historical/`** - Historical v2.0 documentation and planning files
+- **`archive/outdated_tests/`** - Legacy test files from v1.x development  
+- **`archive/debug_utilities/`** - Debug tools and development utilities
+- **`backup_YYYYMMDD_HHMMSS/`** - Automatic backups created during cleanup
+
+All active v3.0 functionality remains in the main directories with comprehensive test coverage.
+
+---
+
+### �📜 License
 GPLv2 — Free to use, modify, and distribute.
 
 ---

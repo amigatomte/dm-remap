@@ -53,3 +53,28 @@ dkms.conf
 
 # debug information files
 *.dwo
+
+# Build artifacts
+src/*.o
+src/*.ko
+src/*.mod
+src/*.mod.c
+src/.*.cmd
+*.order
+Module.symvers
+.modules.order.cmd
+.Module.symvers.cmd
+
+# Debug binaries
+src/dmmsg
+src/dmmsg_fixed
+src/debug_buffer
+src/debug_comprehensive
+
+# Test artifacts
+tests/debug_*.img
+/tmp/dm-remap-*
+
+
+# Backup directories
+backup_*/
