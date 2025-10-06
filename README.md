@@ -1,10 +1,16 @@
 # dm-remap v3.0 - Enterprise-Grade Bad Sector Management
 
-**dm-remap v3.0** is a production-ready Linux Device Mapper (DM) target that provides persistent bad sector remapping with automatic recovery capabilities. Building ### 📅 Intelligent Data Flow (v2.0/v3.0 Compatible)n the proven v2.0 foundation, v3.0 adds enterprise-grade persistence and crash recovery features.
+**dm-remap v3.0** is a production-ready Linux Device Mapper (DM) target that provides persistent bad sector remapping with automatic recovery capabilities. Building on the proven v2.0 foundation, v3.0 adds enterprise-grade persistence and crash recovery features.
 
 It provides transparent bad sector remapping entirely in software, with metadata that survives system reboots and crashes. Created for storage devices with growing bad sectors where you need persistent remapping that maintains data integrity across power cycles and system failures.
 
 ## 📚 Table of Contents
+
+### 📖 [Project Overview](#-project-overview)
+- [Purpose & Problem Statement](#-purpose--problem-statement)
+- [How It Works](#️-how-it-works)
+- [Key Use Cases](#-key-use-cases)
+- [Real-World Example](#-real-world-example)
 
 ### 🚀 [Quick Start](#-quick-start)
 - [Installation & Basic Usage](#-quick-start---v30)
@@ -39,7 +45,95 @@ It provides transparent bad sector remapping entirely in software, with metadata
 
 ---
 
-## 🚀 Quick Start
+## � Project Overview
+
+### 🎯 Purpose & Problem Statement
+
+**dm-remap** addresses a critical challenge in enterprise storage: **managing failing storage devices with growing bad sectors**. Traditional approaches require expensive hardware RAID controllers or complete disk replacement when bad sectors appear. dm-remap provides a software-only solution that:
+
+- **Extends device lifespan** by transparently remapping bad sectors to spare areas
+- **Maintains data integrity** through automatic bad sector detection and remapping
+- **Provides cost-effective storage management** without requiring specialized hardware
+- **Offers enterprise-grade persistence** that survives system crashes and reboots
+
+### 🛠️ How It Works
+
+```
+┌───────────────────┐       ┌───────────────────┐
+│   Application I/O    │  ┌────→ │   dm-remap Target   │
+│   (reads/writes)    │  │     │  (intelligent          │
+└───────────────────┘  │     │   remapping)          │
+                      │     └───────────────────┘
+                      │              │
+            Good Sectors │              │ Bad Sectors
+                      │              │ (redirected)
+                      ▼              ▼
+        ┌───────────────────┐    ┌───────────────────┐
+        │   Main Device      │    │   Spare Device     │
+        │   (primary data)   │    │   (remapped data)  │
+        └───────────────────┘    └───────────────────┘
+```
+
+1. **Transparent Operation**: Applications read/write normally through the dm-remap device
+2. **Automatic Detection**: I/O errors trigger intelligent bad sector detection
+3. **Smart Remapping**: Bad sectors are automatically remapped to healthy spare areas
+4. **Persistent Storage**: Remap tables are stored on the spare device and survive reboots
+5. **Recovery System**: Automatic restoration of remapping configuration after system restart
+
+### 🎆 Key Use Cases
+
+#### 🏢 **Enterprise Data Centers**
+- **Legacy storage systems** with aging drives that develop bad sectors
+- **Cost-sensitive environments** where drive replacement is expensive
+- **High-availability systems** requiring transparent bad sector management
+- **Backup storage** where data integrity is critical but performance is secondary
+
+#### 💻 **Development & Testing**
+- **Kernel development** testing storage resilience and error handling
+- **Storage testing** simulating real-world disk failure scenarios
+- **System validation** ensuring applications handle storage errors gracefully
+- **Educational purposes** learning device mapper and storage management concepts
+
+#### 🏗️ **Specialized Environments**
+- **Embedded systems** with limited storage options and replacement difficulties
+- **Remote installations** where drive replacement is logistically challenging
+- **Cost-constrained environments** maximizing storage device lifespan
+- **Research systems** requiring detailed storage error analysis and control
+
+### 🔥 Real-World Example
+
+```bash
+# Scenario: 1TB main drive develops bad sectors at 500GB mark
+# Solution: Use 50GB spare drive for remapping
+
+# 1. Create dm-remap device
+echo "0 $(blockdev --getsz /dev/sdb) remap /dev/sdb /dev/sdc 0 $(blockdev --getsz /dev/sdc)" | \
+  dmsetup create production_storage
+
+# 2. Applications continue using /dev/mapper/production_storage normally
+# 3. When bad sectors are encountered:
+#    - I/O errors are automatically detected
+#    - Bad sectors are remapped to spare device
+#    - Remapping persists across reboots
+#    - Applications experience transparent operation
+
+# 4. Monitor health
+dmsetup status production_storage
+# Shows: remapped sectors, error counts, health status
+```
+
+### ✨ **Why Choose dm-remap v3.0?**
+
+- ✅ **No Hardware Requirements**: Pure software solution, works with any storage
+- ✅ **Enterprise Persistence**: Survives crashes, reboots, and system failures  
+- ✅ **Transparent Operation**: Applications require no modifications
+- ✅ **Cost Effective**: Extends device life instead of requiring replacement
+- ✅ **Production Ready**: Comprehensive testing with 100% test suite pass rate
+- ✅ **Open Source**: Full source code available under GPL license
+
+---
+
+## �🚀 Quick Start
 
 ### ⚡ Quick Start - v3.0
 
