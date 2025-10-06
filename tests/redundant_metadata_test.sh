@@ -66,12 +66,12 @@ write_metadata_copy() {
     local corrupt="$5"
     
     # Create test metadata (simplified structure)
-    local metadata_file="/tmp/metadata_copy_${copy_index}.bin"
+    local metadata_file="/tmp/metadata_write_${sector}_${copy_index}.bin"
     
     # Write metadata header (simplified)
     {
-        # Magic number (4 bytes): 0x444D5234 = "DMR4"
-        printf '\x34\x52\x4D\x44'
+        # Magic number (4 bytes): 0x444D5234 = "DMR4"  
+        printf '\x44\x4D\x52\x34'
         # Sequence number (8 bytes, little-endian)
         printf "$(printf '\\x%02x\\x%02x\\x%02x\\x%02x\\x%02x\\x%02x\\x%02x\\x%02x' \
             $((sequence & 0xFF)) $(((sequence >> 8) & 0xFF)) $(((sequence >> 16) & 0xFF)) $(((sequence >> 24) & 0xFF)) \
@@ -81,7 +81,7 @@ write_metadata_copy() {
             $((copy_index & 0xFF)) $(((copy_index >> 8) & 0xFF)) $(((copy_index >> 16) & 0xFF)) $(((copy_index >> 24) & 0xFF)))"
         # Pad to 4KB with test data
         dd if=/dev/zero bs=1 count=4084 2>/dev/null
-    } > "$metadata_file"
+    } > "$metadata_file" 2>/dev/null
     
     # Introduce corruption if requested
     if [[ "$corrupt" == "true" ]]; then
@@ -91,7 +91,7 @@ write_metadata_copy() {
     
     # Write to device
     sudo dd if="$metadata_file" of="$device" bs=512 seek="$sector" count=8 2>/dev/null
-    rm -f "$metadata_file"
+    rm -f "$metadata_file" 2>/dev/null
 }
 
 # Read and validate metadata copy
@@ -100,24 +100,33 @@ read_metadata_copy() {
     local sector="$2"
     local expected_sequence="$3"
     
-    local metadata_file="/tmp/read_metadata.bin"
+    local metadata_file="/tmp/read_metadata_${sector}.bin"
     sudo dd if="$device" of="$metadata_file" bs=512 skip="$sector" count=8 2>/dev/null
     
-    # Check magic number
-    local magic=$(xxd -l 4 -p "$metadata_file" | tr '[:lower:]' '[:upper:]')
-    if [[ "$magic" != "344D5234" ]]; then
-        rm -f "$metadata_file"
+    # Change ownership to current user for file operations
+    sudo chown $(whoami):$(whoami) "$metadata_file" 2>/dev/null
+    
+    # Check if file exists and has content
+    if [[ ! -f "$metadata_file" ]] || [[ ! -s "$metadata_file" ]]; then
+        rm -f "$metadata_file" 2>/dev/null
+        return 3
+    fi
+    
+    # Check magic number (DMR4 = 0x444D5234)
+    local magic=$(xxd -l 4 -p "$metadata_file" 2>/dev/null | tr '[:lower:]' '[:upper:]')
+    if [[ "$magic" != "444D5234" ]]; then
+        rm -f "$metadata_file" 2>/dev/null
         return 1
     fi
     
     # Check sequence number (simplified - just check if non-zero)
-    local sequence_bytes=$(xxd -s 4 -l 8 -p "$metadata_file")
+    local sequence_bytes=$(xxd -s 4 -l 8 -p "$metadata_file" 2>/dev/null)
     if [[ "$sequence_bytes" == "0000000000000000" ]]; then
-        rm -f "$metadata_file"
+        rm -f "$metadata_file" 2>/dev/null
         return 2
     fi
     
-    rm -f "$metadata_file"
+    rm -f "$metadata_file" 2>/dev/null
     return 0
 }
 
