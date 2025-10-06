@@ -23,6 +23,7 @@
 #include "dm-remap-messages.h"   // Debug macros and messaging support
 #include "dm-remap-sysfs.h"      // Sysfs interface declarations
 #include "dm_remap_reservation.h" // v4.0 Reservation system
+#include "dm_remap_performance.h" // v4.0 Performance optimizations
 #include <linux/device-mapper.h> // Device mapper framework
 #include <linux/bio.h>           // Block I/O structures
 #include <linux/init.h>          // Module initialization
@@ -242,6 +243,13 @@ static int remap_ctr(struct dm_target *ti, unsigned int argc, char **argv)
         goto bad;
     }
     
+    /* Initialize v4.0 performance optimization cache */
+    ret = dmr_init_allocation_cache(rc);
+    if (ret) {
+        ti->error = "Failed to initialize allocation cache";
+        goto bad;
+    }
+    
     /* Set up dynamic metadata reservations */
     ret = dmr_setup_dynamic_metadata_reservations(rc);
     if (ret && ret != -ENOSPC) {
@@ -358,6 +366,9 @@ static void remap_dtr(struct dm_target *ti)
 
     /* Remove debug interface */
     dmr_debug_remove_target(rc);
+    
+    /* Cleanup v4.0 performance optimizations */
+    dmr_cleanup_allocation_cache(rc);
     
     /* Cleanup v4.0 reservation system */
     dmr_cleanup_reservation_system(rc);

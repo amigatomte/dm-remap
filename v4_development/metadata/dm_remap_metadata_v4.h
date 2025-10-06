@@ -10,6 +10,9 @@
 #include <linux/types.h>
 #include <linux/crc32.h>
 
+/* Forward declaration for legacy metadata compatibility */
+struct dm_remap_metadata_v3;
+
 /* Metadata format constants */
 #define DM_REMAP_METADATA_V4_MAGIC      0x444D5234  /* "DMR4" */
 #define DM_REMAP_METADATA_V4_VERSION    1
@@ -30,7 +33,7 @@
 #define PLACEMENT_STRATEGY_AUTO         0  /* Automatic strategy selection */
 
 /* Metadata copy sector locations */
-static const sector_t metadata_copy_sectors[DM_REMAP_METADATA_COPIES] = {
+static const sector_t metadata_copy_sectors[DM_REMAP_METADATA_COPIES_MAX] = {
     0,      /* Primary: Immediate access, v3.0 compatible */
     1024,   /* Secondary: Early spare area (512KB offset) */
     2048,   /* Tertiary: Mid-range (1MB offset) */

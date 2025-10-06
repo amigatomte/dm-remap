@@ -11,7 +11,6 @@
 
 /* Constants for dynamic metadata placement */
 #define DM_REMAP_METADATA_SECTORS         8    /* Sectors per metadata copy */
-#define PLACEMENT_STRATEGY_IMPOSSIBLE     0    /* Too small for metadata */
 #define PLACEMENT_STRATEGY_MINIMAL        1    /* Minimal copies, tight packing */
 #define PLACEMENT_STRATEGY_LINEAR         2    /* Even distribution */
 #define PLACEMENT_STRATEGY_GEOMETRIC      3    /* Geometric spacing */

@@ -10,7 +10,7 @@
 #include <linux/slab.h>
 
 #include "dm-remap-core.h"
-#include "../v4_development/metadata/dm_remap_metadata_v4.h"
+#include "dm_remap_reservation.h"
 
 /* ============================================================================
  * RESERVATION BITMAP MANAGEMENT
@@ -238,7 +238,7 @@ int dmr_setup_dynamic_metadata_reservations(struct remap_c *rc)
     } else if (rc->spare_len >= 72) {  /* 36KB+ */
         strategy = PLACEMENT_STRATEGY_MINIMAL;
     } else {
-        strategy = PLACEMENT_STRATEGY_IMPOSSIBLE;
+        /* Too small for practical use */
         return -ENOSPC;
     }
     
@@ -415,8 +415,6 @@ const char *get_placement_strategy_name(u32 strategy)
         return "linear";
     case PLACEMENT_STRATEGY_MINIMAL:
         return "minimal";
-    case PLACEMENT_STRATEGY_IMPOSSIBLE:
-        return "impossible";
     default:
         return "unknown";
     }

@@ -17,6 +17,9 @@
 #include <linux/device-mapper.h>  /* For struct dm_dev, dm_target */
 #include <linux/kobject.h>        /* For struct kobject (sysfs support) */
 
+/* Forward declarations for performance optimization structures */
+struct dmr_allocation_cache;
+
 /*
  * v2.0 REMAP REASONS - Why a sector was remapped
  */
@@ -140,6 +143,9 @@ struct remap_c {
     
     /* v3.0 Metadata persistence system */
     struct dm_remap_metadata *metadata;      /* Persistent metadata context */
+    
+    /* v4.0 Performance optimization cache */
+    struct dmr_allocation_cache *allocation_cache; /* Fast allocation cache */
 };
 
 /*
