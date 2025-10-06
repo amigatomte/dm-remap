@@ -634,6 +634,11 @@ sudo dmsetup message <device> 0 clear_stats
 - **Features**: RAID-like metadata redundancy, automatic repair, load distribution
 - **Impact**: Zero data loss even with multiple component failures
 
+#### 🔧 Priority 6: Automatic Setup Reassembly
+- **Goal**: Store configuration metadata for automatic device discovery and reassembly
+- **Features**: Configuration storage, device fingerprinting, automatic reconstruction
+- **Impact**: Disaster recovery, system migration, simplified maintenance operations
+
 **📋 See [V4_ROADMAP.md](V4_ROADMAP.md) for detailed technical specifications and development timeline.**
 
 ---

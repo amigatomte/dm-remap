@@ -163,12 +163,53 @@
 
 ---
 
+### 🔧 **Priority 6: Automatic Setup Reassembly**
+**Goal**: Store configuration metadata to enable automatic device discovery and setup reconstruction
+
+#### Implementation Plan:
+- **Phase 1**: Enhanced metadata format with configuration storage
+  - Store main device identification (UUID, path, size)
+  - Store dm-remap target parameters and configuration
+  - Store spare device relationships and hierarchy
+  - Store sysfs configuration settings and policies
+  - Embed setup reconstruction instructions
+
+- **Phase 2**: Automatic discovery and reassembly system
+  - Spare device scanning and identification algorithms
+  - Configuration validation and integrity checks
+  - Automatic main device location and verification
+  - Dynamic dm-remap target reconstruction
+  - Policy and configuration restoration
+
+#### Technical Requirements:
+- **Extended metadata format**: Configuration section with device fingerprints
+- **Discovery engine**: Scan system for spare devices with dm-remap metadata
+- **Validation system**: Verify configuration integrity and device compatibility
+- **Reconstruction API**: Automatic target setup from discovered metadata
+- **Safety mechanisms**: Prevent accidental setup conflicts
+
+#### Use Cases:
+- **Disaster Recovery**: Automatic system rebuild after hardware replacement
+- **System Migration**: Move dm-remap setups between different systems
+- **Maintenance Operations**: Simplified setup after storage reorganization
+- **Enterprise Deployment**: Streamlined setup discovery in large environments
+
+#### Success Criteria:
+- Discover and reassemble setup from any accessible spare device
+- Automatic main device identification with 99%+ accuracy
+- Complete configuration restoration including policies and settings
+- Safe operation with conflict detection and resolution
+- Integration with existing v3.0 metadata without breaking compatibility
+
+---
+
 ## 📋 v4.0 Development Phases
 
 ### **Phase 1: Foundation (Q1 2026)**
 - Background Health Scanning basic implementation
 - Multiple spare device infrastructure
-- Enhanced metadata format design
+- Enhanced metadata format design with configuration storage
+- Automatic Setup Reassembly metadata foundation
 - Core daemon architecture
 
 ### **Phase 2: Intelligence (Q2 2026)**
@@ -179,7 +220,8 @@
 
 ### **Phase 3: Integration (Q3 2026)**
 - User-space daemon completion
-- Web management interface
+- Automatic Setup Reassembly discovery engine
+- Web management interface with setup discovery tools
 - External monitoring integration
 - Comprehensive testing framework
 
@@ -201,6 +243,7 @@ dm-remap-v4.0/
 ├── dm-remap-predict.c        # Predictive failure analysis
 ├── dm-remap-hotspare.c       # Hot spare management
 ├── dm-remap-multi-spare.c    # Multiple spare devices
+├── dm-remap-reassembly.c     # Automatic setup reassembly
 └── dm-remap-daemon-comm.c    # User-space communication
 ```
 
@@ -210,6 +253,7 @@ dm-remapd/
 ├── src/
 │   ├── daemon/               # Core daemon
 │   ├── ml-engine/           # Prediction algorithms
+│   ├── discovery/           # Setup discovery and reassembly
 │   ├── web-ui/              # Management interface
 │   └── tools/               # Command-line tools
 ├── config/
@@ -217,6 +261,7 @@ dm-remapd/
 │   └── templates/           # Configuration templates
 └── tests/
     ├── integration/         # Full system tests
+    ├── discovery/           # Setup reassembly tests
     └── performance/         # Performance benchmarks
 ```
 
@@ -237,6 +282,7 @@ dm-remapd/
 ### **Management Capabilities**
 - Centralized management of 100+ dm-remap instances
 - Policy-based automation for 95% of routine tasks
+- Automatic setup discovery and reassembly for disaster recovery
 - Integration with major monitoring platforms
 
 ---
