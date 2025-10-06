@@ -45,7 +45,7 @@ It provides transparent bad sector remapping entirely in software, with metadata
 
 ---
 
-## � Project Overview
+## 📖 Project Overview
 
 ### 🎯 Purpose & Problem Statement
 
@@ -133,7 +133,7 @@ dmsetup status production_storage
 
 ---
 
-## �🚀 Quick Start
+## 🚀 Quick Start
 
 ### ⚡ Quick Start - v3.0
 
@@ -628,7 +628,7 @@ sudo dmsetup message <device> 0 clear_stats
 
 ---
 
-### � Project Organization
+### 📁 Project Organization
 
 The project maintains a clean structure with historical files archived:
 - **`archive/v2_historical/`** - Historical v2.0 documentation and planning files
@@ -640,7 +640,7 @@ All active v3.0 functionality remains in the main directories with comprehensive
 
 ---
 
-### �📜 License
+### 📜 License
 GPLv2 — Free to use, modify, and distribute.
 
 ---
