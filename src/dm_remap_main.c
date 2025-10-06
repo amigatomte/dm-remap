@@ -22,6 +22,7 @@
 #include "dm-remap-core.h"       // Core data structures and debug macros
 #include "dm-remap-messages.h"   // Debug macros and messaging support
 #include "dm-remap-sysfs.h"      // Sysfs interface declarations
+#include "dm_remap_reservation.h" // v4.0 Reservation system
 #include <linux/device-mapper.h> // Device mapper framework
 #include <linux/bio.h>           // Block I/O structures
 #include <linux/init.h>          // Module initialization
@@ -233,6 +234,23 @@ static int remap_ctr(struct dm_target *ti, unsigned int argc, char **argv)
     
     /* Initialize v3.0 metadata system */
     rc->metadata = NULL;  /* Will be initialized after device validation */
+    
+    /* Initialize v4.0 reservation system */
+    ret = dmr_init_reservation_system(rc);
+    if (ret) {
+        ti->error = "Failed to initialize reservation system";
+        goto bad;
+    }
+    
+    /* Set up dynamic metadata reservations */
+    ret = dmr_setup_dynamic_metadata_reservations(rc);
+    if (ret && ret != -ENOSPC) {
+        ti->error = "Failed to set up metadata reservations";
+        goto bad;
+    }
+    if (ret == -ENOSPC) {
+        printk(KERN_WARNING "dm-remap: Spare device too small for optimal metadata placement\n");
+    }
 
     /* Enforce module parameter limits */
     if (rc->spare_len > max_remaps) {
@@ -340,6 +358,9 @@ static void remap_dtr(struct dm_target *ti)
 
     /* Remove debug interface */
     dmr_debug_remove_target(rc);
+    
+    /* Cleanup v4.0 reservation system */
+    dmr_cleanup_reservation_system(rc);
     
     /* Cleanup v3.0 metadata system */
     if (rc->metadata) {

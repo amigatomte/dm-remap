@@ -107,6 +107,13 @@ struct remap_c {
     struct remap_entry *table;   /* Array of remap entries */
                                 /* Size is spare_len (one entry per spare sector) */
     
+    /* v4.0 Metadata Reservation System */
+    unsigned long *reserved_sectors; /* Bitmap of sectors reserved for metadata */
+    sector_t next_spare_sector;      /* Next candidate for spare allocation */
+    sector_t metadata_sectors[8];    /* Actual metadata sector locations */
+    u8 metadata_copies_count;        /* Number of metadata copies stored */
+    u8 placement_strategy;           /* Current metadata placement strategy */
+    
     /* v2.0 Intelligence & Statistics */
     u32 write_errors;           /* Total write errors detected */
     u32 read_errors;            /* Total read errors detected */

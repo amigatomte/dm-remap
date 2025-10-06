@@ -13,12 +13,21 @@
 /* Metadata format constants */
 #define DM_REMAP_METADATA_V4_MAGIC      0x444D5234  /* "DMR4" */
 #define DM_REMAP_METADATA_V4_VERSION    1
-#define DM_REMAP_METADATA_COPIES        5
+#define DM_REMAP_METADATA_COPIES_MAX    8           /* Maximum copies supported */
+#define DM_REMAP_METADATA_COPIES_MIN    2           /* Minimum copies for redundancy */
+#define DM_REMAP_METADATA_COPIES_DEFAULT 5          /* Default desired copies */
 #define DM_REMAP_METADATA_SIZE          4096        /* 4KB per copy */
 #define DM_REMAP_METADATA_SECTORS       8           /* 4KB = 8 sectors */
 
 /* Footer magic for validation */
 #define DM_REMAP_METADATA_FOOTER_MAGIC  0x34524D44  /* "DMR4" reversed */
+
+/* Placement strategy constants */
+#define PLACEMENT_STRATEGY_GEOMETRIC    1  /* Powers of 2 spacing (preferred) */
+#define PLACEMENT_STRATEGY_LINEAR       2  /* Even distribution across device */
+#define PLACEMENT_STRATEGY_MINIMAL      3  /* Tight packing for small devices */
+#define PLACEMENT_STRATEGY_CUSTOM       4  /* User-defined placement */
+#define PLACEMENT_STRATEGY_AUTO         0  /* Automatic strategy selection */
 
 /* Metadata copy sector locations */
 static const sector_t metadata_copy_sectors[DM_REMAP_METADATA_COPIES] = {
@@ -96,9 +105,16 @@ struct dm_remap_metadata_v4 {
         u32 total_size;             /* Total metadata size in bytes */
         u32 header_checksum;        /* CRC32 of this header */
         u32 data_checksum;          /* CRC32 of data sections */
-        u32 copy_index;             /* Which copy this is (0-4) */
+        u32 copy_index;             /* Which copy this is (0-7) */
         u64 timestamp;              /* Creation/update timestamp (nanoseconds) */
-        u8  reserved[32];           /* Reserved for future extensions */
+        
+        /* Dynamic placement information */
+        u32 total_copies;           /* Actual number of copies stored */
+        u32 placement_strategy;     /* Strategy used (geometric/linear/minimal) */
+        sector_t copy_sectors[8];   /* Sector locations of all copies */
+        u32 spare_device_size;      /* Size of spare device when created */
+        
+        u8  reserved[8];            /* Reserved for future extensions - reduced */
     } header;
     
     /* v3.0 compatibility section (preserved exactly) */
@@ -176,10 +192,17 @@ int write_redundant_metadata_v4(struct block_device *spare_bdev,
                                struct dm_remap_metadata_v4 *meta);
 int read_redundant_metadata_v4(struct block_device *spare_bdev,
                               struct dm_remap_metadata_v4 **meta_out);
+int read_single_metadata_copy(struct block_device *spare_bdev,
+                            sector_t sector,
+                            struct dm_remap_metadata_v4 **meta_out);
+int scan_for_metadata_copies(struct block_device *spare_bdev,
+                           sector_t *sectors_out,
+                           int *copies_out);
 
 /* Conflict resolution */
 enum conflict_resolution_result resolve_metadata_conflicts(
-    struct dm_remap_metadata_v4 copies[DM_REMAP_METADATA_COPIES],
+    struct dm_remap_metadata_v4 **copies,
+    int copies_count,
     struct dm_remap_metadata_v4 **selected_copy);
 
 /* Metadata repair */
@@ -194,8 +217,21 @@ int upgrade_metadata_v3_to_v4(struct block_device *spare_bdev,
 u64 get_next_sequence_number(void);
 bool is_newer_metadata(u64 seq1, u64 seq2);
 
+/* Dynamic placement functions */
+int calculate_dynamic_metadata_sectors(sector_t spare_size_sectors,
+                                     sector_t *sectors_out,
+                                     int *max_copies);
+int detect_metadata_placement_strategy(struct block_device *spare_bdev,
+                                     u32 *strategy_out,
+                                     sector_t *sectors_out,
+                                     int *copies_out);
+int write_redundant_metadata_v4_dynamic(struct block_device *spare_bdev,
+                                       struct dm_remap_metadata_v4 *meta);
+const char *get_placement_strategy_name(u32 strategy);
+
 /* Utility functions */
 bool validate_metadata_sector_placement(void);
 unsigned int calculate_optimal_metadata_write_order(void);
+sector_t get_device_size_sectors(struct block_device *bdev);
 
 #endif /* DM_REMAP_METADATA_V4_H */
