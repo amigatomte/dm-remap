@@ -17,10 +17,20 @@ Your suggestion to add **Automatic Setup Reassembly** perfectly aligns with the 
 
 ### **Weeks 1-2: Metadata Infrastructure & Research**
 
-#### Enhanced Metadata Format Design
+#### Enhanced Metadata Format Design with Redundancy
 ```c
-// New v4.0 metadata structure (conceptual)
+// New v4.0 metadata structure with redundant storage
 struct dm_remap_metadata_v4 {
+    // Header with integrity protection
+    struct {
+        uint32_t magic;              // Magic number: 0x444D5234
+        uint64_t sequence_number;    // Monotonic counter for conflict resolution
+        uint32_t header_checksum;    // CRC32 of this header
+        uint32_t data_checksum;      // CRC32 of data sections
+        uint32_t copy_index;         // Which copy this is (0-4)
+        uint64_t timestamp;          // Creation/update timestamp
+    } header;
+    
     // v3.0 compatibility section
     struct dm_remap_metadata_v3 legacy;
     
@@ -33,7 +43,8 @@ struct dm_remap_metadata_v4 {
         char target_params[512];        // dm-remap target parameters
         char sysfs_config[1024];       // sysfs settings snapshot
         uint32_t config_version;       // Configuration format version
-        uint32_t config_checksum;      // Configuration integrity check
+        uint32_t config_checksum;      // Configuration section CRC32
+        uint8_t device_fingerprint[32]; // SHA-256 device fingerprint
     } setup_config;
     
     // v4.0 Health Scanning Section
@@ -56,11 +67,16 @@ struct dm_remap_metadata_v4 {
 #### Research Activities
 - **Kernel Work Queues**: Study `kernel/workqueue.c` implementation patterns
 - **Device Identification**: Research reliable device fingerprinting methods
-- **Metadata Placement**: Design optimal metadata location strategy for discovery
+- **Redundant Metadata Storage**: Design 5-copy storage strategy (sectors 0, 1024, 2048, 4096, 8192)
+- **Integrity Protection**: Research CRC32 vs SHA-256 for checksum performance
+- **Conflict Resolution**: Design sequence number and timestamp-based resolution
 - **Performance Analysis**: Baseline current v3.0 I/O performance metrics
 
 #### Week 1-2 Deliverables
-- [ ] Enhanced metadata format specification document
+- [ ] Enhanced metadata format specification document with redundancy
+- [ ] Redundant storage strategy (5 copies across strategic sectors)
+- [ ] Checksum and integrity protection design (multi-level CRC32)
+- [ ] Conflict resolution algorithm specification (sequence numbers + timestamps)
 - [ ] Device fingerprinting algorithm design
 - [ ] Background scanning architecture design
 - [ ] Performance impact analysis methodology
@@ -73,14 +89,18 @@ struct dm_remap_metadata_v4 {
 ```c
 // Key implementation areas
 dm-remap-metadata-v4.c:
-- Enhanced metadata read/write functions
+- Redundant metadata read/write functions (5 copies)
+- Multi-level checksum calculation and validation
+- Sequence number management and conflict resolution
 - Configuration storage and retrieval
 - Device fingerprinting and validation
+- Automatic metadata repair from valid copies
 - Backward compatibility with v3.0
 
 dm-remap-discovery.c:
 - Spare device scanning algorithms
-- Configuration validation logic
+- Multi-copy validation and newest selection
+- Configuration validation logic with integrity checks
 - Main device identification functions
 - Setup reconstruction safety checks
 ```
@@ -96,8 +116,11 @@ dm-remap-health-scanner.c:
 ```
 
 #### Week 3-4 Deliverables
-- [ ] Enhanced metadata read/write functions
-- [ ] Basic device discovery prototype
+- [ ] Redundant metadata read/write functions (5-copy system)
+- [ ] Multi-level checksum validation implementation
+- [ ] Conflict resolution and automatic repair algorithms
+- [ ] Basic device discovery prototype with integrity validation
+- [ ] Metadata corruption recovery testing framework
 - [ ] Background work queue infrastructure
 - [ ] Sysfs interface for health scanning configuration
 

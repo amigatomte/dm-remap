@@ -167,26 +167,36 @@
 **Goal**: Store configuration metadata to enable automatic device discovery and setup reconstruction
 
 #### Implementation Plan:
-- **Phase 1**: Enhanced metadata format with configuration storage
+- **Phase 1**: Enhanced metadata format with redundant configuration storage
   - Store main device identification (UUID, path, size)
   - Store dm-remap target parameters and configuration
   - Store spare device relationships and hierarchy
   - Store sysfs configuration settings and policies
   - Embed setup reconstruction instructions
+  - **Redundant Storage**: Multiple metadata copies at different spare device locations
+  - **Integrity Protection**: CRC32 checksums for each metadata copy
+  - **Version Control**: Monotonic counter for conflict resolution
 
 - **Phase 2**: Automatic discovery and reassembly system
   - Spare device scanning and identification algorithms
-  - Configuration validation and integrity checks
+  - **Multi-copy validation**: Checksum verification and corruption detection
+  - **Conflict resolution**: Version counter comparison and newest selection
+  - **Metadata repair**: Automatic restoration from valid copies
   - Automatic main device location and verification
   - Dynamic dm-remap target reconstruction
   - Policy and configuration restoration
 
 #### Technical Requirements:
 - **Extended metadata format**: Configuration section with device fingerprints
+- **Redundant storage strategy**: Multiple copies at sectors 0, 1024, 2048, 4096, 8192
+- **Integrity protection**: CRC32 checksum per metadata copy + overall validation
+- **Version management**: 64-bit monotonic counter for conflict resolution
 - **Discovery engine**: Scan system for spare devices with dm-remap metadata
-- **Validation system**: Verify configuration integrity and device compatibility
+- **Multi-copy validation**: Verify checksums, compare versions, detect corruption
+- **Conflict resolution**: Automatic selection of newest valid metadata copy
+- **Metadata repair**: Restore corrupted copies from valid sources
 - **Reconstruction API**: Automatic target setup from discovered metadata
-- **Safety mechanisms**: Prevent accidental setup conflicts
+- **Safety mechanisms**: Prevent accidental setup conflicts and validate compatibility
 
 #### Use Cases:
 - **Disaster Recovery**: Automatic system rebuild after hardware replacement
@@ -196,6 +206,9 @@
 
 #### Success Criteria:
 - Discover and reassemble setup from any accessible spare device
+- **Metadata reliability**: Survive corruption of up to 80% of metadata copies
+- **Conflict resolution**: Automatically select newest valid configuration
+- **Integrity assurance**: 100% checksum validation before reassembly
 - Automatic main device identification with 99%+ accuracy
 - Complete configuration restoration including policies and settings
 - Safe operation with conflict detection and resolution
