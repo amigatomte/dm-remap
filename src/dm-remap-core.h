@@ -20,6 +20,9 @@
 /* Forward declarations for performance optimization structures */
 struct dmr_allocation_cache;
 
+/* Forward declarations for health scanning system */
+struct dmr_health_scanner;
+
 /*
  * v2.0 REMAP REASONS - Why a sector was remapped
  */
@@ -105,6 +108,7 @@ struct remap_c {
     sector_t spare_used;         /* Number of spare sectors currently used */
     sector_t health_entries;     /* Number of health tracking entries (includes remapped) */
     sector_t main_start;         /* Starting sector on main device (usually 0) */
+    sector_t main_sectors;       /* Total sectors on main device */
     
     /* Remapping table - dynamically allocated array */
     struct remap_entry *table;   /* Array of remap entries */
@@ -146,6 +150,9 @@ struct remap_c {
     
     /* v4.0 Performance optimization cache */
     struct dmr_allocation_cache *allocation_cache; /* Fast allocation cache */
+    
+    /* Week 7-8: Background Health Scanning System */
+    struct dmr_health_scanner *health_scanner;     /* Background health scanner */
 };
 
 /*

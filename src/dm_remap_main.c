@@ -36,6 +36,7 @@
 #include "dm-remap-error.h"      // Error handling functions
 #include "dm-remap-debug.h"      // Debug interface for testing
 #include "dm-remap-metadata.h"   // v3.0 metadata persistence system
+#include "dm-remap-health-core.h" // Week 7-8: Background health scanning
 
 /*
  * Module parameters - configurable via modprobe or /sys/module/
@@ -312,9 +313,12 @@ static int remap_ctr(struct dm_target *ti, unsigned int argc, char **argv)
         /* Continue without debug - not a fatal error */
     }
     
+    /* Initialize main device sector count for health scanning */
+    rc->main_sectors = bdev_nr_sectors(rc->main_dev->bdev);
+    
     /* Initialize v3.0 metadata system */
     rc->metadata = dm_remap_metadata_create(rc->spare_dev->bdev, 
-                                           bdev_nr_sectors(rc->main_dev->bdev),
+                                           rc->main_sectors,
                                            bdev_nr_sectors(rc->spare_dev->bdev));
     if (!rc->metadata) {
         DMR_DEBUG(0, "Failed to create metadata context - continuing without persistence");
@@ -339,8 +343,28 @@ static int remap_ctr(struct dm_target *ti, unsigned int argc, char **argv)
         dm_remap_autosave_start(rc->metadata);
     }
 
-    pr_info("dm-remap: v3.0 target created successfully (metadata: %s)\n",
-            rc->metadata ? "enabled" : "disabled");
+    /* Initialize Week 7-8: Background Health Scanning System */
+    ret = dmr_health_scanner_init(rc);
+    if (ret) {
+        DMR_DEBUG(0, "Failed to initialize health scanner: %d", ret);
+        /* Continue without health scanning - not a fatal error */
+        rc->health_scanner = NULL; 
+    } else {
+        DMR_DEBUG(0, "Background health scanner initialized successfully");
+        /* Auto-start health scanning */
+        if (rc->health_scanner) {
+            ret = dmr_health_scanner_start(rc->health_scanner);
+            if (ret) {
+                DMR_DEBUG(0, "Failed to start health scanner: %d", ret);
+            } else {
+                DMR_DEBUG(0, "Background health scanning started");
+            }
+        }
+    }
+
+    pr_info("dm-remap: v4.0 target created successfully (metadata: %s, health: %s)\n",
+            rc->metadata ? "enabled" : "disabled",
+            rc->health_scanner ? "enabled" : "disabled");
     return 0;
 
 bad:
@@ -372,6 +396,12 @@ static void remap_dtr(struct dm_target *ti)
     
     /* Cleanup v4.0 reservation system */
     dmr_cleanup_reservation_system(rc);
+    
+    /* Cleanup Week 7-8: Background Health Scanning System */
+    if (rc->health_scanner) {
+        dmr_health_scanner_cleanup(rc);
+        pr_info("dm-remap: cleaned up health scanning system\n");
+    }
     
     /* Cleanup v3.0 metadata system */
     if (rc->metadata) {
