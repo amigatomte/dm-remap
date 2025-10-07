@@ -153,6 +153,9 @@ struct remap_c {
     
     /* Week 7-8: Background Health Scanning System */
     struct dmr_health_scanner *health_scanner;     /* Background health scanner */
+    
+    /* Week 9-10: Memory Pool Manager for Optimization */
+    struct dmr_pool_manager *pool_manager;         /* Optimized memory pool system */
 };
 
 /*

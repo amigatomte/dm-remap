@@ -24,6 +24,7 @@
 #include "dm-remap-sysfs.h"      // Sysfs interface declarations
 #include "dm_remap_reservation.h" // v4.0 Reservation system
 #include "dm-remap-performance.h" // v4.0 Performance optimizations
+#include "dm-remap-memory-pool.h" // Week 9-10 Memory optimization
 #include <linux/device-mapper.h> // Device mapper framework
 #include <linux/bio.h>           // Block I/O structures
 #include <linux/init.h>          // Module initialization
@@ -343,6 +344,15 @@ static int remap_ctr(struct dm_target *ti, unsigned int argc, char **argv)
         dm_remap_autosave_start(rc->metadata);
     }
 
+    /* Initialize Week 9-10: Memory Pool System for Optimization */
+    ret = dmr_pool_manager_init(rc);
+    if (ret) {
+        DMR_DEBUG(0, "Failed to initialize memory pool system: %d", ret);
+        rc->pool_manager = NULL;
+    } else {
+        DMR_DEBUG(0, "Memory pool system initialized successfully");
+    }
+
     /* Initialize Week 7-8: Background Health Scanning System */
     ret = dmr_health_scanner_init(rc);
     if (ret) {
@@ -401,6 +411,12 @@ static void remap_dtr(struct dm_target *ti)
     if (rc->health_scanner) {
         dmr_health_scanner_cleanup(rc);
         pr_info("dm-remap: cleaned up health scanning system\n");
+    }
+    
+    /* Cleanup Week 9-10: Memory Pool System */
+    if (rc->pool_manager) {
+        dmr_pool_manager_cleanup(rc);
+        pr_info("dm-remap: cleaned up memory pool system\n");
     }
     
     /* Cleanup v3.0 metadata system */

@@ -41,20 +41,7 @@ struct auto_remap_work {
     int error_code;              /* Original error that triggered remap */
 };
 
-/*
- * Bio context for v2.0 intelligent error handling
- * 
- * This structure tracks individual I/O operations for error detection,
- * retry logic, and automatic remapping decisions.
- */
-struct dmr_bio_context {
-    struct remap_c *rc;           /* Target context */
-    sector_t original_lba;        /* Original logical block address */
-    u32 retry_count;              /* Number of retries attempted */
-    unsigned long start_time;     /* I/O start time (jiffies) */
-    bio_end_io_t *original_bi_end_io;  /* Original completion callback */
-    void *original_bi_private;    /* Original private data */
-};
+/* Bio context structure is now defined in dm-remap-io.h */
 
 /* Work queue for deferred auto-remapping operations */
 /*
