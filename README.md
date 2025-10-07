@@ -56,6 +56,17 @@ It provides transparent bad sector remapping entirely in software, with metadata
 - **Provides cost-effective storage management** without requiring specialized hardware
 - **Offers enterprise-grade persistence** that survives system crashes and reboots
 
+#### 🎯 **When Do You Need dm-remap?**
+
+**Modern drives have built-in remapping, but it has limits:**
+
+- ✅ **Fresh drives (0-24 months)**: Hardware handles bad sectors internally - dm-remap monitors passively
+- ⚠️ **Aging drives (24-36 months)**: Hardware spare pool depleting - dm-remap prepares for activation  
+- 🔥 **Advanced failure (36+ months)**: Hardware spare pool exhausted - **dm-remap becomes critical**
+- 🚨 **Severe failure**: Hardware controller issues - **dm-remap provides system stability**
+
+**Key insight**: dm-remap activates when you need it most - providing software-level remapping precisely when hardware-level protection fails. It's your safety net for aging storage infrastructure.
+
 ### 🛠️ How It Works
 
 ```
@@ -547,6 +558,72 @@ sudo tests/complete_remap_verification.sh
 - Remapped sectors are redirected to a spare pool defined at creation.
 - I/O is intercepted in `map()` and redirected if needed.
 - Wrapper and driver scripts add safety, reproducibility, and automation.
+
+### 🔄 Hardware vs. Software Remapping: When dm-remap Activates
+
+**Understanding the Complete Storage Stack**
+
+Modern storage devices have **two layers of bad sector protection**:
+
+#### 🔧 **Layer 1: Hardware/Firmware Remapping** (Primary Defense)
+```
+┌─────────────────────────────────────┐
+│           APPLICATION               │ ← Sees reliable storage
+├─────────────────────────────────────┤
+│          FILESYSTEM                 │ ← Gets consistent performance  
+├─────────────────────────────────────┤
+│           dm-remap                  │ ← INACTIVE (monitoring only)
+├─────────────────────────────────────┤
+│         DRIVE FIRMWARE              │ ← ACTIVE (handling errors)
+├─────────────────────────────────────┤
+│        PHYSICAL MEDIA               │ ← Where problems originate
+└─────────────────────────────────────┘
+```
+
+**What happens when a sector fails:**
+1. **Drive detects write/read error**
+2. **Drive retries internally** (usually 3-5 attempts)
+3. **Drive automatically remaps** to spare sector from internal pool
+4. **Drive returns SUCCESS** to operating system
+5. **dm-remap never sees the error** - hardware handled it transparently
+
+#### ⚠️ **Layer 2: Software Remapping** (dm-remap Activates)
+```
+┌─────────────────────────────────────┐
+│           APPLICATION               │ ← Still sees reliable storage
+├─────────────────────────────────────┤
+│          FILESYSTEM                 │ ← Gets error, but dm-remap fixes it
+├─────────────────────────────────────┤
+│           dm-remap                  │ ← ACTIVE (remapping errors)
+├─────────────────────────────────────┤
+│         DRIVE FIRMWARE              │ ← EXHAUSTED (no spare sectors)
+├─────────────────────────────────────┤
+│        PHYSICAL MEDIA               │ ← Advanced failure state
+└─────────────────────────────────────┘
+```
+
+**When dm-remap becomes active:**
+1. **Drive spare pool exhausted** - No internal spare sectors remaining
+2. **Hardware controller issues** - Firmware can't handle remapping
+3. **Write protection errors** - Media write-protected or severely damaged
+4. **Drive reports errors to OS** - `bio->bi_status != 0`
+5. **dm-remap detects and remaps** - Software layer takes over
+
+#### 📊 **Real-World Timeline**
+- **Months 1-24**: Hardware handles everything, dm-remap sees no errors
+- **Months 24-30**: Drive spare pool depleting, SMART warnings increase
+- **Months 30-36**: Drive spare pool exhausted, dm-remap starts activating
+- **Month 36+**: Advanced failure, dm-remap working continuously
+
+#### 🎯 **Why This Design Is Critical**
+
+**dm-remap provides the safety net when hardware protection fails:**
+- ✅ **Extends drive lifespan** - Provides additional spare capacity beyond hardware
+- ✅ **Handles advanced failures** - Software remapping when firmware can't cope
+- ✅ **Maintains data integrity** - Never hides errors, always reports upstream
+- ✅ **Graceful degradation** - System remains stable even with severe drive issues
+
+**Key insight:** dm-remap activates precisely when you need it most - when the drive's built-in protection is exhausted and software-level intervention becomes critical for system reliability.
 
 ---
 

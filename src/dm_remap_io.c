@@ -167,6 +167,10 @@ static void dmr_bio_endio(struct bio *bio)
     int error = bio->bi_status;
     bool is_write = bio_data_dir(bio) == WRITE;
     
+    /* DEBUG: Confirm bio completion callback is being called */
+    DMR_DEBUG(2, "dmr_bio_endio called: sector=%llu, error=%d, %s", 
+              (unsigned long long)lba, error, is_write ? "WRITE" : "READ");
+    
     /* Update health statistics for this sector */
     dmr_update_sector_health(rc, lba, (error != 0), error);
     
@@ -221,11 +225,7 @@ void dmr_setup_bio_tracking(struct bio *bio, struct remap_c *rc, sector_t lba)
     
     DMR_DEBUG(3, "Setup bio tracking for sector %llu", (unsigned long long)lba);
     
-    /* TEMPORARY DEBUG: Skip bio tracking for read operations to isolate I/O forwarding issue */
-    if (bio_data_dir(bio) == READ) {
-        DMR_DEBUG(3, "Skipping bio tracking for read operation (debugging)");
-        return;
-    }
+    /* Bio tracking enabled for both READ and WRITE operations for error detection */
     
     /* Track I/Os up to 64KB to handle kernel bio coalescing */
     if (bio->bi_iter.bi_size > 65536) {
