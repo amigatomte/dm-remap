@@ -23,7 +23,7 @@
 #include "dm-remap-messages.h"   // Debug macros and messaging support
 #include "dm-remap-sysfs.h"      // Sysfs interface declarations
 #include "dm_remap_reservation.h" // v4.0 Reservation system
-#include "dm_remap_performance.h" // v4.0 Performance optimizations
+#include "dm-remap-performance.h" // v4.0 Performance optimizations
 #include <linux/device-mapper.h> // Device mapper framework
 #include <linux/bio.h>           // Block I/O structures
 #include <linux/init.h>          // Module initialization

@@ -10,7 +10,7 @@
 
 #include "dm-remap-core.h"
 #include "dm_remap_reservation.h"
-#include "dm_remap_performance.h"
+#include "dm-remap-performance.h"
 
 /* Debug version constants */
 #define DMR_ALLOCATION_CACHE_SIZE 64

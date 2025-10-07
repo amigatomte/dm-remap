@@ -323,7 +323,6 @@ int dmr_health_scanner_resume(struct dmr_health_scanner *scanner)
 static int dmr_health_scan_sectors(struct dmr_health_scanner *scanner,
                                   sector_t start_sector, sector_t sector_count)
 {
-    struct remap_c *rc = scanner->rc;
     sector_t sectors_scanned = 0;
     sector_t current_sector;
     ktime_t scan_start, scan_end;

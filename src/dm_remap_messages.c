@@ -23,7 +23,7 @@
 #include "dm-remap-messages.h"    /* Our message function declarations */
 #include "dm-remap-metadata.h"    /* v3.0 metadata system */
 #include "dm_remap_reservation.h" /* v4.0 reservation system */
-#include "dm_remap_performance.h" /* v4.0 performance optimizations */
+#include "dm-remap-performance.h" /* v4.0 performance optimizations */
 
 /*
  * remap_message() - Handle dmsetup message commands
