@@ -25,6 +25,8 @@
 #include "dm_remap_reservation.h" // v4.0 Reservation system
 #include "dm-remap-performance.h" // v4.0 Performance optimizations
 #include "dm-remap-memory-pool.h" // Week 9-10 Memory optimization
+#include "dm-remap-hotpath-optimization.h" // Week 9-10 Hotpath optimization
+#include "dm-remap-hotpath-sysfs.h" // Week 9-10 Hotpath sysfs interface
 #include <linux/device-mapper.h> // Device mapper framework
 #include <linux/bio.h>           // Block I/O structures
 #include <linux/init.h>          // Module initialization
@@ -307,6 +309,15 @@ static int remap_ctr(struct dm_target *ti, unsigned int argc, char **argv)
         /* Continue without sysfs - not a fatal error */
     }
 
+    /* Create hotpath sysfs interface if hotpath optimization is enabled */
+    if (rc->hotpath_manager) {
+        ret = dmr_hotpath_sysfs_create(rc);
+        if (ret) {
+            DMR_DEBUG(0, "Failed to create hotpath sysfs interface: %d", ret);
+            /* Continue without hotpath sysfs - not a fatal error */
+        }
+    }
+
     /* Create debug interface for testing */
     ret = dmr_debug_add_target(rc, target_name);
     if (ret) {
@@ -351,6 +362,15 @@ static int remap_ctr(struct dm_target *ti, unsigned int argc, char **argv)
         rc->pool_manager = NULL;
     } else {
         DMR_DEBUG(0, "Memory pool system initialized successfully");
+    }
+
+    /* Initialize Week 9-10: Hotpath Performance Optimization */
+    ret = dmr_hotpath_init(rc);
+    if (ret) {
+        DMR_DEBUG(0, "Failed to initialize hotpath optimization: %d", ret);
+        rc->hotpath_manager = NULL;
+    } else {
+        DMR_DEBUG(0, "Hotpath optimization initialized successfully");
     }
 
     /* Initialize Week 7-8: Background Health Scanning System */
@@ -398,6 +418,11 @@ static void remap_dtr(struct dm_target *ti)
     /* Remove sysfs interface */
     dmr_sysfs_remove_target(rc);
 
+    /* Remove hotpath sysfs interface */
+    if (rc->hotpath_manager) {
+        dmr_hotpath_sysfs_remove(rc);
+    }
+
     /* Remove debug interface */
     dmr_debug_remove_target(rc);
     
@@ -411,6 +436,12 @@ static void remap_dtr(struct dm_target *ti)
     if (rc->health_scanner) {
         dmr_health_scanner_cleanup(rc);
         pr_info("dm-remap: cleaned up health scanning system\n");
+    }
+    
+    /* Cleanup Week 9-10: Hotpath Optimization */
+    if (rc->hotpath_manager) {
+        dmr_hotpath_cleanup(rc);
+        pr_info("dm-remap: cleaned up hotpath optimization\n");
     }
     
     /* Cleanup Week 9-10: Memory Pool System */

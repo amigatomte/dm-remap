@@ -27,6 +27,7 @@
 #include "dm-remap-error.h"      /* Error handling interfaces */
 #include "dm-remap-io.h"         /* I/O processing interfaces */
 #include "dm-remap-performance.h" /* Performance optimization functions */
+#include "dm-remap-hotpath-optimization.h" /* Week 9-10 Hotpath optimization */
 
 /*
  * Work structure for deferred auto-remapping operations
@@ -268,7 +269,22 @@ int remap_map(struct dm_target *ti, struct bio *bio)
     int i;
     bool found_remap = false;
     
-    /* PERFORMANCE OPTIMIZATION: Fast path for common I/Os - check BEFORE expensive bio tracking */
+    /* Week 9-10 HOTPATH OPTIMIZATION: Ultra-fast path for optimal I/Os */
+    if (rc->hotpath_manager && dmr_is_fastpath_eligible(bio, rc)) {
+        /* Try batch processing first for throughput optimization */
+        if (dmr_hotpath_batch_add(rc, bio) == 0) {
+            return DM_MAPIO_SUBMITTED;  /* Successfully batched */
+        }
+        
+        /* If batching failed, process immediately via hotpath */
+        if (dmr_process_fastpath_io(bio, rc) == 0) {
+            return DM_MAPIO_SUBMITTED;  /* Successfully processed */
+        }
+        
+        /* Hotpath failed, fall through to legacy fast path */
+    }
+    
+    /* LEGACY PERFORMANCE OPTIMIZATION: Fast path for common I/Os */
     if (dmr_is_fast_path_eligible(bio, rc)) {
         dmr_perf_update_counters(rc, DMR_PERF_FAST_PATH);
         

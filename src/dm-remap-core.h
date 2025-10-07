@@ -156,6 +156,9 @@ struct remap_c {
     
     /* Week 9-10: Memory Pool Manager for Optimization */
     struct dmr_pool_manager *pool_manager;         /* Optimized memory pool system */
+    
+    /* Week 9-10: Hotpath Performance Optimization */
+    struct dmr_hotpath_manager *hotpath_manager;   /* I/O hotpath optimization */
 };
 
 /*
