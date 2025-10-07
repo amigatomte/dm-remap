@@ -1,0 +1,81 @@
+[0;34m[20:01:04][0m Verifying module information...
+[0;32m[SUCCESS][0m Regression test environment initialized
+[0;35m--- Module Loading and Basic Functionality ---[0m
+[0;32m[SUCCESS][0m Test 1: Module Loading - PASSED
+[0;34m[20:01:04][0m Parameter debug_level: 1
+[0;32m[SUCCESS][0m Test 2: Parameter debug_level - PASSED
+[0;34m[20:01:04][0m Parameter max_remaps: 1000
+[0;32m[SUCCESS][0m Test 3: Parameter max_remaps - PASSED
+[0;34m[20:01:04][0m Parameter error_threshold: 3
+[0;32m[SUCCESS][0m Test 4: Parameter error_threshold - PASSED
+[0;35m--- Device Creation and Basic I/O ---[0m
+[0;34m[20:01:04][0m Creating test device files...
+[0;34m[20:01:35][0m Cleaning up regression test environment...
+[0;34m[20:01:35][0m Regression test cleanup completed
+[0;31m[ERROR][0m Test 5: Device Creation - FAILED
+[0;35m--- Health Scanning System Regression ---[0m
+[0;32m[SUCCESS][0m Test 6: Health Scanner Initialization - PASSED
+[0;32m[SUCCESS][0m Test 7: Background Health Scanning - PASSED
+[0;32m[SUCCESS][0m Test 8: Health Map Creation - PASSED
+[1;33m[WARNING][0m Test 9: Health Sysfs Interface - WARNING
+[0;35m--- Memory Pool System Regression ---[0m
+[0;32m[SUCCESS][0m Test 10: Memory Pool Type 0 - PASSED
+[0;32m[SUCCESS][0m Test 11: Memory Pool Type 1 - PASSED
+[0;32m[SUCCESS][0m Test 12: Memory Pool Type 2 - PASSED
+[0;32m[SUCCESS][0m Test 13: Memory Pool Type 3 - PASSED
+[0;32m[SUCCESS][0m Test 14: Memory Pool Manager - PASSED
+[0;32m[SUCCESS][0m Test 15: Memory Pool System - PASSED
+[1;33m[WARNING][0m Test 16: Memory Pool Sysfs - WARNING
+[0;35m--- Hotpath Optimization Regression ---[0m
+[0;32m[SUCCESS][0m Test 17: Hotpath Initialization - PASSED
+[1;33m[WARNING][0m Test 18: Hotpath Sysfs Interface - WARNING
+[0;35m--- I/O Stress Testing ---[0m
+[0;34m[20:01:35][0m Running sequential read stress test...
+[0;31m[ERROR][0m Test 19: Sequential Read Stress - FAILED
+[0;34m[20:01:35][0m Running sequential write stress test...
+[0;32m[SUCCESS][0m Test 20: Sequential Write Stress - PASSED
+[0;34m[20:01:35][0m Running random I/O stress test...
+[0;32m[SUCCESS][0m Test 21: Random I/O Stress - PASSED
+[0;34m[20:01:35][0m Random I/O success rate: 100/100
+[0;35m--- Error Handling and Recovery ---[0m
+[0;32m[SUCCESS][0m Test 22: Invalid Device Rejection - PASSED
+[0;31m[ERROR][0m Test 23: Device Removal - FAILED
+[0;35m--- Resource Cleanup Testing ---[0m
+[0;34m[20:01:56][0m Cleaning up regression test environment...
+[0;34m[20:01:56][0m Regression test cleanup completed
+[0;31m[ERROR][0m Test 24: Cleanup Test 1 - FAILED
+[0;34m[20:02:03][0m Cleaning up regression test environment...
+[0;34m[20:02:03][0m Regression test cleanup completed
+[0;31m[ERROR][0m Test 25: Cleanup Test 2 - FAILED
+[0;34m[20:02:04][0m Cleaning up regression test environment...
+[0;34m[20:02:04][0m Regression test cleanup completed
+[0;31m[ERROR][0m Test 26: Cleanup Test 3 - FAILED
+[0;34m[20:02:04][0m Cleaning up regression test environment...
+[0;34m[20:02:04][0m Regression test cleanup completed
+[0;31m[ERROR][0m Test 27: Cleanup Test 4 - FAILED
+[0;34m[20:02:05][0m Cleaning up regression test environment...
+[0;34m[20:02:05][0m Regression test cleanup completed
+[0;31m[ERROR][0m Test 28: Cleanup Test 5 - FAILED
+[0;35m--- Performance Regression Detection ---[0m
+[0;34m[20:02:05][0m Running performance regression test...
+[0;34m[20:02:05][0m Performance test: 1628.77 MB/s in .004796560s
+[0;32m[SUCCESS][0m Test 29: Performance Regression - PASSED
+[0;35m--- Memory Leak Detection ---[0m
+[0;34m[20:02:05][0m Initial vmalloc memory: 127652 kB
+[0;34m[20:02:05][0m Cleaning up regression test environment...
+[0;34m[20:02:05][0m Regression test cleanup completed
+[0;34m[20:02:05][0m Cleaning up regression test environment...
+[0;34m[20:02:05][0m Regression test cleanup completed
+[0;34m[20:02:05][0m Cleaning up regression test environment...
+[0;34m[20:02:05][0m Regression test cleanup completed
+[0;34m[20:02:05][0m Final vmalloc memory: 127788 kB
+[0;34m[20:02:05][0m Memory difference: 136 kB
+[0;32m[SUCCESS][0m Test 30: Memory Leak Detection - PASSED
+[0;36m============================================[0m
+[0;36mRegression Test Report[0m
+[0;36m============================================[0m
+[0;32m[SUCCESS][0m Comprehensive regression report generated: /home/christian/kernel_dev/dm-remap/tests/regression_results/regression_report.txt
+[0;31m[ERROR][0m ❌ 8 regression test(s) failed. Address issues before Phase 2.
+[0;31m[ERROR][0m 🔧 Regression issues detected - resolve before Phase 2
+[0;34m[20:02:06][0m Cleaning up regression test environment...
+[0;34m[20:02:06][0m Regression test cleanup completed
