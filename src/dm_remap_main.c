@@ -421,13 +421,15 @@ static void remap_dtr(struct dm_target *ti)
 
     pr_info("dm-remap: v2.0 Destructor called\n");
 
-    /* Remove sysfs interface */
-    dmr_sysfs_remove_target(rc);
+    /* TEMPORARILY DISABLED: Remove sysfs interface - was not created during init
+     * dmr_sysfs_remove_target(rc);
+     */
 
-    /* Remove hotpath sysfs interface */
-    if (rc->hotpath_manager) {
-        dmr_hotpath_sysfs_remove(rc);
-    }
+    /* TEMPORARILY DISABLED: Remove hotpath sysfs interface - was not created during init
+     * if (rc->hotpath_manager) {
+     *     dmr_hotpath_sysfs_remove(rc);
+     * }
+     */
 
     /* Remove debug interface */
     dmr_debug_remove_target(rc);
