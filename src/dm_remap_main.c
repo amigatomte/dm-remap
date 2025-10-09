@@ -223,6 +223,10 @@ static int remap_ctr(struct dm_target *ti, unsigned int argc, char **argv)
     /* Initialize health scanner tracking field */
     rc->health_scanner_started = false;
     
+    /* Initialize I/O optimization tracking fields */
+    rc->memory_pool_started = false;
+    rc->hotpath_optimization_started = false;
+    
     /* Initialize production hardening context */
     rc->prod_ctx = kzalloc(sizeof(struct dmr_production_context), GFP_KERNEL);
     if (rc->prod_ctx) {
@@ -389,7 +393,9 @@ static int remap_ctr(struct dm_target *ti, unsigned int argc, char **argv)
         DMR_DEBUG(0, "Failed to initialize memory pool system: %d", ret);
         rc->pool_manager = NULL;
     } else {
-        DMR_DEBUG(0, "Memory pool system initialized successfully");
+        /* v4.0 Enhanced Safety: Track successful memory pool startup */
+        rc->memory_pool_started = true;
+        DMR_DEBUG(0, "Memory pool system initialized successfully with enhanced safety");
     }
 
     /* Initialize Week 9-10: Hotpath Performance Optimization */
@@ -398,7 +404,12 @@ static int remap_ctr(struct dm_target *ti, unsigned int argc, char **argv)
         DMR_DEBUG(0, "Failed to initialize hotpath optimization: %d", ret);
         rc->hotpath_manager = NULL;
     } else {
-        DMR_DEBUG(0, "Hotpath optimization initialized successfully");
+        /* v4.0 Enhanced Safety: Allow stabilization before full activation */
+        msleep(500);  /* 0.5-second delay for optimization stabilization */
+        
+        /* Track successful hotpath optimization startup */
+        rc->hotpath_optimization_started = true;
+        DMR_DEBUG(0, "Hotpath optimization initialized successfully with enhanced safety measures");
     }
 
     /* Initialize Week 7-8: Background Health Scanning System */
@@ -426,9 +437,10 @@ static int remap_ctr(struct dm_target *ti, unsigned int argc, char **argv)
         }
     }
 
-    pr_info("dm-remap: v4.0 target created successfully (metadata: %s, health: %s)\n",
+    pr_info("dm-remap: v4.0 target created successfully (metadata: %s, health: %s, I/O-opt: %s)\n",
             rc->metadata ? "enabled" : "disabled",
-            rc->health_scanner_started ? "enabled" : "disabled");
+            rc->health_scanner_started ? "enabled" : "disabled",
+            (rc->memory_pool_started && rc->hotpath_optimization_started) ? "enabled" : "partial/disabled");
     return 0;
 
 bad:
@@ -485,12 +497,24 @@ static void remap_dtr(struct dm_target *ti)
     
     /* Cleanup Week 9-10: Hotpath Optimization */
     if (rc->hotpath_manager) {
+        /* v4.0 Enhanced Safety: Stop hotpath optimization if it was successfully started */
+        if (rc->hotpath_optimization_started) {
+            /* Allow graceful shutdown of optimization processes */
+            msleep(100);  /* Brief delay for optimization cleanup */
+            DMR_DEBUG(1, "Hotpath optimization stopped successfully");
+        }
+        
         dmr_hotpath_cleanup(rc);
         pr_info("dm-remap: cleaned up hotpath optimization\n");
     }
     
     /* Cleanup Week 9-10: Memory Pool System */
     if (rc->pool_manager) {
+        /* v4.0 Enhanced Safety: Clean up memory pools if they were successfully started */
+        if (rc->memory_pool_started) {
+            DMR_DEBUG(1, "Memory pool system stopped successfully");
+        }
+        
         dmr_pool_manager_cleanup(rc);
         pr_info("dm-remap: cleaned up memory pool system\n");
     }

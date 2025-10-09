@@ -146,6 +146,10 @@ struct remap_c {
     /* v4.0 Health Scanner Tracking */
     bool health_scanner_started; /* Track if health scanner was successfully started */
     
+    /* v4.0 I/O Optimizations Tracking */
+    bool memory_pool_started;     /* Track if memory pool system was successfully started */
+    bool hotpath_optimization_started; /* Track if hotpath optimization was successfully started */
+    
     /* Concurrency control */
     spinlock_t lock;            /* Protects table and statistics */
                                /* Must be held when reading/writing remap table */
