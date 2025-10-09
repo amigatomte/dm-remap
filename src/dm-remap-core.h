@@ -137,6 +137,8 @@ struct remap_c {
     
     /* v2.0 Sysfs Interface */
     struct kobject kobj;        /* Kernel object for sysfs representation */
+    bool sysfs_created;         /* Track if sysfs interface was successfully created */
+    bool hotpath_sysfs_created; /* Track if hotpath sysfs interface was created */
     
     /* Concurrency control */
     spinlock_t lock;            /* Protects table and statistics */

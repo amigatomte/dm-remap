@@ -212,6 +212,10 @@ static int remap_ctr(struct dm_target *ti, unsigned int argc, char **argv)
     rc->spare_used = 0;
     rc->health_entries = 0;
     
+    /* Initialize sysfs tracking fields */
+    rc->sysfs_created = false;
+    rc->hotpath_sysfs_created = false;
+    
     /* Initialize production hardening context */
     rc->prod_ctx = kzalloc(sizeof(struct dmr_production_context), GFP_KERNEL);
     if (rc->prod_ctx) {
@@ -301,24 +305,32 @@ static int remap_ctr(struct dm_target *ti, unsigned int argc, char **argv)
         goto bad;
     }
 
-    /* TEMPORARILY DISABLED: Create sysfs interface for this target - causes hanging
-     * snprintf(target_name, sizeof(target_name), "%s", dm_table_device_name(ti->table));
-     * ret = dmr_sysfs_create_target(rc, target_name);
-     * if (ret) {
-     *     DMR_DEBUG(0, "Failed to create sysfs interface for target: %d", ret);
-     *     // Continue without sysfs - not a fatal error 
-     * }
-     */
+    /* Create sysfs interface for this target with enhanced error handling */
+    snprintf(target_name, sizeof(target_name), "%s", dm_table_device_name(ti->table));
+    ret = dmr_sysfs_create_target(rc, target_name);
+    if (ret) {
+        DMR_DEBUG(0, "Failed to create sysfs interface for target: %d", ret);
+        /* Continue without sysfs - not a fatal error, but mark for cleanup */
+        rc->sysfs_created = false;
+    } else {
+        rc->sysfs_created = true;
+        DMR_DEBUG(1, "Sysfs interface created successfully for target: %s", target_name);
+    }
 
-    /* TEMPORARILY DISABLED: Create hotpath sysfs interface - may cause hanging
-     * if (rc->hotpath_manager) {
-     *     ret = dmr_hotpath_sysfs_create(rc);
-     *     if (ret) {
-     *         DMR_DEBUG(0, "Failed to create hotpath sysfs interface: %d", ret);
-     *         // Continue without hotpath sysfs - not a fatal error 
-     *     }
-     * }
-     */
+    /* Create hotpath sysfs interface if hotpath optimization is enabled */
+    if (rc->hotpath_manager) {
+        ret = dmr_hotpath_sysfs_create(rc);
+        if (ret) {
+            DMR_DEBUG(0, "Failed to create hotpath sysfs interface: %d", ret);
+            /* Continue without hotpath sysfs - not a fatal error */
+            rc->hotpath_sysfs_created = false;
+        } else {
+            rc->hotpath_sysfs_created = true;
+            DMR_DEBUG(1, "Hotpath sysfs interface created successfully");
+        }
+    } else {
+        rc->hotpath_sysfs_created = false;
+    }
 
     /* Create debug interface for testing */
     ret = dmr_debug_add_target(rc, target_name);
@@ -421,15 +433,17 @@ static void remap_dtr(struct dm_target *ti)
 
     pr_info("dm-remap: v2.0 Destructor called\n");
 
-    /* TEMPORARILY DISABLED: Remove sysfs interface - was not created during init
-     * dmr_sysfs_remove_target(rc);
-     */
+    /* Remove sysfs interface if it was successfully created */
+    if (rc->sysfs_created) {
+        dmr_sysfs_remove_target(rc);
+        DMR_DEBUG(1, "Sysfs interface removed successfully");
+    }
 
-    /* TEMPORARILY DISABLED: Remove hotpath sysfs interface - was not created during init
-     * if (rc->hotpath_manager) {
-     *     dmr_hotpath_sysfs_remove(rc);
-     * }
-     */
+    /* Remove hotpath sysfs interface if it was successfully created */
+    if (rc->hotpath_sysfs_created) {
+        dmr_hotpath_sysfs_remove(rc);
+        DMR_DEBUG(1, "Hotpath sysfs interface removed successfully");
+    }
 
     /* Remove debug interface */
     dmr_debug_remove_target(rc);
