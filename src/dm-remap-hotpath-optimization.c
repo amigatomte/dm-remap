@@ -71,62 +71,56 @@ struct dmr_hotpath_manager {
  * Sets up the hotpath optimization infrastructure including cache-aligned
  * data structures and performance monitoring.
  */
+/*
+ * Test version of dmr_hotpath_init() - Basic validation
+ * DISABLED - using the full version below
+ */
+
+/*
+int dmr_hotpath_init(struct remap_c *rc)
+{
+    if (!rc) return -EINVAL;
+    
+    return 0;
+}
+*/
+
+/* DUPLICATE STRUCT DEFINITION REMOVED - using the one above */
+
+/**
+ * dmr_hotpath_init - Initialize hotpath optimization system
+ * @rc: Remap context
+ * 
+ * Sets up the hotpath optimization infrastructure including cache-aligned
+ * data structures and performance monitoring.
+ */
 int dmr_hotpath_init(struct remap_c *rc)
 {
     struct dmr_hotpath_manager *manager;
-    int i;
-
+    
+    printk(KERN_INFO "dmr_hotpath_init: Starting TEST 1 - allocation test\n");
+    
     if (!rc) {
-        DMR_DEBUG(1, "Invalid remap context for hotpath init");
+        printk(KERN_ERR "dmr_hotpath_init: Invalid remap context\n");
         return -EINVAL;
     }
-
-    /* Allocate cache-aligned hotpath manager */
+    
+    printk(KERN_INFO "dmr_hotpath_init: About to allocate manager\n");
+    
+    /* THIS IS THE SUSPECT LINE - cache-aligned allocation */
     manager = dmr_alloc_cache_aligned(sizeof(*manager));
+    
+    printk(KERN_INFO "dmr_hotpath_init: Allocation completed\n");
+    
     if (!manager) {
-        DMR_DEBUG(1, "Failed to allocate hotpath manager");
+        printk(KERN_ERR "dmr_hotpath_init: Failed to allocate hotpath manager\n");
         return -ENOMEM;
     }
-
-    /* Initialize hotpath context */
-    manager->context.sector = 0;
-    manager->context.flags = 0;
-    manager->context.bio_size = 0;
-    manager->context.batch_count = 0;
-    spin_lock_init(&manager->context.batch_lock);
-
-    /* Initialize performance counters */
-    atomic64_set(&manager->context.fast_reads, 0);
-    atomic64_set(&manager->context.fast_writes, 0);
-    atomic64_set(&manager->context.slow_path_fallbacks, 0);
-    atomic64_set(&manager->context.cache_hits, 0);
-
-    /* Initialize statistics */
-    memset(&manager->stats, 0, sizeof(manager->stats));
-
-    /* Set up optimization parameters */
-    manager->prefetch_distance = 8;     /* Prefetch 8 sectors ahead */
-    manager->batch_timeout_ms = 1;      /* 1ms batch timeout */
-    manager->adaptive_batching = true;
     
-    /* Initialize cache optimization state */
-    manager->last_accessed_sector = 0;
-    manager->sequential_count = 0;
-    manager->last_stats_time = jiffies;
-
-    /* Clear batch bio array */
-    for (i = 0; i < DMR_HOTPATH_BATCH_SIZE; i++) {
-        manager->context.batch_bios[i] = NULL;
-    }
-
-    /* Clear prefetch targets */
-    for (i = 0; i < DMR_HOTPATH_PREFETCH_LINES; i++) {
-        manager->context.prefetch_targets[i] = NULL;
-    }
-
+    printk(KERN_INFO "dmr_hotpath_init: Setting manager and returning\n");
     rc->hotpath_manager = manager;
-
-    DMR_DEBUG(1, "Hotpath optimization initialized successfully");
+    
+    printk(KERN_INFO "dmr_hotpath_init: TEST 1 completed successfully\n");
     return 0;
 }
 
