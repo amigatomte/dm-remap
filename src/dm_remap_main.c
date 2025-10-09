@@ -43,6 +43,9 @@
 #include "dm-remap-health-core.h" // Week 7-8: Background health scanning
 #include "dm-remap-performance-profiler.h" // Phase 3: Advanced performance profiling
 #include "dm-remap-performance-sysfs.h" // Phase 3: Performance profiler sysfs interface
+#include "dm-remap-performance-optimization.h" // Phase 3.2B: Performance optimization
+#include "dm-remap-io-optimized.h" // Phase 3.2B: Optimized I/O processing
+#include "dm-remap-optimization-sysfs.h" // Phase 3.2B: Optimization monitoring
 
 /*
  * Module parameters - configurable via modprobe or /sys/module/
@@ -637,7 +640,7 @@ static struct target_type remap_target = {
     .module          = THIS_MODULE,
     .ctr             = remap_ctr,
     .dtr             = remap_dtr,
-    .map             = remap_map,           /* Main I/O mapping function */
+    .map             = remap_map,           /* Main I/O mapping function - Phase 3.2B optimized */
     .status          = remap_status,
     .message         = remap_message,       /* From dm-remap-messages.c */
 };
@@ -646,12 +649,29 @@ static int __init dm_remap_init(void)
 {
     int result;
     
-    DMR_DEBUG(1, "Initializing dm-remap module");
+    DMR_DEBUG(1, "Initializing dm-remap module with Phase 3.2B optimizations");
     
     /* Initialize sysfs interface first */
     result = dmr_sysfs_init();
     if (result) {
         DMR_ERROR("Failed to initialize sysfs interface: %d", result);
+        return result;
+    }
+
+    /* Phase 3.2B: Initialize optimization sysfs interface */
+    result = dmr_optimization_sysfs_init();
+    if (result) {
+        DMR_ERROR("Failed to initialize Phase 3.2B optimization sysfs interface: %d", result);
+        dmr_sysfs_exit();
+        return result;
+    }
+
+    /* Phase 3.2B: Initialize optimized I/O processing */
+    result = dmr_io_optimized_init(max_remaps);
+    if (result) {
+        DMR_ERROR("Failed to initialize Phase 3.2B optimized I/O processing: %d", result);
+        dmr_optimization_sysfs_cleanup();
+        dmr_sysfs_exit();
         return result;
     }
 
@@ -665,22 +685,30 @@ static int __init dm_remap_init(void)
     result = dm_register_target(&remap_target);
     if (result < 0) {
         DMR_ERROR("register failed %d", result);
+        dmr_io_optimized_cleanup();
+        dmr_optimization_sysfs_cleanup();
         dmr_sysfs_exit();
         return result;
     }
     
-    DMR_DEBUG(1, "dm-remap module initialized successfully");
+    DMR_DEBUG(1, "dm-remap module initialized successfully with Phase 3.2B optimizations");
     return result;
 }
 
 static void __exit dm_remap_exit(void)
 {
-    DMR_DEBUG(1, "Exiting dm-remap module");
+    DMR_DEBUG(1, "Exiting dm-remap module with Phase 3.2B optimizations");
     
     dm_unregister_target(&remap_target);
     
     /* Cleanup global I/O subsystem (destroys auto_remap_wq workqueue) */
     dmr_io_exit();
+    
+    /* Phase 3.2B: Cleanup optimized I/O processing */
+    dmr_io_optimized_cleanup();
+    
+    /* Phase 3.2B: Cleanup optimization sysfs interface */
+    dmr_optimization_sysfs_cleanup();
     
     /* Cleanup global interfaces */
     dmr_sysfs_exit();
@@ -690,7 +718,7 @@ static void __exit dm_remap_exit(void)
     /* Note: Individual device workqueues should be cleaned up in device destructors,
      * but we add safety cleanup here for any missed global workqueues */
     
-    DMR_DEBUG(1, "dm-remap module exited successfully");
+    DMR_DEBUG(1, "dm-remap module exited successfully with Phase 3.2B optimizations");
 }
 
 module_init(dm_remap_init);

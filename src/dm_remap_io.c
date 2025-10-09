@@ -28,6 +28,7 @@
 #include "dm-remap-io.h"         /* I/O processing interfaces */
 #include "dm-remap-performance.h" /* Performance optimization functions */
 #include "dm-remap-hotpath-optimization.h" /* Week 9-10 Hotpath optimization */
+#include "dm-remap-io-optimized.h" /* Phase 3.2B: Optimized I/O processing */
 
 /*
  * Work structure for deferred auto-remapping operations
@@ -262,107 +263,8 @@ void dmr_setup_bio_tracking(struct bio *bio, struct remap_c *rc, sector_t lba)
  */
 int remap_map(struct dm_target *ti, struct bio *bio)
 {
-    struct remap_c *rc = ti->private;
-    sector_t sector = bio->bi_iter.bi_sector;
-    struct dm_dev *target_dev = rc->main_dev;
-    sector_t target_sector = rc->main_start + sector;
-    int i;
-    bool found_remap = false;
-    ktime_t start_time = ktime_get();  /* Phase 3.2A: Performance timing */
-    
-    /* TEMPORARILY DISABLED: Week 9-10 HOTPATH OPTIMIZATION - causes I/O hanging
-     * if (rc->hotpath_manager && dmr_is_fastpath_eligible(bio, rc)) {
-     *     // Try batch processing first for throughput optimization 
-     *     if (dmr_hotpath_batch_add(rc, bio) == 0) {
-     *         return DM_MAPIO_SUBMITTED;  // Successfully batched 
-     *     }
-     *     
-     *     // If batching failed, process immediately via hotpath 
-     *     if (dmr_process_fastpath_io(bio, rc) == 0) {
-     *         return DM_MAPIO_SUBMITTED;  // Successfully processed 
-     *     }
-     *     
-     *     // Hotpath failed, fall through to legacy fast path 
-     * }
-     */
-    
-    /* TEMPORARILY DISABLED: LEGACY PERFORMANCE OPTIMIZATION - may cause hanging
-     * if (dmr_is_fast_path_eligible(bio, rc)) {
-     *     dmr_perf_update_counters(rc, DMR_PERF_FAST_PATH);
-     *     
-     *     // Fast path: minimal bio tracking only if needed 
-     *     dmr_optimize_bio_tracking(bio, rc);
-     *     
-     *     // Skip debug logging in fast path for performance 
-     *     return dmr_process_fast_path(bio, rc);
-     * }
-     */
-    
-    /* Slow path: full bio tracking and processing */
-    /* TEMPORARILY DISABLED: Prefetch data structures - may cause hanging
-     * dmr_prefetch_remap_table(rc, sector);
-     */
-    
-    /* TEMPORARILY DISABLED: Setup v2.0 error tracking - may cause hanging  
-     * dmr_setup_bio_tracking(bio, rc, sector);
-     */
-    
-    /* Reduce debug output for performance - only at level 3+ */
-    if (unlikely(debug_level >= 3)) {
-        DMR_DEBUG(3, "Enhanced I/O: sector=%llu, size=%u, %s", 
-                  (unsigned long long)sector, bio->bi_iter.bi_size, 
-                  bio_data_dir(bio) == WRITE ? "WRITE" : "READ");
-    }
-    
-    /* NOTE: Multi-sector handling now done via fast path optimization above */
-    
-    /* Handle special operations */
-    if (bio_op(bio) == REQ_OP_FLUSH || bio_op(bio) == REQ_OP_DISCARD || 
-        bio_op(bio) == REQ_OP_WRITE_ZEROES) {
-        bio_set_dev(bio, rc->main_dev->bdev);
-        bio->bi_iter.bi_sector = rc->main_start + bio->bi_iter.bi_sector;
-        return DM_MAPIO_REMAPPED;
-    }
-    
-    /* Check for existing remapping */
-    spin_lock(&rc->lock);
-    for (i = 0; i < rc->spare_used; i++) {
-        if (sector == rc->table[i].main_lba && rc->table[i].main_lba != (sector_t)-1) {
-            /* Redirect to spare device */
-            target_dev = rc->spare_dev;
-            target_sector = rc->table[i].spare_lba;
-            found_remap = true;
-            
-            DMR_DEBUG(1, "REMAP: sector %llu -> spare sector %llu", 
-                      (unsigned long long)sector, (unsigned long long)target_sector);
-            break;
-        }
-    }
-    spin_unlock(&rc->lock);
-    
-    /* Set target device and sector */
-    bio_set_dev(bio, target_dev->bdev);
-    bio->bi_iter.bi_sector = target_sector;
-
-    if (!found_remap) {
-        DMR_DEBUG(2, "Passthrough: sector %llu -> target_sector %llu to device %s", 
-                  (unsigned long long)sector,
-                  (unsigned long long)target_sector,
-                  target_dev->name);
-    }
-
-    DMR_DEBUG(3, "Returning DM_MAPIO_REMAPPED: bio->bi_iter.bi_sector=%llu, bio_size=%u",
-              (unsigned long long)bio->bi_iter.bi_sector, bio->bi_iter.bi_size);
-
-    /* Phase 3.2A: Update performance dashboard */
-    {
-        ktime_t end_time = ktime_get();
-        u64 latency_ns = ktime_to_ns(ktime_sub(end_time, start_time));
-        dmr_perf_update_stats(1, (unsigned int)latency_ns, bio->bi_iter.bi_size, 
-                             found_remap ? 1 : 0, found_remap ? 0 : 1);
-    }
-
-    return DM_MAPIO_REMAPPED;
+    /* Phase 3.2B: Use optimized I/O processing */
+    return dmr_io_optimized_process(ti, bio);
 }
 
 /*
