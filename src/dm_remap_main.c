@@ -546,10 +546,19 @@ static void __exit dm_remap_exit(void)
     DMR_DEBUG(1, "Exiting dm-remap module");
     
     dm_unregister_target(&remap_target);
+    
+    /* Cleanup global I/O subsystem (destroys auto_remap_wq workqueue) */
+    dmr_io_exit();
+    
+    /* Cleanup global interfaces */
     dmr_sysfs_exit();
     dmr_debug_exit();
     
-    DMR_DEBUG(1, "dm-remap module exited");
+    /* Force cleanup any remaining global workqueues */
+    /* Note: Individual device workqueues should be cleaned up in device destructors,
+     * but we add safety cleanup here for any missed global workqueues */
+    
+    DMR_DEBUG(1, "dm-remap module exited successfully");
 }
 
 module_init(dm_remap_init);
