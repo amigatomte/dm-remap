@@ -301,22 +301,24 @@ static int remap_ctr(struct dm_target *ti, unsigned int argc, char **argv)
         goto bad;
     }
 
-    /* Create sysfs interface for this target */
-    snprintf(target_name, sizeof(target_name), "%s", dm_table_device_name(ti->table));
-    ret = dmr_sysfs_create_target(rc, target_name);
-    if (ret) {
-        DMR_DEBUG(0, "Failed to create sysfs interface for target: %d", ret);
-        /* Continue without sysfs - not a fatal error */
-    }
+    /* TEMPORARILY DISABLED: Create sysfs interface for this target - causes hanging
+     * snprintf(target_name, sizeof(target_name), "%s", dm_table_device_name(ti->table));
+     * ret = dmr_sysfs_create_target(rc, target_name);
+     * if (ret) {
+     *     DMR_DEBUG(0, "Failed to create sysfs interface for target: %d", ret);
+     *     // Continue without sysfs - not a fatal error 
+     * }
+     */
 
-    /* Create hotpath sysfs interface if hotpath optimization is enabled */
-    if (rc->hotpath_manager) {
-        ret = dmr_hotpath_sysfs_create(rc);
-        if (ret) {
-            DMR_DEBUG(0, "Failed to create hotpath sysfs interface: %d", ret);
-            /* Continue without hotpath sysfs - not a fatal error */
-        }
-    }
+    /* TEMPORARILY DISABLED: Create hotpath sysfs interface - may cause hanging
+     * if (rc->hotpath_manager) {
+     *     ret = dmr_hotpath_sysfs_create(rc);
+     *     if (ret) {
+     *         DMR_DEBUG(0, "Failed to create hotpath sysfs interface: %d", ret);
+     *         // Continue without hotpath sysfs - not a fatal error 
+     *     }
+     * }
+     */
 
     /* Create debug interface for testing */
     ret = dmr_debug_add_target(rc, target_name);
@@ -352,7 +354,9 @@ static int remap_ctr(struct dm_target *ti, unsigned int argc, char **argv)
         }
         
         /* Start auto-save system */
-        dm_remap_autosave_start(rc->metadata);
+        /* TEMPORARILY DISABLED: Auto-save system causes hanging during device creation
+         * dm_remap_autosave_start(rc->metadata);
+         */
     }
 
     /* Initialize Week 9-10: Memory Pool System for Optimization */
@@ -381,15 +385,17 @@ static int remap_ctr(struct dm_target *ti, unsigned int argc, char **argv)
         rc->health_scanner = NULL; 
     } else {
         DMR_DEBUG(0, "Background health scanner initialized successfully");
-        /* Auto-start health scanning */
-        if (rc->health_scanner) {
-            ret = dmr_health_scanner_start(rc->health_scanner);
-            if (ret) {
-                DMR_DEBUG(0, "Failed to start health scanner: %d", ret);
-            } else {
-                DMR_DEBUG(0, "Background health scanning started");
-            }
-        }
+        /* TEMPORARILY DISABLED: Auto-start health scanning causes hanging during device creation
+         * Auto-start health scanning 
+         * if (rc->health_scanner) {
+         *     ret = dmr_health_scanner_start(rc->health_scanner);
+         *     if (ret) {
+         *         DMR_DEBUG(0, "Failed to start health scanner: %d", ret);
+         *     } else {
+         *         DMR_DEBUG(0, "Background health scanning started");
+         *     }
+         * }
+         */
     }
 
     pr_info("dm-remap: v4.0 target created successfully (metadata: %s, health: %s)\n",

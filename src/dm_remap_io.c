@@ -269,38 +269,42 @@ int remap_map(struct dm_target *ti, struct bio *bio)
     int i;
     bool found_remap = false;
     
-    /* Week 9-10 HOTPATH OPTIMIZATION: Ultra-fast path for optimal I/Os */
-    if (rc->hotpath_manager && dmr_is_fastpath_eligible(bio, rc)) {
-        /* Try batch processing first for throughput optimization */
-        if (dmr_hotpath_batch_add(rc, bio) == 0) {
-            return DM_MAPIO_SUBMITTED;  /* Successfully batched */
-        }
-        
-        /* If batching failed, process immediately via hotpath */
-        if (dmr_process_fastpath_io(bio, rc) == 0) {
-            return DM_MAPIO_SUBMITTED;  /* Successfully processed */
-        }
-        
-        /* Hotpath failed, fall through to legacy fast path */
-    }
+    /* TEMPORARILY DISABLED: Week 9-10 HOTPATH OPTIMIZATION - causes I/O hanging
+     * if (rc->hotpath_manager && dmr_is_fastpath_eligible(bio, rc)) {
+     *     // Try batch processing first for throughput optimization 
+     *     if (dmr_hotpath_batch_add(rc, bio) == 0) {
+     *         return DM_MAPIO_SUBMITTED;  // Successfully batched 
+     *     }
+     *     
+     *     // If batching failed, process immediately via hotpath 
+     *     if (dmr_process_fastpath_io(bio, rc) == 0) {
+     *         return DM_MAPIO_SUBMITTED;  // Successfully processed 
+     *     }
+     *     
+     *     // Hotpath failed, fall through to legacy fast path 
+     * }
+     */
     
-    /* LEGACY PERFORMANCE OPTIMIZATION: Fast path for common I/Os */
-    if (dmr_is_fast_path_eligible(bio, rc)) {
-        dmr_perf_update_counters(rc, DMR_PERF_FAST_PATH);
-        
-        /* Fast path: minimal bio tracking only if needed */
-        dmr_optimize_bio_tracking(bio, rc);
-        
-        /* Skip debug logging in fast path for performance */
-        return dmr_process_fast_path(bio, rc);
-    }
+    /* TEMPORARILY DISABLED: LEGACY PERFORMANCE OPTIMIZATION - may cause hanging
+     * if (dmr_is_fast_path_eligible(bio, rc)) {
+     *     dmr_perf_update_counters(rc, DMR_PERF_FAST_PATH);
+     *     
+     *     // Fast path: minimal bio tracking only if needed 
+     *     dmr_optimize_bio_tracking(bio, rc);
+     *     
+     *     // Skip debug logging in fast path for performance 
+     *     return dmr_process_fast_path(bio, rc);
+     * }
+     */
     
     /* Slow path: full bio tracking and processing */
-    /* Prefetch data structures for cache optimization */
-    dmr_prefetch_remap_table(rc, sector);
+    /* TEMPORARILY DISABLED: Prefetch data structures - may cause hanging
+     * dmr_prefetch_remap_table(rc, sector);
+     */
     
-    /* Setup v2.0 error tracking (full tracking for slow path) */
-    dmr_setup_bio_tracking(bio, rc, sector);
+    /* TEMPORARILY DISABLED: Setup v2.0 error tracking - may cause hanging  
+     * dmr_setup_bio_tracking(bio, rc, sector);
+     */
     
     /* Reduce debug output for performance - only at level 3+ */
     if (unlikely(debug_level >= 3)) {
