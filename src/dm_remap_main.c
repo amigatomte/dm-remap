@@ -35,6 +35,7 @@
 #include <linux/vmalloc.h>       // Virtual memory allocation
 #include <linux/string.h>        // String functions
 #include <linux/time64.h>        // Time functions for v2.0 timestamping
+#include <linux/delay.h>         // Sleep functions (msleep)
 #include "dm-remap-io.h"         // I/O processing functions
 #include "dm-remap-error.h"      // Error handling functions
 #include "dm-remap-debug.h"      // Debug interface for testing
@@ -216,6 +217,12 @@ static int remap_ctr(struct dm_target *ti, unsigned int argc, char **argv)
     rc->sysfs_created = false;
     rc->hotpath_sysfs_created = false;
     
+    /* Initialize auto-save tracking field */
+    rc->autosave_started = false;
+    
+    /* Initialize health scanner tracking field */
+    rc->health_scanner_started = false;
+    
     /* Initialize production hardening context */
     rc->prod_ctx = kzalloc(sizeof(struct dmr_production_context), GFP_KERNEL);
     if (rc->prod_ctx) {
@@ -365,10 +372,15 @@ static int remap_ctr(struct dm_target *ti, unsigned int argc, char **argv)
             DMR_DEBUG(0, "Metadata read failed (%d) - starting with clean state", result);
         }
         
-        /* Start auto-save system */
-        /* TEMPORARILY DISABLED: Auto-save system causes hanging during device creation
-         * dm_remap_autosave_start(rc->metadata);
-         */
+        /* Start auto-save system with enhanced safety measures */
+        if (rc->metadata) {
+            dm_remap_autosave_start(rc->metadata);
+            rc->autosave_started = true;
+            DMR_DEBUG(1, "Auto-save system started successfully with enhanced safety");
+        } else {
+            rc->autosave_started = false;
+            DMR_DEBUG(0, "Auto-save not started - no metadata context available");
+        }
     }
 
     /* Initialize Week 9-10: Memory Pool System for Optimization */
@@ -397,22 +409,26 @@ static int remap_ctr(struct dm_target *ti, unsigned int argc, char **argv)
         rc->health_scanner = NULL; 
     } else {
         DMR_DEBUG(0, "Background health scanner initialized successfully");
-        /* TEMPORARILY DISABLED: Auto-start health scanning causes hanging during device creation
-         * Auto-start health scanning 
-         * if (rc->health_scanner) {
-         *     ret = dmr_health_scanner_start(rc->health_scanner);
-         *     if (ret) {
-         *         DMR_DEBUG(0, "Failed to start health scanner: %d", ret);
-         *     } else {
-         *         DMR_DEBUG(0, "Background health scanning started");
-         *     }
-         * }
-         */
+        
+        /* v4.0 Enhanced Auto-start with Safety Measures */
+        if (rc->health_scanner) {
+            /* Allow system stabilization before scanner startup */
+            msleep(1000);  /* 1-second delay for device stabilization */
+            
+            ret = dmr_health_scanner_start(rc->health_scanner);
+            if (ret == 0) {
+                rc->health_scanner_started = true;
+                DMR_DEBUG(0, "Background health scanning started successfully with safety measures");
+            } else {
+                DMR_DEBUG(0, "Failed to start health scanner: %d (continuing without health scanning)", ret);
+                /* Continue without health scanning - device is still functional */
+            }
+        }
     }
 
     pr_info("dm-remap: v4.0 target created successfully (metadata: %s, health: %s)\n",
             rc->metadata ? "enabled" : "disabled",
-            rc->health_scanner ? "enabled" : "disabled");
+            rc->health_scanner_started ? "enabled" : "disabled");
     return 0;
 
 bad:
@@ -456,6 +472,13 @@ static void remap_dtr(struct dm_target *ti)
     
     /* Cleanup Week 7-8: Background Health Scanning System */
     if (rc->health_scanner) {
+        /* Stop health scanner if it was successfully started */
+        if (rc->health_scanner_started) {
+            dmr_health_scanner_stop(rc->health_scanner);
+            DMR_DEBUG(1, "Health scanner stopped successfully");
+        }
+        
+        /* Clean up health scanner resources */
         dmr_health_scanner_cleanup(rc);
         pr_info("dm-remap: cleaned up health scanning system\n");
     }
@@ -472,10 +495,13 @@ static void remap_dtr(struct dm_target *ti)
         pr_info("dm-remap: cleaned up memory pool system\n");
     }
     
-    /* Cleanup v3.0 metadata system */
+    /* Cleanup v3.0 metadata system with enhanced auto-save handling */
     if (rc->metadata) {
-        /* Force final save before shutdown */
-        dm_remap_autosave_force(rc->metadata);
+        /* Force final save before shutdown if auto-save was started */
+        if (rc->autosave_started) {
+            dm_remap_autosave_force(rc->metadata);
+            DMR_DEBUG(1, "Final auto-save completed before shutdown");
+        }
         /* Clean up metadata context */
         dm_remap_metadata_destroy(rc->metadata);
         pr_info("dm-remap: cleaned up metadata system\n");

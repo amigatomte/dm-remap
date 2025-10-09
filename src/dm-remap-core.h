@@ -140,6 +140,12 @@ struct remap_c {
     bool sysfs_created;         /* Track if sysfs interface was successfully created */
     bool hotpath_sysfs_created; /* Track if hotpath sysfs interface was created */
     
+    /* v3.0 Auto-save System Tracking */
+    bool autosave_started;      /* Track if auto-save system was successfully started */
+    
+    /* v4.0 Health Scanner Tracking */
+    bool health_scanner_started; /* Track if health scanner was successfully started */
+    
     /* Concurrency control */
     spinlock_t lock;            /* Protects table and statistics */
                                /* Must be held when reading/writing remap table */
