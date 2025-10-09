@@ -11,6 +11,7 @@
 #include "dm-remap-debug.h"
 #include "dm-remap-core.h"
 #include "dm-remap-messages.h"
+#include "dm-remap-io-optimized.h"
 
 struct dentry *dmr_debug_dir = NULL;
 static struct remap_c *debug_target = NULL;
@@ -92,7 +93,10 @@ ssize_t dmr_debug_remap_write(struct file *file, const char __user *buf,
         
         spin_unlock(&debug_target->lock);
         
-        DMR_DEBUG(0, "DEBUG: Added remap %llu -> %llu", 
+        /* Phase 3.2B: Also add to optimized structures */
+        dmr_io_optimized_add_remap(debug_target, main_sector, spare_sector);
+        
+        DMR_DEBUG(0, "DEBUG: Added remap %llu -> %llu (legacy + optimized)", 
                   (unsigned long long)main_sector, (unsigned long long)spare_sector);
         
     } else if (strcmp(cmd, "list") == 0) {

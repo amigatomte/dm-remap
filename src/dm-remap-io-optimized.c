@@ -72,6 +72,9 @@ int dmr_io_optimized_process(struct dm_target *ti, struct bio *bio)
     is_sequential = global_opt_ctx ? 
         dmr_perf_opt_is_sequential(global_opt_ctx, sector) : false;
     
+    /* Phase 3.2B: Increment total lookups for all I/O operations */
+    atomic64_inc(&opt_total_lookups);
+    
     /* Phase 3.2B: Fast path optimization for common cases */
     if (likely(global_opt_ctx && 
                (global_opt_ctx->optimization_flags & DMR_OPT_FAST_PATH_ENABLED))) {
@@ -95,8 +98,8 @@ int dmr_io_optimized_process(struct dm_target *ti, struct bio *bio)
                       (unsigned long long)sector, 
                       (unsigned long long)target_sector);
         } else {
-            /* Fast path miss - use passthrough */
-            atomic64_inc(&opt_total_lookups);
+            /* Fast path miss - use passthrough (still counts as fast path usage) */
+            /* Note: We don't increment opt_fast_path_hits, but this is still fast path */
             
             DMR_DEBUG(3, "Phase 3.2B FAST PATH MISS: sector %llu (passthrough)",
                       (unsigned long long)sector);
@@ -117,6 +120,7 @@ int dmr_io_optimized_process(struct dm_target *ti, struct bio *bio)
         }
         spin_unlock(&rc->lock);
         
+        /* Only increment slow path counter when actually using slow path */
         atomic64_inc(&opt_slow_path_hits);
         
         DMR_DEBUG(2, "Phase 3.2B SLOW PATH: sector %llu %s",
