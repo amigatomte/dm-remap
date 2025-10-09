@@ -23,6 +23,9 @@ struct dmr_allocation_cache;
 /* Forward declarations for health scanning system */
 struct dmr_health_scanner;
 
+/* Forward declarations for performance profiling system */
+struct dmr_performance_profiler;
+
 /*
  * v2.0 REMAP REASONS - Why a sector was remapped
  */
@@ -171,6 +174,9 @@ struct remap_c {
     
     /* Week 9-10: Hotpath Performance Optimization */
     struct dmr_hotpath_manager *hotpath_manager;   /* I/O hotpath optimization */
+    
+    /* Phase 3: Advanced Performance Profiler */
+    struct dmr_performance_profiler *perf_profiler; /* Comprehensive performance profiling */
 };
 
 /*
@@ -270,5 +276,11 @@ struct dmr_production_context;
  * Function prototypes for recovery operations
  */
 int dm_remap_recovery_remove_remap(struct remap_c *rc, sector_t main_sector);
+
+/*
+ * Function prototypes for Phase 3.2A Performance Dashboard
+ */
+void dmr_perf_update_stats(unsigned int ios, unsigned int latency_ns, unsigned int bytes, 
+                          unsigned int cache_hit, unsigned int cache_miss);
 
 #endif /* DM_REMAP_CORE_H */

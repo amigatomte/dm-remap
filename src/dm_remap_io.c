@@ -268,6 +268,7 @@ int remap_map(struct dm_target *ti, struct bio *bio)
     sector_t target_sector = rc->main_start + sector;
     int i;
     bool found_remap = false;
+    ktime_t start_time = ktime_get();  /* Phase 3.2A: Performance timing */
     
     /* TEMPORARILY DISABLED: Week 9-10 HOTPATH OPTIMIZATION - causes I/O hanging
      * if (rc->hotpath_manager && dmr_is_fastpath_eligible(bio, rc)) {
@@ -352,6 +353,14 @@ int remap_map(struct dm_target *ti, struct bio *bio)
 
     DMR_DEBUG(3, "Returning DM_MAPIO_REMAPPED: bio->bi_iter.bi_sector=%llu, bio_size=%u",
               (unsigned long long)bio->bi_iter.bi_sector, bio->bi_iter.bi_size);
+
+    /* Phase 3.2A: Update performance dashboard */
+    {
+        ktime_t end_time = ktime_get();
+        u64 latency_ns = ktime_to_ns(ktime_sub(end_time, start_time));
+        dmr_perf_update_stats(1, (unsigned int)latency_ns, bio->bi_iter.bi_size, 
+                             found_remap ? 1 : 0, found_remap ? 0 : 1);
+    }
 
     return DM_MAPIO_REMAPPED;
 }

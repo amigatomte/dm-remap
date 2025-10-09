@@ -41,6 +41,8 @@
 #include "dm-remap-debug.h"      // Debug interface for testing
 #include "dm-remap-metadata.h"   // v3.0 metadata persistence system
 #include "dm-remap-health-core.h" // Week 7-8: Background health scanning
+#include "dm-remap-performance-profiler.h" // Phase 3: Advanced performance profiling
+#include "dm-remap-performance-sysfs.h" // Phase 3: Performance profiler sysfs interface
 
 /*
  * Module parameters - configurable via modprobe or /sys/module/
@@ -76,6 +78,40 @@ MODULE_PARM_DESC(global_read_errors, "Total read errors detected (read-only)");
 
 module_param(global_auto_remaps, uint, 0444);
 MODULE_PARM_DESC(global_auto_remaps, "Total automatic remaps performed (read-only)");
+
+/* Phase 3.2A: Performance Dashboard Parameters */
+static unsigned int perf_total_ios = 0;
+static unsigned int perf_avg_latency_ns = 0;
+static unsigned int perf_total_mb = 0;
+static unsigned int perf_cache_hits = 0;
+static unsigned int perf_cache_misses = 0;
+
+module_param(perf_total_ios, uint, 0444);
+MODULE_PARM_DESC(perf_total_ios, "Total I/O operations processed (read-only)");
+
+module_param(perf_avg_latency_ns, uint, 0444);
+MODULE_PARM_DESC(perf_avg_latency_ns, "Average I/O latency in nanoseconds (read-only)");
+
+module_param(perf_total_mb, uint, 0444);
+MODULE_PARM_DESC(perf_total_mb, "Total megabytes processed (read-only)");
+
+module_param(perf_cache_hits, uint, 0444);
+MODULE_PARM_DESC(perf_cache_hits, "Performance cache hits (read-only)");
+
+module_param(perf_cache_misses, uint, 0444);
+MODULE_PARM_DESC(perf_cache_misses, "Performance cache misses (read-only)");
+
+/* Phase 3.2A: Performance Update Functions */
+void dmr_perf_update_stats(unsigned int ios, unsigned int latency_ns, unsigned int bytes, 
+                          unsigned int cache_hit, unsigned int cache_miss)
+{
+    perf_total_ios += ios;
+    if (latency_ns > 0)
+        perf_avg_latency_ns = (perf_avg_latency_ns + latency_ns) / 2;  /* Simple rolling average */
+    perf_total_mb += bytes / (1024 * 1024);
+    perf_cache_hits += cache_hit;
+    perf_cache_misses += cache_miss;
+}
 
 /* 
  * EXPORTED VARIABLES 
@@ -217,6 +253,9 @@ static int remap_ctr(struct dm_target *ti, unsigned int argc, char **argv)
     rc->sysfs_created = false;
     rc->hotpath_sysfs_created = false;
     
+    /* Initialize kobject for sysfs interface - will be set up later */
+    memset(&rc->kobj, 0, sizeof(rc->kobj));
+    
     /* Initialize auto-save tracking field */
     rc->autosave_started = false;
     
@@ -343,6 +382,13 @@ static int remap_ctr(struct dm_target *ti, unsigned int argc, char **argv)
         rc->hotpath_sysfs_created = false;
     }
 
+    /* Create performance sysfs interface (Phase 3) */
+    ret = dmr_perf_sysfs_create(rc);
+    if (ret) {
+        DMR_DEBUG(0, "Failed to create performance sysfs interface: %d", ret);
+        /* Continue without performance sysfs - not a fatal error */
+    }
+
     /* Create debug interface for testing */
     ret = dmr_debug_add_target(rc, target_name);
     if (ret) {
@@ -437,10 +483,20 @@ static int remap_ctr(struct dm_target *ti, unsigned int argc, char **argv)
         }
     }
 
-    pr_info("dm-remap: v4.0 target created successfully (metadata: %s, health: %s, I/O-opt: %s)\n",
+    /* Initialize Phase 3: Advanced Performance Profiler */
+    ret = dmr_perf_profiler_init(&rc->perf_profiler);
+    if (ret) {
+        DMR_DEBUG(0, "Failed to initialize performance profiler: %d", ret);
+        rc->perf_profiler = NULL;
+    } else {
+        DMR_DEBUG(0, "Advanced performance profiler initialized successfully");
+    }
+
+    pr_info("dm-remap: v4.0 target created successfully (metadata: %s, health: %s, I/O-opt: %s, profiler: %s)\n",
             rc->metadata ? "enabled" : "disabled",
             rc->health_scanner_started ? "enabled" : "disabled",
-            (rc->memory_pool_started && rc->hotpath_optimization_started) ? "enabled" : "partial/disabled");
+            (rc->memory_pool_started && rc->hotpath_optimization_started) ? "enabled" : "partial/disabled",
+            rc->perf_profiler ? "enabled" : "disabled");
     return 0;
 
 bad:
@@ -472,6 +528,10 @@ static void remap_dtr(struct dm_target *ti)
         dmr_hotpath_sysfs_remove(rc);
         DMR_DEBUG(1, "Hotpath sysfs interface removed successfully");
     }
+
+    /* Remove performance sysfs interface (Phase 3) */
+    dmr_perf_sysfs_remove(rc);
+    DMR_DEBUG(1, "Performance sysfs interface removed successfully");
 
     /* Remove debug interface */
     dmr_debug_remove_target(rc);
@@ -517,6 +577,12 @@ static void remap_dtr(struct dm_target *ti)
         
         dmr_pool_manager_cleanup(rc);
         pr_info("dm-remap: cleaned up memory pool system\n");
+    }
+    
+    /* Cleanup Phase 3: Advanced Performance Profiler */
+    if (rc->perf_profiler) {
+        dmr_perf_profiler_cleanup(rc->perf_profiler);
+        pr_info("dm-remap: cleaned up performance profiler\n");
     }
     
     /* Cleanup v3.0 metadata system with enhanced auto-save handling */
