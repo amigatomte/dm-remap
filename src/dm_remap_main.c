@@ -46,6 +46,7 @@
 #include "dm-remap-performance-optimization.h" // Phase 3.2B: Performance optimization
 #include "dm-remap-io-optimized.h" // Phase 3.2B: Optimized I/O processing
 #include "dm-remap-optimization-sysfs.h" // Phase 3.2B: Optimization monitoring
+#include "dm-remap-stress-test.h" // Phase 3.2C: Comprehensive stress testing
 
 /*
  * Module parameters - configurable via modprobe or /sys/module/
@@ -495,7 +496,12 @@ static int remap_ctr(struct dm_target *ti, unsigned int argc, char **argv)
         DMR_DEBUG(0, "Advanced performance profiler initialized successfully");
     }
 
-    pr_info("dm-remap: v4.0 target created successfully (metadata: %s, health: %s, I/O-opt: %s, profiler: %s)\n",
+    /* Phase 3.2C: Set this target for stress testing */
+    dmr_stress_test_set_target(ti);
+    dmr_stress_sysfs_set_target(ti);
+    DMR_DEBUG(1, "Phase 3.2C: Target registered for stress testing");
+
+    pr_info("dm-remap: v4.0 target created successfully (metadata: %s, health: %s, I/O-opt: %s, profiler: %s, stress: enabled)\n",
             rc->metadata ? "enabled" : "disabled",
             rc->health_scanner_started ? "enabled" : "disabled",
             (rc->memory_pool_started && rc->hotpath_optimization_started) ? "enabled" : "partial/disabled",
@@ -675,6 +681,27 @@ static int __init dm_remap_init(void)
         return result;
     }
 
+    /* Phase 3.2C: Initialize stress testing framework */
+    result = dmr_stress_test_init();
+    if (result) {
+        DMR_ERROR("Failed to initialize Phase 3.2C stress testing framework: %d", result);
+        dmr_io_optimized_cleanup();
+        dmr_optimization_sysfs_cleanup();
+        dmr_sysfs_exit();
+        return result;
+    }
+
+    /* Phase 3.2C: Initialize stress testing sysfs interface */
+    result = dmr_stress_sysfs_init();
+    if (result) {
+        DMR_ERROR("Failed to initialize Phase 3.2C stress testing sysfs interface: %d", result);
+        dmr_stress_test_cleanup();
+        dmr_io_optimized_cleanup();
+        dmr_optimization_sysfs_cleanup();
+        dmr_sysfs_exit();
+        return result;
+    }
+
     /* Initialize debug interface */
     result = dmr_debug_init();
     if (result) {
@@ -685,24 +712,32 @@ static int __init dm_remap_init(void)
     result = dm_register_target(&remap_target);
     if (result < 0) {
         DMR_ERROR("register failed %d", result);
+        dmr_stress_sysfs_cleanup();
+        dmr_stress_test_cleanup();
         dmr_io_optimized_cleanup();
         dmr_optimization_sysfs_cleanup();
         dmr_sysfs_exit();
         return result;
     }
     
-    DMR_DEBUG(1, "dm-remap module initialized successfully with Phase 3.2B optimizations");
+    DMR_DEBUG(1, "dm-remap module initialized successfully with Phase 3.2C stress testing");
     return result;
 }
 
 static void __exit dm_remap_exit(void)
 {
-    DMR_DEBUG(1, "Exiting dm-remap module with Phase 3.2B optimizations");
+    DMR_DEBUG(1, "Exiting dm-remap module with Phase 3.2C stress testing");
     
     dm_unregister_target(&remap_target);
     
     /* Cleanup global I/O subsystem (destroys auto_remap_wq workqueue) */
     dmr_io_exit();
+    
+    /* Phase 3.2C: Cleanup stress testing sysfs interface */
+    dmr_stress_sysfs_cleanup();
+    
+    /* Phase 3.2C: Cleanup stress testing framework */
+    dmr_stress_test_cleanup();
     
     /* Phase 3.2B: Cleanup optimized I/O processing */
     dmr_io_optimized_cleanup();
@@ -718,7 +753,7 @@ static void __exit dm_remap_exit(void)
     /* Note: Individual device workqueues should be cleaned up in device destructors,
      * but we add safety cleanup here for any missed global workqueues */
     
-    DMR_DEBUG(1, "dm-remap module exited successfully with Phase 3.2B optimizations");
+    DMR_DEBUG(1, "dm-remap module exited successfully with Phase 3.2C stress testing");
 }
 
 module_init(dm_remap_init);
