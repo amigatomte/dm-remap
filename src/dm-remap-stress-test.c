@@ -83,6 +83,8 @@ static int dmr_stress_worker_thread(void *data)
     /* Initialize min latency to maximum value */
     atomic64_set(&worker->min_latency_ns, LLONG_MAX);
     
+    DMR_DEBUG(1, "Phase 3.2C: Worker %d entering main loop", worker->worker_id);
+    
     while (!worker->should_stop && !kthread_should_stop()) {
         /* Check if we should stop more frequently */
         if (worker->should_stop || kthread_should_stop()) {
@@ -122,20 +124,24 @@ static int dmr_stress_worker_thread(void *data)
         }
         
         /* Critical safety checks before any operations */
-        if (!worker->ti || worker->should_stop || kthread_should_stop()) {
-            DMR_DEBUG(1, "Phase 3.2C: Worker %d exiting due to context check: ti=%p should_stop=%d kthread_should_stop=%d",
-                      worker->worker_id, worker->ti, worker->should_stop, kthread_should_stop());
+        if (worker->should_stop || kthread_should_stop()) {
+            DMR_DEBUG(1, "Phase 3.2C: Worker %d exiting due to stop signal: should_stop=%d kthread_should_stop=%d",
+                      worker->worker_id, worker->should_stop, kthread_should_stop());
             break;
         }
         
-        struct remap_c *rc = (struct remap_c *)worker->ti->private;
-        if (!rc || !rc->main_dev || !rc->main_dev->bdev) {
-            DMR_DEBUG(0, "Invalid target context - stopping worker %d (rc=%p)", worker->worker_id, rc);
-            atomic64_inc(&worker->errors_encountered);
-            break;  /* Exit immediately on invalid context */
+        /* For Phase 3.2C testing, we can work with or without a real target */
+        if (worker->ti) {
+            struct remap_c *rc = (struct remap_c *)worker->ti->private;
+            if (!rc || !rc->main_dev || !rc->main_dev->bdev) {
+                DMR_DEBUG(0, "Invalid target context - stopping worker %d (rc=%p)", worker->worker_id, rc);
+                atomic64_inc(&worker->errors_encountered);
+                break;  /* Exit immediately on invalid context */
+            }
         }
         
-        DMR_DEBUG(2, "Phase 3.2C: Worker %d performing operation %d", worker->worker_id, operation_count);
+        DMR_DEBUG(2, "Phase 3.2C: Worker %d performing operation %d (target mode: %s)", 
+                  worker->worker_id, operation_count, worker->ti ? "real" : "simulation");
         
         /* High-performance continuous I/O simulation for realistic metrics */
         start_time = ktime_get();
@@ -180,7 +186,16 @@ static int dmr_stress_worker_thread(void *data)
         if (operation_count % 100 == 0) {
             cond_resched();
         }
+        
+        /* Debug every 10 operations to track progress */
+        if (operation_count % 10 == 0) {
+            DMR_DEBUG(2, "Phase 3.2C: Worker %d completed %d operations", 
+                      worker->worker_id, operation_count);
+        }
     }
+    
+    DMR_DEBUG(1, "Phase 3.2C: Worker %d exiting main loop after %d operations", 
+              worker->worker_id, operation_count);
     
     complete(&worker->completion);
     
@@ -279,9 +294,13 @@ int dmr_stress_test_start(struct dm_target *ti, enum dmr_stress_test_type type,
     struct dmr_stress_test_manager *manager;
     int i, ret = 0;
     
-    if (!ti || num_workers == 0 || num_workers > DMR_STRESS_MAX_THREADS) {
+    if (num_workers == 0 || num_workers > DMR_STRESS_MAX_THREADS) {
         DMR_DEBUG(0, "Invalid stress test parameters");
         return -EINVAL;
+    }
+    
+    if (!ti) {
+        DMR_DEBUG(1, "Phase 3.2C: Running stress test in testing mode (no target device)");
     }
     
     if (global_stress_manager && global_stress_manager->test_running) {
@@ -332,7 +351,7 @@ int dmr_stress_test_start(struct dm_target *ti, enum dmr_stress_test_type type,
         worker->ti = ti;
         worker->should_stop = false;
         worker->start_sector = 0;
-        worker->end_sector = ti->len;
+        worker->end_sector = ti ? ti->len : 1000;  /* Use 1000 sectors for testing mode */
         worker->io_size = 4096;  /* 4KB I/O size */
         worker->delay_ms = 0;    /* No delay for stress testing */
         
@@ -351,6 +370,8 @@ int dmr_stress_test_start(struct dm_target *ti, enum dmr_stress_test_type type,
     
     /* Set up test duration timer */
     timer_setup(&manager->test_timer, dmr_stress_test_timer_callback, 0);
+    DMR_DEBUG(1, "Phase 3.2C: Setting up timer for %u ms (%lu jiffies)", 
+              duration_ms, msecs_to_jiffies(duration_ms));
     mod_timer(&manager->test_timer, jiffies + msecs_to_jiffies(duration_ms));
     
     /* Start monitoring */
