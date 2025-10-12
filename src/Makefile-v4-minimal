@@ -1,0 +1,51 @@
+# dm-remap v4.0 Minimal Build Demo
+# This builds a working v4.0 module that demonstrates the clean slate architecture
+
+obj-m := dm-remap-v4-minimal.o
+
+# Build configuration
+KDIR := /lib/modules/$(shell uname -r)/build
+PWD := $(shell pwd)
+
+# Compiler flags
+ccflags-y += -DDM_REMAP_VERSION_MAJOR=4
+ccflags-y += -DDM_REMAP_VERSION_MINOR=0
+ccflags-y += -DDM_REMAP_CLEAN_SLATE_ARCHITECTURE
+ccflags-y += -DDEBUG
+ccflags-y += -Wall
+
+# Default target
+all: module
+
+# Build the kernel module
+module:
+	$(MAKE) -C $(KDIR) M=$(PWD) modules
+
+# Clean build artifacts
+clean:
+	$(MAKE) -C $(KDIR) M=$(PWD) clean
+	rm -f *.symvers *.order *.mod.c
+
+# Load module for testing
+load: module
+	sudo insmod dm-remap-v4-minimal.ko dm_remap_debug=2
+
+# Unload module
+unload:
+	sudo rmmod dm-remap-v4-minimal || true
+
+# Reload module
+reload: unload load
+
+# Test the module
+test: module
+	@echo "Testing dm-remap v4.0 minimal module..."
+	sudo insmod dm-remap-v4-minimal.ko dm_remap_debug=1 || true
+	@echo "Checking module load..."
+	lsmod | grep dm_remap_v4_minimal || echo "Module not loaded"
+	@echo "Checking dmesg for v4.0 messages..."
+	dmesg | tail -10 | grep "dm-remap v4.0 minimal" || echo "No v4.0 messages found"
+	sudo rmmod dm-remap-v4-minimal || true
+	@echo "v4.0 minimal test complete."
+
+.PHONY: all module clean load unload reload test
