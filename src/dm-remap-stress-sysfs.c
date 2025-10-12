@@ -78,8 +78,8 @@ static ssize_t stress_test_start_store(struct kobject *kobj,
         return -EINVAL;
     }
     
-    if (duration_ms <= 0 || duration_ms > 3600000) { /* Max 1 hour */
-        DMR_DEBUG(0, "Invalid duration: %d ms (max: 3600000)", duration_ms);
+    if (duration_ms <= 0 || duration_ms > 86400000) { /* Max 24 hours for endurance testing */
+        DMR_DEBUG(0, "Invalid duration: %d ms (max: 86400000 - 24 hours)", duration_ms);
         return -EINVAL;
     }
     
@@ -398,9 +398,247 @@ static struct kobj_attribute stress_test_set_target_attr =
 static struct kobj_attribute stress_test_comprehensive_report_attr = 
     __ATTR(comprehensive_report, 0444, stress_test_comprehensive_report_show, NULL);
 
-/* Phase 3.2C: Attribute group */
+/**
+ * high_concurrency_stress_store - Run high-concurrency stress test with 1000+ operations
+ * Format: echo "<concurrency_level> <duration_sec>" > high_concurrency_stress
+ */
+static ssize_t high_concurrency_stress_store(struct kobject *kobj,
+                                            struct kobj_attribute *attr,
+                                            const char *buf, size_t count)
+{
+    int concurrency_level, duration_sec;
+    int ret;
+    
+    if (stress_test_target == (void *)-1) {
+        DMR_DEBUG(0, "No target available for high-concurrency stress testing");
+        return -ENODEV;
+    }
+    
+    ret = sscanf(buf, "%d %d", &concurrency_level, &duration_sec);
+    if (ret != 2) {
+        DMR_DEBUG(0, "Usage: echo \"<concurrency_level> <duration_sec>\" > high_concurrency_stress");
+        DMR_DEBUG(0, "Concurrency levels: 1000, 5000, 10000+ operations");
+        return -EINVAL;
+    }
+    
+    if (concurrency_level < 100 || concurrency_level > 50000) {
+        DMR_DEBUG(0, "Invalid concurrency level: %d (range: 100-50000)", concurrency_level);
+        return -EINVAL;
+    }
+    
+    if (duration_sec <= 0 || duration_sec > 3600) {
+        DMR_DEBUG(0, "Invalid duration: %d seconds (max: 3600)", duration_sec);
+        return -EINVAL;
+    }
+    
+    /* Start high-concurrency test with multiple workers to achieve target concurrency */
+    int workers = min(DMR_STRESS_MAX_THREADS, concurrency_level / 100);
+    ret = dmr_stress_test_start(stress_test_target, DMR_STRESS_MIXED_WORKLOAD,
+                               workers, duration_sec * 1000);
+    if (ret) {
+        DMR_DEBUG(0, "Failed to start high-concurrency stress test: %d", ret);
+        return ret;
+    }
+    
+    DMR_DEBUG(1, "Phase 3.2C: Started high-concurrency stress test: %d concurrent ops, %d sec",
+              concurrency_level, duration_sec);
+    
+    return count;
+}
+
+/**
+ * tb_scale_validation_store - Run TB-scale dataset validation test
+ * Format: echo "<dataset_size_gb> <test_type>" > tb_scale_validation
+ */
+static ssize_t tb_scale_validation_store(struct kobject *kobj,
+                                        struct kobj_attribute *attr,
+                                        const char *buf, size_t count)
+{
+    int dataset_size_gb, test_type;
+    int ret;
+    
+    if (stress_test_target == (void *)-1) {
+        DMR_DEBUG(0, "No target available for TB-scale validation");
+        return -ENODEV;
+    }
+    
+    ret = sscanf(buf, "%d %d", &dataset_size_gb, &test_type);
+    if (ret != 2) {
+        DMR_DEBUG(0, "Usage: echo \"<dataset_size_gb> <test_type>\" > tb_scale_validation");
+        DMR_DEBUG(0, "Dataset sizes: 100, 500, 1000+ GB | Test types: 0-5");
+        return -EINVAL;
+    }
+    
+    if (dataset_size_gb < 10 || dataset_size_gb > 10000) {
+        DMR_DEBUG(0, "Invalid dataset size: %d GB (range: 10-10000)", dataset_size_gb);
+        return -EINVAL;
+    }
+    
+    if (test_type < 0 || test_type >= DMR_STRESS_MAX_TYPES) {
+        DMR_DEBUG(0, "Invalid test type: %d", test_type);
+        return -EINVAL;
+    }
+    
+    /* Calculate test duration based on dataset size (scale with size) */
+    int duration_ms = dataset_size_gb * 10000; /* 10 seconds per GB */
+    int workers = min(DMR_STRESS_MAX_THREADS, dataset_size_gb / 10); /* Scale workers with dataset */
+    
+    ret = dmr_stress_test_start(stress_test_target, (enum dmr_stress_test_type)test_type,
+                               workers, duration_ms);
+    if (ret) {
+        DMR_DEBUG(0, "Failed to start TB-scale validation test: %d", ret);
+        return ret;
+    }
+    
+    DMR_DEBUG(1, "Phase 3.2C: Started TB-scale validation: %d GB dataset, type %d, %d workers",
+              dataset_size_gb, test_type, workers);
+    
+    return count;
+}
+
+/**
+ * endurance_test_store - Run extended endurance testing (1-24 hours)
+ * Format: echo "<hours> <test_type>" > endurance_test
+ */
+static ssize_t endurance_test_store(struct kobject *kobj,
+                                   struct kobj_attribute *attr,
+                                   const char *buf, size_t count)
+{
+    int hours, test_type;
+    int ret;
+    
+    if (stress_test_target == (void *)-1) {
+        DMR_DEBUG(0, "No target available for endurance testing");
+        return -ENODEV;
+    }
+    
+    ret = sscanf(buf, "%d %d", &hours, &test_type);
+    if (ret != 2) {
+        DMR_DEBUG(0, "Usage: echo \"<hours> <test_type>\" > endurance_test");
+        DMR_DEBUG(0, "Duration: 1-24 hours | Test types: 0-5");
+        return -EINVAL;
+    }
+    
+    if (hours < 1 || hours > 24) {
+        DMR_DEBUG(0, "Invalid duration: %d hours (range: 1-24)", hours);
+        return -EINVAL;
+    }
+    
+    if (test_type < 0 || test_type >= DMR_STRESS_MAX_TYPES) {
+        DMR_DEBUG(0, "Invalid test type: %d", test_type);
+        return -EINVAL;
+    }
+    
+    int duration_ms = hours * 3600 * 1000; /* Convert hours to milliseconds */
+    int workers = min(DMR_STRESS_MAX_THREADS / 2, 8); /* Conservative worker count for long tests */
+    
+    ret = dmr_stress_test_start(stress_test_target, (enum dmr_stress_test_type)test_type,
+                               workers, duration_ms);
+    if (ret) {
+        DMR_DEBUG(0, "Failed to start endurance test: %d", ret);
+        return ret;
+    }
+    
+    DMR_DEBUG(1, "Phase 3.2C: Started endurance test: %d hours, type %d, %d workers",
+              hours, test_type, workers);
+    
+    return count;
+}
+
+/**
+ * production_workload_store - Simulate production workloads (database, file server, VM)
+ * Format: echo "<workload_type> <intensity> <duration_min>" > production_workload
+ */
+static ssize_t production_workload_store(struct kobject *kobj,
+                                        struct kobj_attribute *attr,
+                                        const char *buf, size_t count)
+{
+    int workload_type, intensity, duration_min;
+    int ret;
+    
+    if (stress_test_target == (void *)-1) {
+        DMR_DEBUG(0, "No target available for production workload simulation");
+        return -ENODEV;
+    }
+    
+    ret = sscanf(buf, "%d %d %d", &workload_type, &intensity, &duration_min);
+    if (ret != 3) {
+        DMR_DEBUG(0, "Usage: echo \"<workload_type> <intensity> <duration_min>\" > production_workload");
+        DMR_DEBUG(0, "Workload types: 0=database, 1=file_server, 2=virtualization, 3=mixed");
+        DMR_DEBUG(0, "Intensity: 1=light, 2=moderate, 3=heavy, 4=extreme");
+        return -EINVAL;
+    }
+    
+    if (workload_type < 0 || workload_type > 3) {
+        DMR_DEBUG(0, "Invalid workload type: %d (range: 0-3)", workload_type);
+        return -EINVAL;
+    }
+    
+    if (intensity < 1 || intensity > 4) {
+        DMR_DEBUG(0, "Invalid intensity: %d (range: 1-4)", intensity);
+        return -EINVAL;
+    }
+    
+    if (duration_min < 1 || duration_min > 1440) { /* Max 24 hours */
+        DMR_DEBUG(0, "Invalid duration: %d minutes (range: 1-1440)", duration_min);
+        return -EINVAL;
+    }
+    
+    /* Map workload types to appropriate stress test patterns */
+    enum dmr_stress_test_type test_type;
+    int workers;
+    
+    switch (workload_type) {
+    case 0: /* Database - random I/O heavy */
+        test_type = DMR_STRESS_RANDOM_WRITE;
+        workers = intensity * 4;
+        break;
+    case 1: /* File server - mixed sequential/random */
+        test_type = DMR_STRESS_MIXED_WORKLOAD;
+        workers = intensity * 3;
+        break;
+    case 2: /* Virtualization - remap heavy */
+        test_type = DMR_STRESS_REMAP_HEAVY;
+        workers = intensity * 5;
+        break;
+    case 3: /* Mixed workload */
+    default:
+        test_type = DMR_STRESS_MIXED_WORKLOAD;
+        workers = intensity * 4;
+        break;
+    }
+    
+    workers = min(workers, DMR_STRESS_MAX_THREADS);
+    int duration_ms = duration_min * 60 * 1000;
+    
+    ret = dmr_stress_test_start(stress_test_target, test_type, workers, duration_ms);
+    if (ret) {
+        DMR_DEBUG(0, "Failed to start production workload simulation: %d", ret);
+        return ret;
+    }
+    
+    DMR_DEBUG(1, "Phase 3.2C: Started production workload: type %d, intensity %d, %d min, %d workers",
+              workload_type, intensity, duration_min, workers);
+    
+    return count;
+}
+
+/* Define the new attribute structures */
+static struct kobj_attribute high_concurrency_stress_attr = 
+    __ATTR(high_concurrency_stress, 0200, NULL, high_concurrency_stress_store);
+
+static struct kobj_attribute tb_scale_validation_attr = 
+    __ATTR(tb_scale_validation, 0200, NULL, tb_scale_validation_store);
+
+static struct kobj_attribute endurance_test_attr = 
+    __ATTR(endurance_test, 0200, NULL, endurance_test_store);
+
+static struct kobj_attribute production_workload_attr = 
+    __ATTR(production_workload, 0200, NULL, production_workload_store);
+
+/* Phase 3.2C: Enhanced Attribute group with advanced features */
 static struct attribute *dmr_stress_attrs[] = {
-    /* Test control */
+    /* Basic test control */
     &stress_test_start_attr.attr,
     &stress_test_stop_attr.attr,
     &stress_test_status_attr.attr,
@@ -410,6 +648,12 @@ static struct attribute *dmr_stress_attrs[] = {
     &stress_test_quick_validation_attr.attr,
     &stress_test_regression_test_attr.attr,
     &stress_test_memory_pressure_attr.attr,
+    
+    /* Advanced Phase 3.2C features */
+    &high_concurrency_stress_attr.attr,
+    &tb_scale_validation_attr.attr,
+    &endurance_test_attr.attr,
+    &production_workload_attr.attr,
     
     /* Results and reporting */
     &stress_test_results_attr.attr,

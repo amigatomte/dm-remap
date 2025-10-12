@@ -120,7 +120,7 @@ static int read_device_metadata(struct block_device *bdev,
     /* Validate fingerprint against metadata */
     ret = dm_remap_validate_fingerprint(bdev, fingerprint);
     if (ret) {
-        DMR_DEBUG(2, "Device fingerprint validation failed for %s", bdev_name(bdev));
+        DMR_DEBUG(2, "Device fingerprint validation failed for %s", bdev->bd_disk->disk_name);
         return ret;
     }
     

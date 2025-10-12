@@ -154,7 +154,7 @@ struct dm_remap_device_v4 *dm_remap_create_device_v4(struct block_device *main_d
     atomic64_inc(&global_stats.devices_created);
     
     DMR_DEBUG(1, "Created v4.0 device: main=%s, spare=%s",
-              bdev_name(main_dev), bdev_name(spare_dev));
+              main_dev->bd_disk->disk_name, spare_dev->bd_disk->disk_name);
     
     return device;
 }
@@ -169,7 +169,7 @@ void dm_remap_destroy_device_v4(struct dm_remap_device_v4 *device)
     }
     
     DMR_DEBUG(1, "Destroying v4.0 device: main=%s, spare=%s",
-              bdev_name(device->main_dev), bdev_name(device->spare_dev));
+              device->main_dev->bd_disk->disk_name, device->spare_dev->bd_disk->disk_name);
     
     /* Mark device as inactive */
     atomic_set(&device->device_active, 0);
@@ -333,17 +333,16 @@ static int dm_remap_ctr_v4(struct dm_target *ti, unsigned int argc, char **argv)
     DMR_DEBUG(1, "Creating v4.0 target: main=%s, spare=%s", main_path, spare_path);
     
     /* Open main device */
-    main_dev = blkdev_get_by_path(main_path, FMODE_READ | FMODE_WRITE, ti);
+    main_dev = lookup_bdev(main_path);
     if (IS_ERR(main_dev)) {
         ti->error = "Cannot open main device";
         return PTR_ERR(main_dev);
     }
     
     /* Open spare device */
-    spare_dev = blkdev_get_by_path(spare_path, FMODE_READ | FMODE_WRITE, ti);
+    spare_dev = lookup_bdev(spare_path);
     if (IS_ERR(spare_dev)) {
         ti->error = "Cannot open spare device";
-        blkdev_put(main_dev, FMODE_READ | FMODE_WRITE);
         return PTR_ERR(spare_dev);
     }
     
@@ -377,9 +376,6 @@ static void dm_remap_dtr_v4(struct dm_target *ti)
         
         dm_remap_destroy_device_v4(device);
         
-        blkdev_put(spare_dev, FMODE_READ | FMODE_WRITE);
-        blkdev_put(main_dev, FMODE_READ | FMODE_WRITE);
-        
         DMR_DEBUG(1, "v4.0 target destroyed");
     }
 }
@@ -405,8 +401,12 @@ static void dm_remap_status_v4(struct dm_target *ti, status_type_t type,
         
     case STATUSTYPE_TABLE:
         scnprintf(result, maxlen, "%s %s",
-                 bdev_name(device->main_dev),
-                 bdev_name(device->spare_dev));
+                 device->main_dev->bd_disk->disk_name,
+                 device->spare_dev->bd_disk->disk_name);
+        break;
+        
+    case STATUSTYPE_IMA:
+        /* IMA status not supported in v4.0 */
         break;
     }
 }
