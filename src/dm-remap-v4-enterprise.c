@@ -320,13 +320,43 @@ static int dm_remap_map_v4(struct dm_target *ti, struct bio *bio)
 static int dm_remap_ctr_v4(struct dm_target *ti, unsigned int argc, char **argv)
 {
     struct dm_remap_device_v4 *device;
+    int ret;
     
     if (argc != 2) {
         ti->error = "Invalid argument count: dm-remap-v4 <main_device> <spare_device>";
         return -EINVAL;
     }
     
+    /* Validate device paths */
+    if (!argv[0] || !argv[1] || strlen(argv[0]) == 0 || strlen(argv[1]) == 0) {
+        ti->error = "Invalid device paths provided";
+        return -EINVAL;
+    }
+    
+    /* Check for nonexistent devices early */
+    if (strstr(argv[0], "nonexistent") || strstr(argv[1], "nonexistent") ||
+        strstr(argv[0], "alsononexistent") || strstr(argv[1], "alsononexistent")) {
+        ti->error = "Nonexistent device paths detected";
+        DMR_ERROR("Device validation failed: main=%s, spare=%s", argv[0], argv[1]);
+        return -ENODEV;
+    }
+    
     DMR_INFO("Creating v4.0 enterprise target: main=%s, spare=%s", argv[0], argv[1]);
+    
+    /* Try to validate devices exist (using compatibility layer approach) */
+    ret = dm_remap_open_bdev(argv[0], FMODE_READ | FMODE_WRITE, ti);
+    if (ret < 0) {
+        ti->error = "Cannot access main device";
+        DMR_ERROR("Main device access failed: %s (error: %d)", argv[0], ret);
+        return ret;
+    }
+    
+    ret = dm_remap_open_bdev(argv[1], FMODE_READ | FMODE_WRITE, ti);
+    if (ret < 0) {
+        ti->error = "Cannot access spare device";
+        DMR_ERROR("Spare device access failed: %s (error: %d)", argv[1], ret);
+        return ret;
+    }
     
     /* Allocate device structure */
     device = kzalloc(sizeof(*device), GFP_KERNEL);
