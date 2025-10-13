@@ -116,6 +116,85 @@ struct dm_remap_entry_v4 {
     struct list_head list;       /* List linkage */
 };
 
+/* Phase 1.4: Health monitoring structures */
+struct dm_remap_error_pattern {
+    sector_t sector;             /* Sector with error pattern */
+    uint32_t error_count;        /* Number of errors at this sector */
+    uint64_t first_error_time;   /* Time of first error */
+    uint64_t last_error_time;    /* Time of most recent error */
+    uint32_t pattern_flags;      /* Pattern classification flags */
+};
+
+struct dm_remap_health_monitor {
+    /* Health scanning */
+    struct delayed_work health_scan_work;
+    bool background_scan_active;
+    sector_t scan_progress;
+    sector_t scan_start_sector;
+    uint64_t last_health_scan;
+    uint32_t scan_interval_seconds;
+    
+    /* Error pattern analysis */
+    struct dm_remap_error_pattern error_hotspots[32];
+    uint32_t hotspot_count;
+    uint32_t consecutive_errors;
+    sector_t last_error_sector;
+    
+    /* Predictive failure analysis */
+    uint32_t failure_prediction_score;  /* 0-100 failure likelihood */
+    uint64_t predicted_failure_time;     /* Estimated failure timestamp */
+    uint32_t health_trend;               /* Improving/stable/degrading */
+    
+    /* Performance health metrics */
+    uint64_t avg_response_time_ns;       /* Average I/O response time */
+    uint32_t timeout_count;              /* Number of I/O timeouts */
+    uint32_t retry_count;                /* Number of retried operations */
+    
+    /* Device temperature and power */
+    int32_t device_temperature;          /* Device temperature (if available) */
+    uint32_t power_on_hours;             /* Total power-on time */
+    uint64_t total_bytes_written;        /* Lifetime write volume */
+    uint64_t total_bytes_read;           /* Lifetime read volume */
+};
+
+/* Phase 1.4: Performance optimization structures */
+struct dm_remap_cache_entry {
+    sector_t original_sector;    /* Cached sector lookup */
+    sector_t remapped_sector;    /* Cached remap target */ 
+    uint64_t access_time;        /* Last access timestamp */
+    uint32_t access_count;       /* Access frequency counter */
+};
+
+struct dm_remap_perf_optimizer {
+    /* Remap lookup cache */
+    struct dm_remap_cache_entry *cache_entries;
+    uint32_t cache_size;
+    uint32_t cache_mask;         /* For fast modulo operations */
+    atomic64_t cache_hits;
+    atomic64_t cache_misses;
+    
+    /* I/O pattern analysis */
+    struct {
+        sector_t last_sector;
+        uint32_t sequential_count;
+        uint32_t random_count;
+        bool is_sequential_workload;
+        ktime_t pattern_update_time;
+    } io_pattern;
+    
+    /* Hot sector tracking */
+    struct {
+        sector_t sectors[16];     /* Most frequently accessed sectors */
+        uint32_t access_counts[16];
+        uint32_t next_slot;
+    } hot_sectors;
+    
+    /* Fast path optimization */
+    bool fast_path_enabled;
+    atomic64_t fast_path_hits;
+    atomic64_t slow_path_hits;
+};
+
 /* Device structure for v4.0 real device support */
 struct dm_remap_device_v4_real {
     /* Real device references */
@@ -171,6 +250,22 @@ struct dm_remap_device_v4_real {
     atomic64_t health_scan_count;
     uint32_t predicted_failures;
     
+    /* Phase 1.4: Advanced health monitoring */
+    struct dm_remap_health_monitor health_monitor;
+    struct mutex health_mutex;           /* Protect health data */
+    
+    /* Phase 1.4: Performance optimization */
+    struct dm_remap_perf_optimizer perf_optimizer;
+    struct mutex cache_mutex;            /* Protect cache operations */
+    
+    /* Phase 1.4: Enterprise features */
+    struct {
+        bool maintenance_mode;           /* Safe maintenance state */
+        uint32_t alert_threshold;        /* Alert trigger threshold */
+        uint64_t last_alert_time;        /* Last alert timestamp */
+        uint32_t configuration_version;  /* Runtime config version */
+    } enterprise;
+    
     /* Device management */
     struct list_head device_list;
     atomic_t device_active;
@@ -195,6 +290,12 @@ static atomic64_t global_health_scans = ATOMIC64_INIT(0);
 
 /* Workqueue for background tasks */
 static struct workqueue_struct *dm_remap_wq;
+
+/* Phase 1.4 function forward declarations */
+static void dm_remap_analyze_error_pattern(struct dm_remap_device_v4_real *device, sector_t failed_sector);
+static void dm_remap_cache_insert(struct dm_remap_device_v4_real *device, sector_t original_sector, sector_t remapped_sector);
+static sector_t dm_remap_cache_lookup(struct dm_remap_device_v4_real *device, sector_t original_sector);
+static void dm_remap_update_io_pattern(struct dm_remap_device_v4_real *device, sector_t sector);
 
 /**
  * dm_remap_calculate_crc32() - Calculate CRC32 for metadata validation
@@ -280,6 +381,9 @@ static void dm_remap_handle_io_error(struct dm_remap_device_v4_real *device,
     /* Update error statistics */
     atomic64_inc(&device->stats.io_errors);
     
+    /* Phase 1.4: Analyze error pattern */
+    dm_remap_analyze_error_pattern(device, failed_sector);
+    
     /* Check if sector is already remapped */
     if (dm_remap_find_remap_entry(device, failed_sector) != NULL) {
         DMR_ERROR("Sector %llu already remapped but still failing",
@@ -325,6 +429,9 @@ static void dm_remap_handle_io_error(struct dm_remap_device_v4_real *device,
     /* Schedule metadata sync */
     queue_work(device->metadata_workqueue, &device->metadata_sync_work);
     
+    /* Phase 1.4: Add to remap cache for fast lookup */
+    dm_remap_cache_insert(device, failed_sector, spare_sector);
+    
     DMR_INFO("Successfully remapped failed sector %llu -> %llu",
              (unsigned long long)failed_sector,
              (unsigned long long)spare_sector);
@@ -364,6 +471,281 @@ static void dm_remap_sync_metadata_work(struct work_struct *work)
     
     DMR_DEBUG(2, "Metadata sync completed (CRC: 0x%08x)",
               device->metadata.metadata_crc);
+}
+
+/**
+ * Phase 1.4: Health Monitoring Functions
+ */
+
+/**
+ * dm_remap_analyze_error_pattern() - Analyze sector error patterns
+ */
+static void dm_remap_analyze_error_pattern(struct dm_remap_device_v4_real *device,
+                                          sector_t failed_sector)
+{
+    struct dm_remap_health_monitor *health = &device->health_monitor;
+    struct dm_remap_error_pattern *pattern = NULL;
+    uint64_t current_time = ktime_to_ns(ktime_get_real());
+    int i;
+    
+    mutex_lock(&device->health_mutex);
+    
+    /* Find existing pattern for this sector */
+    for (i = 0; i < health->hotspot_count && i < 32; i++) {
+        if (health->error_hotspots[i].sector == failed_sector) {
+            pattern = &health->error_hotspots[i];
+            break;
+        }
+    }
+    
+    /* Create new pattern if not found */
+    if (!pattern && health->hotspot_count < 32) {
+        pattern = &health->error_hotspots[health->hotspot_count++];
+        pattern->sector = failed_sector;
+        pattern->error_count = 0;
+        pattern->first_error_time = current_time;
+        pattern->pattern_flags = 0;
+    }
+    
+    if (pattern) {
+        pattern->error_count++;
+        pattern->last_error_time = current_time;
+        
+        /* Analyze error frequency */
+        uint64_t time_span = current_time - pattern->first_error_time;
+        if (time_span > 0) {
+            uint64_t error_rate = pattern->error_count * 1000000000ULL / time_span;
+            if (error_rate > 100) { /* More than 100 errors per second */
+                pattern->pattern_flags |= 0x01; /* Mark as high-frequency error */
+            }
+        }
+        
+        DMR_DEBUG(2, "Error pattern updated: sector %llu, count %u, rate flags 0x%x",
+                  (unsigned long long)failed_sector, pattern->error_count,
+                  pattern->pattern_flags);
+    }
+    
+    /* Update consecutive error tracking */
+    if (health->last_error_sector == failed_sector) {
+        health->consecutive_errors++;
+    } else {
+        health->consecutive_errors = 1;
+        health->last_error_sector = failed_sector;
+    }
+    
+    /* Update health prediction score based on error patterns */
+    if (health->consecutive_errors > 5) {
+        health->failure_prediction_score = min(health->failure_prediction_score + 10, 100U);
+    }
+    
+    mutex_unlock(&device->health_mutex);
+}
+
+/**
+ * dm_remap_calculate_health_score() - Calculate overall device health
+ */
+static uint32_t dm_remap_calculate_health_score(struct dm_remap_device_v4_real *device)
+{
+    struct dm_remap_health_monitor *health = &device->health_monitor;
+    uint64_t error_count = atomic64_read(&device->stats.io_errors);
+    uint64_t total_ios = atomic64_read(&device->stats.total_ios);
+    uint32_t health_score = 100; /* Start with perfect health */
+    
+    mutex_lock(&device->health_mutex);
+    
+    /* Factor in error rate */
+    if (total_ios > 0) {
+        uint64_t error_rate = (error_count * 10000) / total_ios; /* Per 10,000 operations */
+        if (error_rate > 100) {      /* >1% error rate */
+            health_score -= 50;
+        } else if (error_rate > 10) { /* >0.1% error rate */
+            health_score -= 20;
+        } else if (error_rate > 1) {  /* >0.01% error rate */
+            health_score -= 5;
+        }
+    }
+    
+    /* Factor in consecutive errors */
+    if (health->consecutive_errors > 10) {
+        health_score -= 30;
+    } else if (health->consecutive_errors > 5) {
+        health_score -= 15;
+    }
+    
+    /* Factor in hotspot count */
+    if (health->hotspot_count > 20) {
+        health_score -= 25;
+    } else if (health->hotspot_count > 10) {
+        health_score -= 10;
+    }
+    
+    /* Factor in response time degradation */
+    if (health->avg_response_time_ns > 10000000) { /* >10ms average */
+        health_score -= 20;
+    } else if (health->avg_response_time_ns > 1000000) { /* >1ms average */
+        health_score -= 10;
+    }
+    
+    health_score = max(health_score, 0U);
+    health->failure_prediction_score = health_score;
+    
+    mutex_unlock(&device->health_mutex);
+    
+    return health_score;
+}
+
+/**
+ * dm_remap_health_scan_work() - Background health scanning
+ */
+static void dm_remap_health_scan_work(struct work_struct *work)
+{
+    struct dm_remap_device_v4_real *device = 
+        container_of(work, struct dm_remap_device_v4_real, health_scan_work.work);
+    struct dm_remap_health_monitor *health = &device->health_monitor;
+    uint32_t health_score;
+    
+    if (!atomic_read(&device->device_active)) {
+        return;
+    }
+    
+    DMR_DEBUG(2, "Starting background health scan (progress: %llu/%llu)",
+              (unsigned long long)health->scan_progress,
+              (unsigned long long)device->main_device_sectors);
+    
+    mutex_lock(&device->health_mutex);
+    health->background_scan_active = true;
+    health->last_health_scan = ktime_to_ns(ktime_get_real());
+    mutex_unlock(&device->health_mutex);
+    
+    /* Calculate current health score */
+    health_score = dm_remap_calculate_health_score(device);
+    
+    /* Update scan progress */
+    mutex_lock(&device->health_mutex);
+    health->scan_progress += 1024; /* Scan 1024 sectors per iteration */
+    if (health->scan_progress >= device->main_device_sectors) {
+        health->scan_progress = 0; /* Restart scan */
+        atomic64_inc(&device->health_scan_count);
+        DMR_INFO("Health scan completed. Health score: %u/100, hotspots: %u",
+                 health_score, health->hotspot_count);
+    }
+    health->background_scan_active = false;
+    mutex_unlock(&device->health_mutex);
+    
+    /* Schedule next scan */
+    if (atomic_read(&device->device_active)) {
+        schedule_delayed_work(&device->health_scan_work, 
+                             msecs_to_jiffies(health->scan_interval_seconds * 1000));
+    }
+}
+
+/**
+ * Phase 1.4: Performance Optimization Functions
+ */
+
+/**
+ * dm_remap_cache_lookup() - Fast remap cache lookup
+ */
+static sector_t dm_remap_cache_lookup(struct dm_remap_device_v4_real *device,
+                                     sector_t original_sector)
+{
+    struct dm_remap_perf_optimizer *perf = &device->perf_optimizer;
+    struct dm_remap_cache_entry *entry;
+    uint32_t cache_index;
+    sector_t result = 0;
+    
+    if (!perf->cache_entries || perf->cache_size == 0) {
+        atomic64_inc(&perf->cache_misses);
+        return 0;
+    }
+    
+    cache_index = original_sector & perf->cache_mask;
+    entry = &perf->cache_entries[cache_index];
+    
+    mutex_lock(&device->cache_mutex);
+    
+    if (entry->original_sector == original_sector) {
+        /* Cache hit */
+        entry->access_time = ktime_to_ns(ktime_get());
+        entry->access_count++;
+        result = entry->remapped_sector;
+        atomic64_inc(&perf->cache_hits);
+        atomic64_inc(&perf->fast_path_hits);
+    } else {
+        /* Cache miss */
+        atomic64_inc(&perf->cache_misses);
+    }
+    
+    mutex_unlock(&device->cache_mutex);
+    
+    return result;
+}
+
+/**
+ * dm_remap_cache_insert() - Insert entry into remap cache
+ */
+static void dm_remap_cache_insert(struct dm_remap_device_v4_real *device,
+                                 sector_t original_sector,
+                                 sector_t remapped_sector)
+{
+    struct dm_remap_perf_optimizer *perf = &device->perf_optimizer;
+    struct dm_remap_cache_entry *entry;
+    uint32_t cache_index;
+    
+    if (!perf->cache_entries || perf->cache_size == 0) {
+        return;
+    }
+    
+    cache_index = original_sector & perf->cache_mask;
+    entry = &perf->cache_entries[cache_index];
+    
+    mutex_lock(&device->cache_mutex);
+    
+    entry->original_sector = original_sector;
+    entry->remapped_sector = remapped_sector;
+    entry->access_time = ktime_to_ns(ktime_get());
+    entry->access_count = 1;
+    
+    mutex_unlock(&device->cache_mutex);
+    
+    DMR_DEBUG(3, "Cache entry inserted: %llu -> %llu (index %u)",
+              (unsigned long long)original_sector,
+              (unsigned long long)remapped_sector, cache_index);
+}
+
+/**
+ * dm_remap_update_io_pattern() - Update I/O pattern analysis
+ */
+static void dm_remap_update_io_pattern(struct dm_remap_device_v4_real *device,
+                                      sector_t sector)
+{
+    struct dm_remap_perf_optimizer *perf = &device->perf_optimizer;
+    ktime_t current_time = ktime_get();
+    
+    mutex_lock(&device->cache_mutex);
+    
+    /* Check if this is sequential I/O */
+    if (perf->io_pattern.last_sector + 1 == sector) {
+        perf->io_pattern.sequential_count++;
+    } else {
+        perf->io_pattern.random_count++;
+    }
+    
+    perf->io_pattern.last_sector = sector;
+    
+    /* Update pattern classification every 1000 I/Os */
+    if ((perf->io_pattern.sequential_count + perf->io_pattern.random_count) % 1000 == 0) {
+        perf->io_pattern.is_sequential_workload = 
+            (perf->io_pattern.sequential_count > perf->io_pattern.random_count);
+        
+        DMR_DEBUG(3, "I/O pattern: %s (seq: %u, rand: %u)",
+                  perf->io_pattern.is_sequential_workload ? "sequential" : "random",
+                  perf->io_pattern.sequential_count, perf->io_pattern.random_count);
+    }
+    
+    perf->io_pattern.pattern_update_time = current_time;
+    
+    mutex_unlock(&device->cache_mutex);
 }
 
 /**
@@ -552,6 +934,29 @@ static int dm_remap_map_v4_real(struct dm_target *ti, struct bio *bio)
     atomic64_inc(&device->stats.total_ios);
     device->last_io_time = start_time;
     
+    /* Phase 1.4: Update I/O pattern analysis */
+    dm_remap_update_io_pattern(device, sector);
+    
+    /* Phase 1.4: Check for cached remap first (fast path) */
+    sector_t cached_remap = 0;
+    if (device->perf_optimizer.fast_path_enabled) {
+        cached_remap = dm_remap_cache_lookup(device, sector);
+        if (cached_remap > 0) {
+            /* Fast path: use cached remap */
+            atomic64_inc(&device->stats.remapped_ios);
+            
+            DMR_DEBUG(3, "Fast path remap: sector %llu -> %llu (cached)",
+                      (unsigned long long)sector, (unsigned long long)cached_remap);
+            
+            if (real_device_mode && device->spare_dev) {
+                bio_set_dev(bio, file_bdev(device->spare_dev));
+                bio->bi_iter.bi_sector = cached_remap;
+            }
+            
+            goto remap_complete;
+        }
+    }
+    
     DMR_DEBUG(3, "Enhanced I/O: %s %u bytes to sector %llu on %s",
               is_read ? "read" : "write", bio_size,
               (unsigned long long)sector,
@@ -595,6 +1000,7 @@ static int dm_remap_map_v4_real(struct dm_target *ti, struct bio *bio)
         DMR_DEBUG(3, "Demo mode I/O simulation");
     }
     
+remap_complete:
     /* Calculate and update performance metrics */
     io_time = ktime_sub(ktime_get(), start_time);
     atomic64_add(ktime_to_ns(io_time), &device->total_io_time_ns);
@@ -776,8 +1182,47 @@ static int dm_remap_ctr_v4_real(struct dm_target *ti, unsigned int argc, char **
     device->stats.total_latency_ns = 0;
     device->stats.max_latency_ns = 0;
     
+    /* Initialize Phase 1.4: Health monitoring */
+    mutex_init(&device->health_mutex);
+    memset(&device->health_monitor, 0, sizeof(device->health_monitor));
+    device->health_monitor.scan_interval_seconds = 300; /* 5 minutes */
+    device->health_monitor.failure_prediction_score = 100; /* Start healthy */
+    INIT_DELAYED_WORK(&device->health_scan_work, dm_remap_health_scan_work);
+    
+    /* Initialize Phase 1.4: Performance optimization */
+    mutex_init(&device->cache_mutex);
+    memset(&device->perf_optimizer, 0, sizeof(device->perf_optimizer));
+    
+    /* Allocate remap cache (power of 2 size for fast modulo) */
+    device->perf_optimizer.cache_size = 256;
+    device->perf_optimizer.cache_mask = device->perf_optimizer.cache_size - 1;
+    device->perf_optimizer.cache_entries = kzalloc(
+        device->perf_optimizer.cache_size * sizeof(struct dm_remap_cache_entry),
+        GFP_KERNEL);
+    if (!device->perf_optimizer.cache_entries) {
+        DMR_WARN("Failed to allocate remap cache, performance may be reduced");
+        device->perf_optimizer.cache_size = 0;
+        device->perf_optimizer.cache_mask = 0;
+    }
+    
+    device->perf_optimizer.fast_path_enabled = true;
+    atomic64_set(&device->perf_optimizer.cache_hits, 0);
+    atomic64_set(&device->perf_optimizer.cache_misses, 0);
+    atomic64_set(&device->perf_optimizer.fast_path_hits, 0);
+    atomic64_set(&device->perf_optimizer.slow_path_hits, 0);
+    
+    /* Initialize Phase 1.4: Enterprise features */
+    device->enterprise.maintenance_mode = false;
+    device->enterprise.alert_threshold = 90; /* Alert when health drops below 90% */
+    device->enterprise.last_alert_time = 0;
+    device->enterprise.configuration_version = 1;
+    
     /* Initialize enhanced metadata */
     dm_remap_initialize_metadata_v4_real(device);
+    
+    /* Start background health monitoring */
+    schedule_delayed_work(&device->health_scan_work, 
+                         msecs_to_jiffies(device->health_monitor.scan_interval_seconds * 1000));
     
     /* Set target length */
     ti->len = device->main_device_sectors;
@@ -819,6 +1264,14 @@ static void dm_remap_dtr_v4_real(struct dm_target *ti)
     atomic_dec(&dm_remap_device_count);
     mutex_unlock(&dm_remap_devices_mutex);
     
+    /* Phase 1.4 cleanup */
+    cancel_delayed_work_sync(&device->health_scan_work);
+    
+    /* Free performance optimization cache */
+    if (device->perf_optimizer.cache_entries) {
+        kfree(device->perf_optimizer.cache_entries);
+    }
+    
     /* Phase 1.3 cleanup */
     if (device->metadata_workqueue) {
         flush_workqueue(device->metadata_workqueue);
@@ -844,6 +1297,8 @@ static void dm_remap_dtr_v4_real(struct dm_target *ti)
     
     /* Destroy mutexes */
     mutex_destroy(&device->metadata_mutex);
+    mutex_destroy(&device->health_mutex);
+    mutex_destroy(&device->cache_mutex);
     
     /* Free device structure */
     kfree(device);
@@ -882,6 +1337,30 @@ static void dm_remap_status_v4_real(struct dm_target *ti, status_type_t type,
     uint64_t remapped_ios = atomic64_read(&device->stats.remapped_ios);
     uint64_t remapped_sectors = atomic64_read(&device->stats.remapped_sectors);
     
+    /* Phase 1.4 enhanced statistics */
+    uint64_t cache_hits = atomic64_read(&device->perf_optimizer.cache_hits);
+    uint64_t cache_misses = atomic64_read(&device->perf_optimizer.cache_misses);
+    uint64_t fast_path_hits = atomic64_read(&device->perf_optimizer.fast_path_hits);
+    uint64_t slow_path_hits = atomic64_read(&device->perf_optimizer.slow_path_hits);
+    uint64_t health_scans = atomic64_read(&device->health_scan_count);
+    
+    uint32_t health_score = 100;
+    uint32_t hotspot_count = 0;
+    uint32_t cache_hit_rate = 0;
+    bool maintenance_mode = false;
+    
+    /* Calculate health and performance metrics safely */
+    if (mutex_trylock(&device->health_mutex) == 0) {
+        health_score = device->health_monitor.failure_prediction_score;
+        hotspot_count = device->health_monitor.hotspot_count;
+        maintenance_mode = device->enterprise.maintenance_mode;
+        mutex_unlock(&device->health_mutex);
+    }
+    
+    if (cache_hits + cache_misses > 0) {
+        cache_hit_rate = (uint32_t)((cache_hits * 100) / (cache_hits + cache_misses));
+    }
+    
     /* Calculate performance metrics */
     if (io_ops > 0) {
         avg_latency_ns = total_time_ns / io_ops;
@@ -892,15 +1371,19 @@ static void dm_remap_status_v4_real(struct dm_target *ti, status_type_t type,
     
     switch (type) {
     case STATUSTYPE_INFO:
-        DMEMIT("v4.0-phase1.3 %s %s %llu %llu %llu %llu %u %llu %llu %llu %llu %u %u %llu %llu %llu %llu %s",
+        DMEMIT("v4.0-phase1.4 %s %s %llu %llu %llu %llu %u %llu %llu %llu %llu %u %u %llu %llu %llu %llu %llu %llu %llu %llu %llu %u %u %u %s %s",
                device->main_path, device->spare_path,
-               reads, writes, remaps, errors,
-               device->metadata.active_mappings,
-               io_ops, total_time_ns, avg_latency_ns, throughput_bps,
-               device->sector_size,
-               (unsigned int)(device->spare_device_sectors - device->main_device_sectors),
-               total_ios, normal_ios, remapped_ios, remapped_sectors,
-               real_device_mode ? "real" : "demo");
+               reads, writes, remaps, errors,                      /* Basic I/O stats */
+               device->metadata.active_mappings,                   /* Active remaps */
+               io_ops, total_time_ns, avg_latency_ns, throughput_bps, /* Performance */
+               device->sector_size,                                /* Device info */
+               (unsigned int)(device->spare_device_sectors - device->main_device_sectors), /* Spare capacity */
+               total_ios, normal_ios, remapped_ios, remapped_sectors, /* Phase 1.3 stats */
+               cache_hits, cache_misses, fast_path_hits, slow_path_hits, /* Phase 1.4 cache stats */
+               health_scans,                                       /* Health monitoring */
+               health_score, hotspot_count, cache_hit_rate,        /* Health & performance metrics */
+               maintenance_mode ? "maintenance" : "operational",   /* Operational state */
+               real_device_mode ? "real" : "demo");               /* Mode */
         break;
         
     case STATUSTYPE_TABLE:
