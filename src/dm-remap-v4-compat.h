@@ -69,6 +69,68 @@ static inline sector_t dm_remap_get_device_size(struct file *bdev_file)
     return get_capacity(bdev->bd_disk);
 }
 
+/* Get device sector size (usually 512 bytes) */
+static inline unsigned int dm_remap_get_sector_size(struct file *bdev_file)
+{
+    struct block_device *bdev;
+    
+    if (!bdev_file || IS_ERR(bdev_file)) {
+        return 512; /* Default sector size */
+    }
+    
+    bdev = file_bdev(bdev_file);
+    if (!bdev) {
+        return 512;
+    }
+    
+    return bdev_logical_block_size(bdev);
+}
+
+/* Get device physical sector size */
+static inline unsigned int dm_remap_get_physical_sector_size(struct file *bdev_file)
+{
+    struct block_device *bdev;
+    
+    if (!bdev_file || IS_ERR(bdev_file)) {
+        return 512; /* Default */
+    }
+    
+    bdev = file_bdev(bdev_file);
+    if (!bdev) {
+        return 512;
+    }
+    
+    return bdev_physical_block_size(bdev);
+}
+
+/* Check device alignment */
+static inline bool dm_remap_check_device_alignment(struct file *bdev_file, sector_t sector)
+{
+    struct block_device *bdev;
+    unsigned int sector_size;
+    
+    if (!bdev_file || IS_ERR(bdev_file)) {
+        return false;
+    }
+    
+    bdev = file_bdev(bdev_file);
+    if (!bdev) {
+        return false;
+    }
+    
+    sector_size = bdev_logical_block_size(bdev);
+    return (sector * 512) % sector_size == 0;
+}
+
+/* Get device capacity in bytes */
+static inline u64 dm_remap_get_device_capacity_bytes(struct file *bdev_file)
+{
+    sector_t sectors = dm_remap_get_device_size(bdev_file);
+    unsigned int sector_size = dm_remap_get_sector_size(bdev_file);
+    
+    return (u64)sectors * sector_size;
+}
+
 /* Get device name for logging for kernel 6.14+ */
 static inline const char *dm_remap_get_device_name(struct file *bdev_file)
 {

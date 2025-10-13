@@ -165,28 +165,46 @@ static atomic64_t global_health_scans = ATOMIC64_INIT(0);
 static struct workqueue_struct *dm_remap_wq;
 
 /**
- * dm_remap_validate_device_compatibility() - Check device compatibility
+ * dm_remap_validate_device_compatibility() - Enhanced device compatibility checking
  */
 static int dm_remap_validate_device_compatibility(struct file *main_dev, 
                                                  struct file *spare_dev)
 {
     sector_t main_size, spare_size;
+    unsigned int main_sector_size, spare_sector_size;
+    unsigned int main_physical_size, spare_physical_size;
+    u64 main_capacity, spare_capacity;
+    sector_t min_spare_size;
     
     if (!main_dev || IS_ERR(main_dev) || !spare_dev || IS_ERR(spare_dev)) {
         return -EINVAL;
     }
     
+    /* Get device sizes in sectors */
     main_size = dm_remap_get_device_size(main_dev);
     spare_size = dm_remap_get_device_size(spare_dev);
     
-    DMR_DEBUG(2, "Device sizes: main=%llu sectors, spare=%llu sectors",
-              (unsigned long long)main_size, (unsigned long long)spare_size);
+    /* Get sector sizes */
+    main_sector_size = dm_remap_get_sector_size(main_dev);
+    spare_sector_size = dm_remap_get_sector_size(spare_dev);
     
-    /* Spare device should be at least as large as main device */
-    if (spare_size < main_size) {
-        DMR_ERROR("Spare device too small: %llu < %llu sectors",
-                  (unsigned long long)spare_size, (unsigned long long)main_size);
-        return -ENOSPC;
+    /* Get physical sector sizes */
+    main_physical_size = dm_remap_get_physical_sector_size(main_dev);
+    spare_physical_size = dm_remap_get_physical_sector_size(spare_dev);
+    
+    /* Get capacities in bytes */
+    main_capacity = dm_remap_get_device_capacity_bytes(main_dev);
+    spare_capacity = dm_remap_get_device_capacity_bytes(spare_dev);
+    
+    DMR_DEBUG(2, "Device geometry: main=%llu sectors (%u/%u bytes), spare=%llu sectors (%u/%u bytes)",
+              (unsigned long long)main_size, main_sector_size, main_physical_size,
+              (unsigned long long)spare_size, spare_sector_size, spare_physical_size);
+    
+    /* Validate sector size compatibility */
+    if (main_sector_size != spare_sector_size) {
+        DMR_ERROR("Sector size mismatch: main=%u, spare=%u bytes",
+                  main_sector_size, spare_sector_size);
+        return -EINVAL;
     }
     
     /* Check minimum size requirements */
@@ -196,8 +214,42 @@ static int dm_remap_validate_device_compatibility(struct file *main_dev,
         return -ENOSPC;
     }
     
-    DMR_INFO("Device compatibility validated: main=%llu, spare=%llu sectors",
-             (unsigned long long)main_size, (unsigned long long)spare_size);
+    /* Calculate minimum spare size (main + 5% overhead for metadata) */
+    min_spare_size = main_size + (main_size / 20);
+    
+    /* Spare device should have adequate capacity */
+    if (spare_size < min_spare_size) {
+        DMR_ERROR("Spare device insufficient: %llu < %llu sectors (need %llu + 5%% overhead)",
+                  (unsigned long long)spare_size, (unsigned long long)min_spare_size,
+                  (unsigned long long)main_size);
+        return -ENOSPC;
+    }
+    
+    /* Warn about physical sector size differences */
+    if (main_physical_size != spare_physical_size) {
+        DMR_INFO("Physical sector size difference: main=%u, spare=%u bytes (performance may vary)",
+                 main_physical_size, spare_physical_size);
+    }
+    
+    /* Check device alignment for first sector */
+    if (!dm_remap_check_device_alignment(main_dev, 0)) {
+        DMR_ERROR("Main device not properly aligned");
+        return -EINVAL;
+    }
+    
+    if (!dm_remap_check_device_alignment(spare_dev, 0)) {
+        DMR_ERROR("Spare device not properly aligned");  
+        return -EINVAL;
+    }
+    
+    DMR_INFO("Enhanced device compatibility validated:");
+    DMR_INFO("  Main: %llu sectors, %llu bytes (%u/%u sector size)",
+             (unsigned long long)main_size, main_capacity, main_sector_size, main_physical_size);
+    DMR_INFO("  Spare: %llu sectors, %llu bytes (%u/%u sector size)",
+             (unsigned long long)spare_size, spare_capacity, spare_sector_size, spare_physical_size);
+    DMR_INFO("  Overhead available: %llu sectors (%llu%% of main size)",
+             (unsigned long long)(spare_size - main_size),
+             (unsigned long long)((spare_size - main_size) * 100 / main_size));
     
     return 0;
 }
@@ -260,16 +312,32 @@ static void dm_remap_initialize_metadata_v4_real(struct dm_remap_device_v4_real 
 }
 
 /**
- * dm_remap_map_v4_real() - Real device I/O mapping function
+ * dm_remap_map_v4_real() - Enhanced real device I/O mapping with optimization
  */
 static int dm_remap_map_v4_real(struct dm_target *ti, struct bio *bio)
 {
     struct dm_remap_device_v4_real *device = ti->private;
     bool is_read = bio_data_dir(bio) == READ;
     uint64_t sector = bio->bi_iter.bi_sector;
+    unsigned int bio_size = bio->bi_iter.bi_size;
     ktime_t start_time = ktime_get();
+    ktime_t io_time;
+    uint64_t throughput;
     
-    /* Update statistics */
+    /* Validate I/O parameters */
+    if (sector >= device->main_device_sectors) {
+        DMR_ERROR("I/O beyond device bounds: sector %llu >= %llu",
+                  (unsigned long long)sector,
+                  (unsigned long long)device->main_device_sectors);
+        return -EIO;
+    }
+    
+    /* Check alignment for optimal performance */
+    if (!dm_remap_check_device_alignment(device->main_dev, sector)) {
+        DMR_DEBUG(2, "Unaligned I/O detected at sector %llu", (unsigned long long)sector);
+    }
+    
+    /* Update statistics with enhanced tracking */
     if (is_read) {
         atomic64_inc(&device->read_count);
         atomic64_inc(&global_reads);
@@ -281,20 +349,46 @@ static int dm_remap_map_v4_real(struct dm_target *ti, struct bio *bio)
     atomic64_inc(&device->io_operations);
     device->last_io_time = start_time;
     
-    DMR_DEBUG(3, "Real device I/O: %s to sector %llu on %s",
-              is_read ? "read" : "write", 
+    DMR_DEBUG(3, "Enhanced I/O: %s %u bytes to sector %llu on %s",
+              is_read ? "read" : "write", bio_size,
               (unsigned long long)sector,
-              dm_remap_get_device_name(device->main_dev));
+              real_device_mode ? dm_remap_get_device_name(device->main_dev) : "demo");
     
-    /* For now, pass through to main device */
-    /* TODO: Implement actual remapping logic in Phase 3 */
-    if (device->main_dev && !IS_ERR(device->main_dev)) {
-        bio_set_dev(bio, file_bdev(device->main_dev));
+    /* Optimized device I/O routing */
+    if (real_device_mode && device->main_dev && !IS_ERR(device->main_dev)) {
+        struct block_device *target_bdev = file_bdev(device->main_dev);
+        
+        /* Set target device */
+        bio_set_dev(bio, target_bdev);
+        
+        /* TODO Phase 3: Check for remapped sectors and route to spare if needed */
+        /* For now, all I/O goes to main device */
+        
+    } else {
+        /* Demo mode - simulate successful I/O */
+        DMR_DEBUG(3, "Demo mode I/O simulation");
     }
     
-    /* Update performance metrics */
-    atomic64_add(ktime_to_ns(ktime_sub(ktime_get(), start_time)),
-                &device->total_io_time_ns);
+    /* Calculate and update performance metrics */
+    io_time = ktime_sub(ktime_get(), start_time);
+    atomic64_add(ktime_to_ns(io_time), &device->total_io_time_ns);
+    
+    /* Calculate throughput (bytes per second) */
+    if (ktime_to_ns(io_time) > 0) {
+        throughput = (uint64_t)bio_size * 1000000000ULL / ktime_to_ns(io_time);
+        if (throughput > device->peak_throughput) {
+            device->peak_throughput = throughput;
+        }
+    }
+    
+    /* Update metadata statistics */
+    if (is_read) {
+        device->metadata.total_reads++;
+    } else {
+        device->metadata.total_writes++;
+    }
+    device->metadata.total_io_time_ns += ktime_to_ns(io_time);
+    device->metadata.last_update = ktime_to_ns(ktime_get_real());
     
     return DM_MAPIO_REMAPPED;
 }
@@ -380,22 +474,34 @@ static int dm_remap_ctr_v4_real(struct dm_target *ti, unsigned int argc, char **
     strncpy(device->main_path, argv[0], sizeof(device->main_path) - 1);
     strncpy(device->spare_path, argv[1], sizeof(device->spare_path) - 1);
     
-    /* Get device information */
+    /* Get enhanced device information */
     if (real_device_mode && main_dev && spare_dev) {
         device->main_device_sectors = dm_remap_get_device_size(main_dev);
         device->spare_device_sectors = dm_remap_get_device_size(spare_dev);
-        device->sector_size = 512;  /* TODO: Get actual sector size */
+        device->sector_size = dm_remap_get_sector_size(main_dev);
         
-        DMR_INFO("Real devices opened: main=%s (%llu sectors), spare=%s (%llu sectors)",
+        DMR_INFO("Real devices opened with enhanced detection:");
+        DMR_INFO("  Main: %s (%llu sectors, %u byte sectors)",
                  dm_remap_get_device_name(main_dev), 
                  (unsigned long long)device->main_device_sectors,
+                 device->sector_size);
+        DMR_INFO("  Spare: %s (%llu sectors, %u byte sectors)",
                  dm_remap_get_device_name(spare_dev),
-                 (unsigned long long)device->spare_device_sectors);
+                 (unsigned long long)device->spare_device_sectors,
+                 dm_remap_get_sector_size(spare_dev));
+        
+        /* Store physical characteristics for optimization */
+        device->metadata.main_device_size = device->main_device_sectors;
+        device->metadata.spare_device_size = device->spare_device_sectors;
+        device->metadata.sector_size = device->sector_size;
     } else {
         /* Demo mode defaults */
         device->main_device_sectors = ti->len;
         device->spare_device_sectors = ti->len;
         device->sector_size = 512;
+        
+        DMR_INFO("Demo mode: simulated devices (%llu sectors, %u byte sectors)",
+                 (unsigned long long)device->main_device_sectors, device->sector_size);
     }
     
     /* Initialize mutexes and structures */
@@ -474,7 +580,7 @@ static void dm_remap_dtr_v4_real(struct dm_target *ti)
 }
 
 /**
- * dm_remap_status_v4_real() - Status reporting for real devices
+ * dm_remap_status_v4_real() - Enhanced status reporting with performance metrics
  */
 static void dm_remap_status_v4_real(struct dm_target *ti, status_type_t type,
                                    unsigned status_flags, char *result, unsigned maxlen)
@@ -482,6 +588,8 @@ static void dm_remap_status_v4_real(struct dm_target *ti, status_type_t type,
     struct dm_remap_device_v4_real *device = ti->private;
     uint64_t reads, writes, remaps, errors;
     uint64_t io_ops, total_time_ns;
+    uint64_t avg_latency_ns = 0;
+    uint64_t throughput_bps = 0;
     unsigned sz = 0;
     
     if (!device) {
@@ -496,13 +604,23 @@ static void dm_remap_status_v4_real(struct dm_target *ti, status_type_t type,
     io_ops = atomic64_read(&device->io_operations);
     total_time_ns = atomic64_read(&device->total_io_time_ns);
     
+    /* Calculate performance metrics */
+    if (io_ops > 0) {
+        avg_latency_ns = total_time_ns / io_ops;
+    }
+    
+    /* Calculate approximate throughput (bytes/sec) based on peak */
+    throughput_bps = device->peak_throughput;
+    
     switch (type) {
     case STATUSTYPE_INFO:
-        DMEMIT("v4.0-real %s %s %llu %llu %llu %llu %u %llu %llu %s",
+        DMEMIT("v4.0-real %s %s %llu %llu %llu %llu %u %llu %llu %llu %llu %u %u %s",
                device->main_path, device->spare_path,
                reads, writes, remaps, errors,
                device->metadata.active_mappings,
-               io_ops, total_time_ns,
+               io_ops, total_time_ns, avg_latency_ns, throughput_bps,
+               device->sector_size,
+               (unsigned int)(device->spare_device_sectors - device->main_device_sectors),
                real_device_mode ? "real" : "demo");
         break;
         
@@ -511,6 +629,11 @@ static void dm_remap_status_v4_real(struct dm_target *ti, status_type_t type,
         break;
         
     case STATUSTYPE_IMA:
+        /* Enhanced integrity information */
+        DMEMIT("dm-remap-v4-real device_fingerprint=%s main_sectors=%llu spare_sectors=%llu",
+               device->metadata.device_fingerprint,
+               (unsigned long long)device->main_device_sectors,
+               (unsigned long long)device->spare_device_sectors);
         break;
     }
 }
