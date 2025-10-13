@@ -52,10 +52,12 @@ static inline void dm_remap_close_bdev(struct block_device *bdev, fmode_t mode)
 
 /* Debug macro compatibility */
 #ifndef DMR_DEBUG
+/* Debug macros */
 #define DMR_DEBUG(level, fmt, args...) \
     do { \
-        if (dm_remap_debug >= level) \
-            printk(KERN_INFO "dm-remap-v4: " fmt "\n", ##args); \
+        if (dm_remap_debug >= (level)) { \
+            printk(KERN_INFO "dm-remap v4.0: " fmt "\n", ##args); \
+        } \
     } while (0)
 #endif
 

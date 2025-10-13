@@ -59,7 +59,7 @@ status:
 		lsmod | grep dm_remap_v4_enterprise; \
 		echo ""; \
 		echo "Recent kernel messages:"; \
-		sudo dmesg | grep -i "dm-remap v4.0 enterprise" | tail -10; \
+		dmesg | grep -i "dm-remap v4.0 enterprise" | tail -10; \
 		echo ""; \
 		if [ -f /proc/dm-remap-v4 ]; then \
 			echo "Enterprise statistics:"; \
