@@ -1,0 +1,58 @@
+dm-remap v4.0 Real Device Test Suite
+Date: mån 13 okt 2025 13:41:15 CEST
+Kernel: 6.14.0-33-generic
+Architecture: x86_64
+==================================================
+
+[0;34m[1] Testing: Kernel headers availability[0m
+    Category: Environment
+    [0;32m✓ PASS: Kernel headers found at /lib/modules/6.14.0-33-generic/build[0m
+[0;34m[2] Testing: Device mapper support[0m
+    Category: Environment
+    [0;32m✓ PASS: Device mapper subsystem available[0m
+[0;34m[3] Testing: Required tools availability[0m
+    Category: Environment
+    [0;32m✓ PASS: All required tools available[0m
+[0;34m[4] Testing: Module source files[0m
+    Category: Environment
+    [0;32m✓ PASS: Source files found[0m
+[0;34m[5] Testing: Clean build environment[0m
+    Category: Build
+    [0;32m✓ PASS: Build environment cleaned[0m
+[0;34m[6] Testing: Release build[0m
+    Category: Build
+Building dm-remap v4.0 Real Device Module...
+Version: 4.0.0-real
+Build Date: 2025-10-13 13:41:15
+Kernel: 6.14.0-33-generic
+Debug Mode: disabled
+Demo Mode: disabled
+
+make -C /lib/modules/6.14.0-33-generic/build M=/home/christian/kernel_dev/dm-remap/src modules
+make[1]: Entering directory '/usr/src/linux-headers-6.14.0-33-generic'
+make[2]: Entering directory '/home/christian/kernel_dev/dm-remap/src'
+warning: the compiler differs from the one used to build the kernel
+  The kernel was built by: x86_64-linux-gnu-gcc-14 (Ubuntu 14.2.0-19ubuntu2) 14.2.0
+  You are using:           gcc-14 (Ubuntu 14.2.0-19ubuntu2) 14.2.0
+  CC [M]  dm-remap-v4-enterprise.o
+In file included from dm-remap-v4-enterprise.c:25:
+dm-remap-v4-compat.h: In function ‘dm_remap_open_bdev_real’:
+dm-remap-v4-compat.h:47:12: error: implicit declaration of function ‘blkdev_get_by_dev’ [-Wimplicit-function-declaration]
+   47 |     bdev = blkdev_get_by_dev(dev, mode, holder);
+      |            ^~~~~~~~~~~~~~~~~
+dm-remap-v4-compat.h:47:10: error: assignment to ‘struct block_device *’ from ‘int’ makes pointer from integer without a cast [-Wint-conversion]
+   47 |     bdev = blkdev_get_by_dev(dev, mode, holder);
+      |          ^
+dm-remap-v4-compat.h: In function ‘dm_remap_close_bdev_real’:
+dm-remap-v4-compat.h:59:9: error: implicit declaration of function ‘blkdev_put’; did you mean ‘bdev_fput’? [-Wimplicit-function-declaration]
+   59 |         blkdev_put(bdev, mode);
+      |         ^~~~~~~~~~
+      |         bdev_fput
+make[4]: *** [/usr/src/linux-headers-6.14.0-33-generic/scripts/Makefile.build:207: dm-remap-v4-enterprise.o] Error 1
+make[3]: *** [/usr/src/linux-headers-6.14.0-33-generic/Makefile:1997: .] Error 2
+make[2]: *** [/usr/src/linux-headers-6.14.0-33-generic/Makefile:251: __sub-make] Error 2
+make[2]: Leaving directory '/home/christian/kernel_dev/dm-remap/src'
+make[1]: *** [Makefile:251: __sub-make] Error 2
+make[1]: Leaving directory '/usr/src/linux-headers-6.14.0-33-generic'
+make: *** [Makefile-v4-real:56: dm-remap-v4-real.ko] Error 2
+    [0;31m✗ FAIL: Module file not created[0m

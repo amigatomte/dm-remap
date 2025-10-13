@@ -1,0 +1,108 @@
+dm-remap v4.0 Real Device Test Suite
+Date: mån 13 okt 2025 16:58:00 CEST
+Kernel: 6.14.0-33-generic
+Architecture: x86_64
+==================================================
+
+[0;34m[1] Testing: Kernel headers availability[0m
+    Category: Environment
+    [0;32m✓ PASS: Kernel headers found at /lib/modules/6.14.0-33-generic/build[0m
+[0;34m[2] Testing: Device mapper support[0m
+    Category: Environment
+    [0;32m✓ PASS: Device mapper subsystem available[0m
+[0;34m[3] Testing: Required tools availability[0m
+    Category: Environment
+    [0;32m✓ PASS: All required tools available[0m
+[0;34m[4] Testing: Module source files[0m
+    Category: Environment
+    [0;32m✓ PASS: Source files found[0m
+[0;34m[5] Testing: Clean build environment[0m
+    Category: Build
+    [0;32m✓ PASS: Build environment cleaned[0m
+[0;34m[6] Testing: Release build[0m
+    Category: Build
+Building dm-remap v4.0 Real Device Module...
+Version: 4.0.0-real
+Build Date: 2025-10-13 16:58:00
+Kernel: 6.14.0-33-generic
+Debug Mode: disabled
+Demo Mode: disabled
+
+make -C /lib/modules/6.14.0-33-generic/build M=/home/christian/kernel_dev/dm-remap/src modules
+make[1]: Entering directory '/usr/src/linux-headers-6.14.0-33-generic'
+make[2]: Entering directory '/home/christian/kernel_dev/dm-remap/src'
+warning: the compiler differs from the one used to build the kernel
+  The kernel was built by: x86_64-linux-gnu-gcc-14 (Ubuntu 14.2.0-19ubuntu2) 14.2.0
+  You are using:           gcc-14 (Ubuntu 14.2.0-19ubuntu2) 14.2.0
+  CC [M]  dm-remap-v4-real.o
+  MODPOST Module.symvers
+  CC [M]  dm-remap-v4-real.mod.o
+  CC [M]  .module-common.o
+  LD [M]  dm-remap-v4-real.ko
+  BTF [M] dm-remap-v4-real.ko
+Skipping BTF generation for dm-remap-v4-real.ko due to unavailability of vmlinux
+make[2]: Leaving directory '/home/christian/kernel_dev/dm-remap/src'
+make[1]: Leaving directory '/usr/src/linux-headers-6.14.0-33-generic'
+
+Build completed successfully!
+-rw-r--r-- 1 root root 453648 okt 13 16:58 dm-remap-v4-real.ko
+dm-remap-v4-real.ko: ELF 64-bit LSB relocatable, x86-64, version 1 (SYSV), BuildID[sha1]=1426f6e751cf2c14c34374adf44184b0354e512a, with debug_info, not stripped
+filename:       /home/christian/kernel_dev/dm-remap/src/dm-remap-v4-real.ko
+version:        4.0.0-real
+license:        GPL
+author:         dm-remap Development Team
+description:    Device Mapper Remapping Target v4.0 - Real Device Integration
+srcversion:     64D4556511A24DAAB2DD53D
+depends:        
+name:           dm_remap_v4_real
+retpoline:      Y
+vermagic:       6.14.0-33-generic SMP preempt mod_unload modversions 
+    [0;32m✓ PASS: Release build successful (size: 453648 bytes)[0m
+[0;34m[7] Testing: Debug build[0m
+    Category: Build
+Building debug version...
+make DEBUG=1 all
+make[1]: Entering directory '/home/christian/kernel_dev/dm-remap/src'
+make -C /lib/modules/6.14.0-33-generic/build M=/home/christian/kernel_dev/dm-remap/src modules
+make[2]: Entering directory '/usr/src/linux-headers-6.14.0-33-generic'
+make[3]: Entering directory '/home/christian/kernel_dev/dm-remap/src'
+warning: the compiler differs from the one used to build the kernel
+  The kernel was built by: x86_64-linux-gnu-gcc-14 (Ubuntu 14.2.0-19ubuntu2) 14.2.0
+  You are using:           gcc-14 (Ubuntu 14.2.0-19ubuntu2) 14.2.0
+  CC [M]  dm-remap-v4-real.o
+  MODPOST Module.symvers
+  CC [M]  dm-remap-v4-real.mod.o
+  CC [M]  .module-common.o
+  LD [M]  dm-remap-v4-real.ko
+  BTF [M] dm-remap-v4-real.ko
+Skipping BTF generation for dm-remap-v4-real.ko due to unavailability of vmlinux
+make[3]: Leaving directory '/home/christian/kernel_dev/dm-remap/src'
+make[2]: Leaving directory '/usr/src/linux-headers-6.14.0-33-generic'
+make[1]: Leaving directory '/home/christian/kernel_dev/dm-remap/src'
+    [0;32m✓ PASS: Debug build successful[0m
+[0;34m[8] Testing: Demo mode build[0m
+    Category: Build
+Building demo mode version...
+make DEMO_MODE=1 all
+make[1]: Entering directory '/home/christian/kernel_dev/dm-remap/src'
+make -C /lib/modules/6.14.0-33-generic/build M=/home/christian/kernel_dev/dm-remap/src modules
+make[2]: Entering directory '/usr/src/linux-headers-6.14.0-33-generic'
+make[3]: Entering directory '/home/christian/kernel_dev/dm-remap/src'
+warning: the compiler differs from the one used to build the kernel
+  The kernel was built by: x86_64-linux-gnu-gcc-14 (Ubuntu 14.2.0-19ubuntu2) 14.2.0
+  You are using:           gcc-14 (Ubuntu 14.2.0-19ubuntu2) 14.2.0
+  CC [M]  dm-remap-v4-real.o
+  MODPOST Module.symvers
+  CC [M]  dm-remap-v4-real.mod.o
+  CC [M]  .module-common.o
+  LD [M]  dm-remap-v4-real.ko
+  BTF [M] dm-remap-v4-real.ko
+Skipping BTF generation for dm-remap-v4-real.ko due to unavailability of vmlinux
+make[3]: Leaving directory '/home/christian/kernel_dev/dm-remap/src'
+make[2]: Leaving directory '/usr/src/linux-headers-6.14.0-33-generic'
+make[1]: Leaving directory '/home/christian/kernel_dev/dm-remap/src'
+    [0;32m✓ PASS: Demo mode build successful[0m
+[0;34m[9] Testing: Module load[0m
+    Category: Load
+insmod: ERROR: could not insert module dm-remap-v4-real.ko: File exists
+    [0;31m✗ FAIL: Module not visible in lsmod after load[0m
