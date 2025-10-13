@@ -21,6 +21,7 @@
 #include <linux/workqueue.h>
 #include <linux/proc_fs.h>
 #include <linux/seq_file.h>
+#include <linux/crc32.h>
 
 #include "dm-remap-v4-compat.h"
 
@@ -97,8 +98,22 @@ struct dm_remap_metadata_v4_real {
     uint32_t spare_device_status; /* Spare device health status */
     uint64_t uptime_seconds;      /* Device uptime in seconds */
     
+    /* Data integrity - Phase 1.3 */
+    uint32_t metadata_crc;       /* CRC32 of metadata (excluding this field) */
+    uint64_t sequence_number;    /* Incremental sequence for crash recovery */
+    
     /* Reserved for future expansion */
-    uint8_t reserved[3584];      /* Pad to 4KB total */
+    uint8_t reserved[3576];      /* Pad to 4KB total */
+};
+
+/* Remap entry structure for Phase 1.3 */
+struct dm_remap_entry_v4 {
+    sector_t original_sector;    /* Original failing sector */
+    sector_t spare_sector;       /* Replacement sector on spare device */
+    uint64_t remap_time;         /* Time when remap was created */
+    uint32_t error_count;        /* Number of errors on this sector */
+    uint32_t flags;              /* Status flags */
+    struct list_head list;       /* List linkage */
 };
 
 /* Device structure for v4.0 real device support */
@@ -121,10 +136,16 @@ struct dm_remap_device_v4_real {
     bool metadata_dirty;
     sector_t metadata_sector;    /* Where metadata is stored on spare device */
     
-    /* Remap table - Enhanced */
-    struct dm_remap_entry_v4 *remap_table;
-    uint32_t remap_table_size;
-    struct mutex remap_mutex;
+    /* Sector remapping - Phase 1.3 */
+    struct list_head remap_list; /* List of active remaps */  
+    spinlock_t remap_lock;       /* Lock for remap operations */
+    uint32_t remap_count_active; /* Current active remaps */
+    sector_t spare_sector_count; /* Available spare sectors */
+    sector_t next_spare_sector;  /* Next available spare sector */
+    
+    /* Background metadata sync - Phase 1.3 */
+    struct workqueue_struct *metadata_workqueue; /* Background metadata sync */
+    struct work_struct metadata_sync_work; /* Metadata sync work item */
     
     /* Statistics - Enhanced */
     atomic64_t read_count;
@@ -133,6 +154,17 @@ struct dm_remap_device_v4_real {
     atomic64_t error_count;
     atomic64_t total_io_time_ns;
     atomic64_t io_operations;
+    
+    /* Enhanced statistics for Phase 1.3 */
+    struct {
+        atomic64_t total_ios;    /* Total I/O operations */
+        atomic64_t normal_ios;   /* Normal (non-remapped) I/Os */
+        atomic64_t remapped_ios; /* Remapped I/Os */
+        atomic64_t io_errors;    /* I/O errors detected */
+        atomic64_t remapped_sectors; /* Total remapped sectors */
+        uint64_t total_latency_ns;   /* Total latency */
+        uint64_t max_latency_ns;     /* Maximum latency observed */
+    } stats;
     
     /* Health monitoring */
     struct delayed_work health_scan_work;
@@ -163,6 +195,176 @@ static atomic64_t global_health_scans = ATOMIC64_INIT(0);
 
 /* Workqueue for background tasks */
 static struct workqueue_struct *dm_remap_wq;
+
+/**
+ * dm_remap_calculate_crc32() - Calculate CRC32 for metadata validation
+ */
+static uint32_t dm_remap_calculate_crc32(const void *data, size_t len)
+{
+    return crc32(0, data, len);
+}
+
+/**
+ * dm_remap_find_remap_entry() - Find remap entry for given sector
+ */
+static struct dm_remap_entry_v4 *dm_remap_find_remap_entry(
+    struct dm_remap_device_v4_real *device, sector_t sector)
+{
+    struct dm_remap_entry_v4 *entry;
+    
+    list_for_each_entry(entry, &device->remap_list, list) {
+        if (entry->original_sector == sector) {
+            return entry;
+        }
+    }
+    
+    return NULL;
+}
+
+/**
+ * dm_remap_add_remap_entry() - Add new sector remap entry
+ */
+static int dm_remap_add_remap_entry(struct dm_remap_device_v4_real *device,
+                                   sector_t original_sector,
+                                   sector_t spare_sector)
+{
+    struct dm_remap_entry_v4 *entry;
+    
+    /* Check if entry already exists */
+    entry = dm_remap_find_remap_entry(device, original_sector);
+    if (entry) {
+        DMR_WARN("Remap entry already exists for sector %llu",
+                 (unsigned long long)original_sector);
+        return -EEXIST;
+    }
+    
+    /* Allocate new entry */
+    entry = kzalloc(sizeof(*entry), GFP_KERNEL);
+    if (!entry) {
+        return -ENOMEM;
+    }
+    
+    /* Initialize entry */
+    entry->original_sector = original_sector;
+    entry->spare_sector = spare_sector;
+    entry->remap_time = ktime_to_ns(ktime_get_real());
+    entry->error_count = 1;
+    entry->flags = 0;
+    
+    /* Add to remap list */
+    spin_lock(&device->remap_lock);
+    list_add_tail(&entry->list, &device->remap_list);
+    device->remap_count_active++;
+    device->metadata.active_mappings++;
+    spin_unlock(&device->remap_lock);
+    
+    DMR_INFO("Added remap entry: sector %llu -> %llu",
+             (unsigned long long)original_sector,
+             (unsigned long long)spare_sector);
+    
+    return 0;
+}
+
+/**
+ * dm_remap_handle_io_error() - Handle I/O errors and automatic remapping
+ */
+static void dm_remap_handle_io_error(struct dm_remap_device_v4_real *device,
+                                   sector_t failed_sector, int error)
+{
+    sector_t spare_sector;
+    int result;
+    
+    DMR_WARN("I/O error on sector %llu (error=%d), attempting automatic remap",
+             (unsigned long long)failed_sector, error);
+             
+    /* Update error statistics */
+    atomic64_inc(&device->stats.io_errors);
+    
+    /* Check if sector is already remapped */
+    if (dm_remap_find_remap_entry(device, failed_sector) != NULL) {
+        DMR_ERROR("Sector %llu already remapped but still failing",
+                  (unsigned long long)failed_sector);
+        return;
+    }
+    
+    /* Find available spare sector */
+    spin_lock(&device->remap_lock);
+    
+    if (device->next_spare_sector >= device->spare_sector_count) {
+        spin_unlock(&device->remap_lock);
+        DMR_ERROR("No spare sectors available for remapping sector %llu",
+                  (unsigned long long)failed_sector);
+        return;
+    }
+    
+    spare_sector = device->next_spare_sector++;
+    spin_unlock(&device->remap_lock);
+    
+    /* Add remap entry */
+    result = dm_remap_add_remap_entry(device, failed_sector, spare_sector);
+    if (result != 0) {
+        DMR_ERROR("Failed to add remap entry for sector %llu -> %llu (error=%d)",
+                  (unsigned long long)failed_sector,
+                  (unsigned long long)spare_sector, result);
+        
+        /* Return spare sector to pool */
+        spin_lock(&device->remap_lock);
+        device->next_spare_sector--;
+        spin_unlock(&device->remap_lock);
+        return;
+    }
+    
+    /* Update statistics */
+    atomic64_inc(&device->stats.remapped_sectors);
+    
+    /* Mark metadata as dirty for background sync */
+    mutex_lock(&device->metadata_mutex);
+    device->metadata_dirty = true;
+    mutex_unlock(&device->metadata_mutex);
+    
+    /* Schedule metadata sync */
+    queue_work(device->metadata_workqueue, &device->metadata_sync_work);
+    
+    DMR_INFO("Successfully remapped failed sector %llu -> %llu",
+             (unsigned long long)failed_sector,
+             (unsigned long long)spare_sector);
+}
+
+/**
+ * dm_remap_sync_metadata_work() - Background metadata synchronization
+ */
+static void dm_remap_sync_metadata_work(struct work_struct *work)
+{
+    struct dm_remap_device_v4_real *device = 
+        container_of(work, struct dm_remap_device_v4_real, metadata_sync_work);
+    
+    if (!device->metadata_dirty) {
+        return;
+    }
+    
+    DMR_DEBUG(2, "Syncing metadata to spare device (sequence: %llu)",
+              device->metadata.sequence_number + 1);
+    
+    mutex_lock(&device->metadata_mutex);
+    
+    /* Update metadata before writing */
+    device->metadata.last_update = ktime_to_ns(ktime_get_real());
+    device->metadata.sequence_number++;
+    
+    /* Calculate CRC (excluding the CRC field itself) */
+    device->metadata.metadata_crc = 0;
+    device->metadata.metadata_crc = dm_remap_calculate_crc32(&device->metadata,
+                                                            sizeof(device->metadata));
+    
+    /* TODO: Write metadata to spare device sectors */
+    /* For now, just mark as clean - actual disk I/O will be added */
+    device->metadata_dirty = false;
+    
+    mutex_unlock(&device->metadata_mutex);
+    
+    DMR_DEBUG(2, "Metadata sync completed (CRC: 0x%08x)",
+              device->metadata.metadata_crc);
+}
 
 /**
  * dm_remap_validate_device_compatibility() - Enhanced device compatibility checking
@@ -347,6 +549,7 @@ static int dm_remap_map_v4_real(struct dm_target *ti, struct bio *bio)
     }
     
     atomic64_inc(&device->io_operations);
+    atomic64_inc(&device->stats.total_ios);
     device->last_io_time = start_time;
     
     DMR_DEBUG(3, "Enhanced I/O: %s %u bytes to sector %llu on %s",
@@ -354,15 +557,38 @@ static int dm_remap_map_v4_real(struct dm_target *ti, struct bio *bio)
               (unsigned long long)sector,
               real_device_mode ? dm_remap_get_device_name(device->main_dev) : "demo");
     
-    /* Optimized device I/O routing */
+    /* Phase 1.3 Enhanced I/O routing with sector remapping */
     if (real_device_mode && device->main_dev && !IS_ERR(device->main_dev)) {
-        struct block_device *target_bdev = file_bdev(device->main_dev);
+        struct dm_remap_entry_v4 *remap_entry;
+        struct block_device *target_bdev;
+        sector_t target_sector = sector;
         
-        /* Set target device */
+        /* Check if this sector has been remapped */
+        remap_entry = dm_remap_find_remap_entry(device, sector);
+        if (remap_entry) {
+            /* Redirect to spare device */
+            target_bdev = file_bdev(device->spare_dev);
+            target_sector = remap_entry->spare_sector;
+            
+            DMR_DEBUG(3, "Remapped I/O: sector %llu -> %llu (spare device)",
+                      (unsigned long long)sector,
+                      (unsigned long long)target_sector);
+            
+            /* Update remap statistics */
+            atomic64_inc(&device->stats.remapped_ios);
+            if (is_read) {
+                atomic64_inc(&device->remap_count);
+                atomic64_inc(&global_remaps);
+            }
+        } else {
+            /* Normal I/O to main device */
+            target_bdev = file_bdev(device->main_dev);
+            atomic64_inc(&device->stats.normal_ios);
+        }
+        
+        /* Set target device and sector */
         bio_set_dev(bio, target_bdev);
-        
-        /* TODO Phase 3: Check for remapped sectors and route to spare if needed */
-        /* For now, all I/O goes to main device */
+        bio->bi_iter.bi_sector = target_sector;
         
     } else {
         /* Demo mode - simulate successful I/O */
@@ -506,10 +732,31 @@ static int dm_remap_ctr_v4_real(struct dm_target *ti, unsigned int argc, char **
     
     /* Initialize mutexes and structures */
     mutex_init(&device->metadata_mutex);
-    mutex_init(&device->remap_mutex);
     atomic_set(&device->device_active, 1);
     INIT_LIST_HEAD(&device->device_list);
     device->creation_time = ktime_get();
+    
+    /* Initialize Phase 1.3 sector remapping */
+    INIT_LIST_HEAD(&device->remap_list);
+    spin_lock_init(&device->remap_lock);
+    device->remap_count_active = 0;
+    device->spare_sector_count = device->spare_device_sectors / 2; /* Reserve half for remapping */
+    device->next_spare_sector = 0;
+    
+    /* Initialize metadata sync workqueue */
+    device->metadata_workqueue = alloc_workqueue("dm_remap_meta_sync", WQ_MEM_RECLAIM, 1);
+    if (!device->metadata_workqueue) {
+        DMR_ERROR("Failed to create metadata sync workqueue");
+        mutex_destroy(&device->metadata_mutex);
+        kfree(device);
+        if (real_device_mode) {
+            dm_remap_close_bdev_real(main_dev);
+            dm_remap_close_bdev_real(spare_dev);
+        }
+        ti->error = "Failed to create workqueue";
+        return -ENOMEM;
+    }
+    INIT_WORK(&device->metadata_sync_work, dm_remap_sync_metadata_work);
     
     /* Initialize statistics */
     atomic64_set(&device->read_count, 0);
@@ -519,6 +766,15 @@ static int dm_remap_ctr_v4_real(struct dm_target *ti, unsigned int argc, char **
     atomic64_set(&device->health_scan_count, 0);
     atomic64_set(&device->total_io_time_ns, 0);
     atomic64_set(&device->io_operations, 0);
+    
+    /* Initialize Phase 1.3 enhanced statistics */
+    atomic64_set(&device->stats.total_ios, 0);
+    atomic64_set(&device->stats.normal_ios, 0);
+    atomic64_set(&device->stats.remapped_ios, 0);
+    atomic64_set(&device->stats.io_errors, 0);
+    atomic64_set(&device->stats.remapped_sectors, 0);
+    device->stats.total_latency_ns = 0;
+    device->stats.max_latency_ns = 0;
     
     /* Initialize enhanced metadata */
     dm_remap_initialize_metadata_v4_real(device);
@@ -563,6 +819,19 @@ static void dm_remap_dtr_v4_real(struct dm_target *ti)
     atomic_dec(&dm_remap_device_count);
     mutex_unlock(&dm_remap_devices_mutex);
     
+    /* Phase 1.3 cleanup */
+    if (device->metadata_workqueue) {
+        flush_workqueue(device->metadata_workqueue);
+        destroy_workqueue(device->metadata_workqueue);
+    }
+    
+    /* Free remap entries */
+    struct dm_remap_entry_v4 *entry, *tmp;
+    list_for_each_entry_safe(entry, tmp, &device->remap_list, list) {
+        list_del(&entry->list);
+        kfree(entry);
+    }
+    
     /* Close real devices if opened */
     if (real_device_mode) {
         if (device->main_dev) {
@@ -572,6 +841,9 @@ static void dm_remap_dtr_v4_real(struct dm_target *ti)
             dm_remap_close_bdev_real(device->spare_dev);  
         }
     }
+    
+    /* Destroy mutexes */
+    mutex_destroy(&device->metadata_mutex);
     
     /* Free device structure */
     kfree(device);
@@ -604,6 +876,12 @@ static void dm_remap_status_v4_real(struct dm_target *ti, status_type_t type,
     io_ops = atomic64_read(&device->io_operations);
     total_time_ns = atomic64_read(&device->total_io_time_ns);
     
+    /* Phase 1.3 enhanced statistics */
+    uint64_t total_ios = atomic64_read(&device->stats.total_ios);
+    uint64_t normal_ios = atomic64_read(&device->stats.normal_ios);
+    uint64_t remapped_ios = atomic64_read(&device->stats.remapped_ios);
+    uint64_t remapped_sectors = atomic64_read(&device->stats.remapped_sectors);
+    
     /* Calculate performance metrics */
     if (io_ops > 0) {
         avg_latency_ns = total_time_ns / io_ops;
@@ -614,13 +892,14 @@ static void dm_remap_status_v4_real(struct dm_target *ti, status_type_t type,
     
     switch (type) {
     case STATUSTYPE_INFO:
-        DMEMIT("v4.0-real %s %s %llu %llu %llu %llu %u %llu %llu %llu %llu %u %u %s",
+        DMEMIT("v4.0-phase1.3 %s %s %llu %llu %llu %llu %u %llu %llu %llu %llu %u %u %llu %llu %llu %llu %s",
                device->main_path, device->spare_path,
                reads, writes, remaps, errors,
                device->metadata.active_mappings,
                io_ops, total_time_ns, avg_latency_ns, throughput_bps,
                device->sector_size,
                (unsigned int)(device->spare_device_sectors - device->main_device_sectors),
+               total_ios, normal_ios, remapped_ios, remapped_sectors,
                real_device_mode ? "real" : "demo");
         break;
         
@@ -638,6 +917,37 @@ static void dm_remap_status_v4_real(struct dm_target *ti, status_type_t type,
     }
 }
 
+/**
+ * dm_remap_end_io_v4_real() - Handle I/O completion and error detection
+ */
+static int dm_remap_end_io_v4_real(struct dm_target *ti, struct bio *bio,
+                                  blk_status_t *error)
+{
+    struct dm_remap_device_v4_real *device = ti->private;
+    ktime_t io_end_time = ktime_get();
+    u64 io_latency_ns = ktime_to_ns(ktime_sub(io_end_time, device->last_io_time));
+    
+    /* Update performance statistics */
+    device->stats.total_latency_ns += io_latency_ns;
+    device->stats.max_latency_ns = max(device->stats.max_latency_ns, io_latency_ns);
+    
+    /* Handle I/O errors for automatic remapping */
+    if (*error != BLK_STS_OK) {
+        sector_t failed_sector = bio->bi_iter.bi_sector;
+        int errno_val = blk_status_to_errno(*error);
+        
+        DMR_WARN("I/O error detected on sector %llu (error=%d)",
+                 (unsigned long long)failed_sector, errno_val);
+        
+        /* Only handle errors on main device, not spare device */
+        if (device->main_dev && file_bdev(device->main_dev) == bio->bi_bdev) {
+            dm_remap_handle_io_error(device, failed_sector, errno_val);
+        }
+    }
+    
+    return DM_ENDIO_DONE;
+}
+
 /* Device mapper target structure */
 static struct target_type dm_remap_target_v4_real = {
     .name = "dm-remap-v4",
@@ -646,6 +956,7 @@ static struct target_type dm_remap_target_v4_real = {
     .ctr = dm_remap_ctr_v4_real,
     .dtr = dm_remap_dtr_v4_real,
     .map = dm_remap_map_v4_real,
+    .end_io = dm_remap_end_io_v4_real,
     .status = dm_remap_status_v4_real,
 };
 

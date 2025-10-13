@@ -195,6 +195,16 @@ static inline void dm_remap_close_bdev(struct block_device *bdev, fmode_t mode)
             printk(KERN_INFO "dm-remap v4.0: " fmt "\n", ##args); \
         } \
     } while (0)
+
+#define DMR_INFO(fmt, args...) \
+    printk(KERN_INFO "dm-remap v4.0: " fmt "\n", ##args)
+
+#define DMR_WARN(fmt, args...) \
+    printk(KERN_WARNING "dm-remap v4.0: " fmt "\n", ##args)
+
+#define DMR_ERROR(fmt, args...) \
+    printk(KERN_ERR "dm-remap v4.0: " fmt "\n", ##args)
+
 #endif
 
 /* Declare external debug variable */
