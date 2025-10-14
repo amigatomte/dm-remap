@@ -10,6 +10,8 @@
  * Date: October 14, 2025
  */
 
+#define DM_MSG_PREFIX "dm-remap-v4-version-control"
+
 #include <linux/module.h>
 #include <linux/kernel.h>
 #include <linux/slab.h>

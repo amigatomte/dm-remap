@@ -16,8 +16,10 @@
 #include <linux/crc32.h>
 #include <linux/device-mapper.h>
 
-#include "dm-remap-v4-metadata.h"
-#include "dm-remap-v4-validation.h"
+#include "../include/dm-remap-v4-metadata.h"
+#include "../include/dm-remap-v4-setup-reassembly.h"
+#include "../include/dm-remap-v4-spare-pool.h"
+#include "../include/dm-remap-v4-validation.h"
 
 MODULE_LICENSE("GPL");
 MODULE_AUTHOR("dm-remap development team");

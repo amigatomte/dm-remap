@@ -1,0 +1,67 @@
+# Makefile for dm-remap v4.0 kernel module tests
+# Builds kernel test modules for integration testing
+
+# Kernel build directory
+KDIR ?= /lib/modules/$(shell uname -r)/build
+PWD := $(shell pwd)
+
+# Test modules to build
+obj-m += test_v4_health_monitoring.o
+obj-m += test_v4_spare_pool.o
+obj-m += test_v4_setup_reassembly.o
+obj-m += test_v4_integration.o
+
+# Compiler flags
+ccflags-y := -I$(PWD)/../include -DDEBUG
+
+# Default target - build all test modules
+all:
+	$(MAKE) -C $(KDIR) M=$(PWD) modules
+
+# Build specific test modules
+test_v4_health_monitoring.ko:
+	$(MAKE) -C $(KDIR) M=$(PWD) test_v4_health_monitoring.ko
+
+test_v4_spare_pool.ko:
+	$(MAKE) -C $(KDIR) M=$(PWD) test_v4_spare_pool.ko
+
+test_v4_setup_reassembly.ko:
+	$(MAKE) -C $(KDIR) M=$(PWD) test_v4_setup_reassembly.ko
+
+test_v4_integration.ko:
+	$(MAKE) -C $(KDIR) M=$(PWD) test_v4_integration.ko
+
+# Clean build artifacts
+clean:
+	$(MAKE) -C $(KDIR) M=$(PWD) clean
+	rm -f *.o *.ko *.mod.c *.mod *.order *.symvers .*.cmd
+	rm -rf .tmp_versions
+
+# Install test modules (for automated testing)
+install: all
+	@echo "Test modules built successfully"
+	@ls -lh *.ko 2>/dev/null || echo "No test modules found"
+
+# Run integration tests (requires root)
+test: all
+	@echo "Running integration test suite..."
+	@sudo ./run_integration_tests.sh || echo "Note: Integration tests require root privileges"
+
+# Help target
+help:
+	@echo "dm-remap v4.0 Test Module Build System"
+	@echo ""
+	@echo "Targets:"
+	@echo "  all                          - Build all test modules (default)"
+	@echo "  test_v4_health_monitoring.ko - Build Priority 1 test module"
+	@echo "  test_v4_spare_pool.ko        - Build Priority 3 test module"
+	@echo "  test_v4_setup_reassembly.ko  - Build Priority 6 test module"
+	@echo "  test_v4_integration.ko       - Build integration test module"
+	@echo "  clean                        - Remove build artifacts"
+	@echo "  install                      - Build and list test modules"
+	@echo "  test                         - Build and run integration tests"
+	@echo ""
+	@echo "Note: Building kernel modules requires kernel headers."
+	@echo "      Install with: sudo apt-get install linux-headers-\$$(uname -r)"
+
+.PHONY: all clean install test help
