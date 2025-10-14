@@ -54,6 +54,48 @@ static const u64 metadata_sector_offsets[DM_REMAP_METADATA_LOCATIONS] = {
 #define DM_REMAP_UUID_SIZE          16
 #define DM_REMAP_SIGNATURE_SIZE     32
 
+/* Version control constants */
+#define DM_REMAP_V4_VERSION_CONTROL_MAGIC    0x56435254  /* "VCRT" */
+#define DM_REMAP_V4_MAX_VERSION_COPIES       8           /* Maximum metadata copies */
+#define DM_REMAP_V4_VERSION_CHAIN_DEPTH      16          /* Version history depth */
+
+/* ========================================================================
+ * VERSION CONTROL STRUCTURES (Task 3)
+ * ======================================================================== */
+
+/**
+ * struct dm_remap_v4_version_header - Version control header
+ * 
+ * Contains versioning metadata for change tracking and conflict resolution
+ */
+struct dm_remap_v4_version_header {
+    u32 magic;                                           /* Version control magic */
+    u32 version_number;                                  /* Monotonic version counter */
+    u64 creation_timestamp;                              /* Version creation time */
+    u64 modification_timestamp;                          /* Last modification time */
+    u32 sequence_number;                                 /* Global sequence number */
+    u32 parent_version;                                  /* Parent version number */
+    u32 conflict_count;                                  /* Number of conflicts resolved */
+    u32 operation_type;                                  /* Last operation performed */
+    
+    /* Version chain information */
+    u32 chain_length;                                    /* Length of version chain */
+    u32 chain_versions[DM_REMAP_V4_VERSION_CHAIN_DEPTH]; /* Version history */
+    
+    /* Copy synchronization */
+    u32 copy_count;                                      /* Number of metadata copies */
+    u64 copy_timestamps[DM_REMAP_V4_MAX_VERSION_COPIES]; /* Copy sync timestamps */
+    u32 copy_versions[DM_REMAP_V4_MAX_VERSION_COPIES];   /* Copy version numbers */
+    
+    /* Conflict resolution data */
+    u32 resolution_strategy;                             /* Applied resolution strategy */
+    u64 conflict_timestamp;                              /* When conflict was detected */
+    u32 conflicting_versions[4];                         /* Versions involved in conflict */
+    
+    u32 header_crc32;                                    /* Header integrity checksum */
+    u32 reserved[8];                                     /* Reserved for future expansion */
+} __packed;
+
 /* ========================================================================
  * CORE METADATA STRUCTURES
  * ======================================================================== */
@@ -189,6 +231,9 @@ struct dm_remap_metadata_integrity {
 struct dm_remap_v4_metadata {
     /* Integrity and versioning (must be first for validation) */
     struct dm_remap_metadata_integrity integrity;
+    
+    /* Version control header (new in v4.0) */
+    struct dm_remap_v4_version_header version_header;
     
     /* Device identification */
     struct dm_remap_device_fingerprint main_device;

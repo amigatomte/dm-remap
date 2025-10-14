@@ -1,7 +1,8 @@
-obj-m := dm-remap-v4-real.o dm-remap-v4-metadata.o dm-remap-v4-validation.o
+obj-m := dm-remap-v4-real.o dm-remap-v4-metadata.o dm-remap-v4-validation.o dm-remap-v4-version-control.o
 
 # Multi-object modules
 dm-remap-v4-metadata-objs := dm-remap-v4-metadata-creation.o dm-remap-v4-metadata-utils.o
+dm-remap-v4-version-control-objs := dm-remap-v4-version-control.o dm-remap-v4-version-control-utils.o
 
 KDIR := /lib/modules/$(shell uname -r)/build
 PWD := $(shell pwd)
