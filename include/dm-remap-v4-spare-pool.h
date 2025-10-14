@@ -42,6 +42,7 @@ struct spare_device {
 	
 	/* Device information */
 	struct block_device *bdev;	/* Block device handle */
+	void *bdev_handle;		/* For kernel 6.5+ bdev_open_by_path */
 	char *dev_path;			/* Device path (e.g., "/dev/sdc") */
 	dev_t dev;			/* Device number */
 	

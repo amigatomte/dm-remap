@@ -20,6 +20,7 @@
 #include <linux/bio.h>
 #include <linux/slab.h>
 #include <linux/bitmap.h>
+#include <linux/version.h>
 #include "../include/dm-remap-v4-spare-pool.h"
 
 #define DM_MSG_PREFIX "dm-remap-spare-pool"
@@ -66,8 +67,13 @@ static void spare_device_destroy(struct spare_device *spare)
 	if (!spare)
 		return;
 	
-	if (spare->bdev)
+	if (spare->bdev) {
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(6, 5, 0)
+		fput(spare->bdev_handle);
+#else
 		blkdev_put(spare->bdev, FMODE_READ | FMODE_WRITE);
+#endif
+	}
 	
 	kfree(spare->allocation_bitmap);
 	kfree(spare->dev_path);
@@ -118,36 +124,61 @@ int spare_pool_add_device(struct spare_pool *pool, const char *dev_path)
 	sector_t sectors;
 	size_t bitmap_longs;
 	int ret = 0;
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(6, 5, 0)
+	struct file *bdev_file;
+#endif
 	
 	if (!pool || !dev_path)
 		return -EINVAL;
 	
 	/* Open block device */
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(6, 5, 0)
+	bdev_file = bdev_file_open_by_path(dev_path, BLK_OPEN_READ | BLK_OPEN_WRITE, pool, NULL);
+	if (IS_ERR(bdev_file)) {
+		ret = PTR_ERR(bdev_file);
+		DMERR("Failed to open spare device %s: %d", dev_path, ret);
+		return ret;
+	}
+	bdev = file_bdev(bdev_file);
+#else
 	bdev = blkdev_get_by_path(dev_path, FMODE_READ | FMODE_WRITE, pool);
 	if (IS_ERR(bdev)) {
 		ret = PTR_ERR(bdev);
 		DMERR("Failed to open spare device %s: %d", dev_path, ret);
 		return ret;
 	}
+#endif
 	
 	sectors = get_capacity(bdev->bd_disk);
 	if (sectors == 0) {
 		DMERR("Spare device %s has zero capacity", dev_path);
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(6, 5, 0)
+		fput(bdev_file);
+#else
 		blkdev_put(bdev, FMODE_READ | FMODE_WRITE);
+#endif
 		return -EINVAL;
 	}
 	
 	/* Allocate spare device structure */
 	spare = kzalloc(sizeof(*spare), GFP_KERNEL);
 	if (!spare) {
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(6, 5, 0)
+		fput(bdev_file);
+#else
 		blkdev_put(bdev, FMODE_READ | FMODE_WRITE);
+#endif
 		return -ENOMEM;
 	}
 	
 	spare->dev_path = kstrdup(dev_path, GFP_KERNEL);
 	if (!spare->dev_path) {
 		kfree(spare);
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(6, 5, 0)
+		fput(bdev_file);
+#else
 		blkdev_put(bdev, FMODE_READ | FMODE_WRITE);
+#endif
 		return -ENOMEM;
 	}
 	
@@ -158,12 +189,19 @@ int spare_pool_add_device(struct spare_pool *pool, const char *dev_path)
 	if (!spare->allocation_bitmap) {
 		kfree(spare->dev_path);
 		kfree(spare);
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(6, 5, 0)
+		fput(bdev_file);
+#else
 		blkdev_put(bdev, FMODE_READ | FMODE_WRITE);
+#endif
 		return -ENOMEM;
 	}
 	
 	/* Initialize spare device */
 	spare->bdev = bdev;
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(6, 5, 0)
+	spare->bdev_handle = bdev_file;
+#endif
 	spare->dev = bdev->bd_dev;
 	spare->total_sectors = sectors;
 	spare->allocated_sectors = 0;
