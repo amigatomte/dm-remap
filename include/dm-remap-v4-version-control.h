@@ -49,36 +49,10 @@
 #define DM_REMAP_V4_VC_STATUS_RECOVERABLE   0x80000000   /* Recovery possible */
 
 /*
- * Version control header structure
- * Contains versioning metadata for change tracking and conflict resolution
+ * NOTE: struct dm_remap_v4_version_header is defined in dm-remap-v4-metadata.h
+ * (included above). It contains versioning metadata for change tracking and
+ * conflict resolution.
  */
-struct dm_remap_v4_version_header {
-    uint32_t magic;                                      /* Version control magic */
-    uint32_t version_number;                             /* Monotonic version counter */
-    uint64_t creation_timestamp;                         /* Version creation time */
-    uint64_t modification_timestamp;                     /* Last modification time */
-    uint32_t sequence_number;                            /* Global sequence number */
-    uint32_t parent_version;                             /* Parent version number */
-    uint32_t conflict_count;                             /* Number of conflicts resolved */
-    uint32_t operation_type;                             /* Last operation performed */
-    
-    /* Version chain information */
-    uint32_t chain_length;                               /* Length of version chain */
-    uint32_t chain_versions[DM_REMAP_V4_VERSION_CHAIN_DEPTH]; /* Version history */
-    
-    /* Copy synchronization */
-    uint32_t copy_count;                                 /* Number of metadata copies */
-    uint64_t copy_timestamps[DM_REMAP_V4_MAX_VERSION_COPIES]; /* Copy sync timestamps */
-    uint32_t copy_versions[DM_REMAP_V4_MAX_VERSION_COPIES];   /* Copy version numbers */
-    
-    /* Conflict resolution data */
-    uint32_t resolution_strategy;                        /* Applied resolution strategy */
-    uint64_t conflict_timestamp;                         /* When conflict was detected */
-    uint32_t conflicting_versions[4];                    /* Versions involved in conflict */
-    
-    uint32_t header_crc32;                               /* Header integrity checksum */
-    uint32_t reserved[8];                                /* Reserved for future expansion */
-};
 
 /*
  * Version control context structure
