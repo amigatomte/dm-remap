@@ -313,7 +313,7 @@ static int remap_ctr(struct dm_target *ti, unsigned int argc, char **argv)
     }
     
     /* Set up dynamic metadata reservations */
-    ret = dmr_setup_dynamic_metadata_reservations(rc);
+    ret = dmr_setup_v4_metadata_reservations(rc);
     if (ret && ret != -ENOSPC) {
         ti->error = "Failed to set up metadata reservations";
         goto bad;

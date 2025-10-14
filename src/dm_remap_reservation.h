@@ -11,9 +11,10 @@
 
 /* Constants for dynamic metadata placement */
 #define DM_REMAP_METADATA_SECTORS         8    /* Sectors per metadata copy */
-#define PLACEMENT_STRATEGY_MINIMAL        1    /* Minimal copies, tight packing */
-#define PLACEMENT_STRATEGY_LINEAR         2    /* Even distribution */
-#define PLACEMENT_STRATEGY_GEOMETRIC      3    /* Geometric spacing */
+/* v4.0 uses fixed metadata placement - no dynamic strategies needed */
+#define DM_REMAP_MIN_SPARE_SIZE_SECTORS   16384   /* 8MB minimum */
+#define DM_REMAP_METADATA_RESERVED_SECTORS 8192  /* 4MB for metadata */
+#define DM_REMAP_MIN_USABLE_SPARE_SECTORS  8192  /* 4MB for remapping */
 #define SECTOR_MAX                        ((sector_t)-1)  /* Invalid sector marker */
 
 /* Reservation system functions */
@@ -29,7 +30,7 @@ sector_t dmr_allocate_spare_sector(struct remap_c *rc);
 bool dmr_check_sector_reserved(struct remap_c *rc, sector_t sector);
 
 /* Dynamic metadata integration */
-int dmr_setup_dynamic_metadata_reservations(struct remap_c *rc);
+int dmr_setup_v4_metadata_reservations(struct remap_c *rc);
 
 /* Statistics and debugging */
 void dmr_get_reservation_stats(struct remap_c *rc, 
@@ -40,10 +41,6 @@ void dmr_get_reservation_stats(struct remap_c *rc,
 void dmr_print_reservation_map(struct remap_c *rc, sector_t max_sectors);
 
 /* External functions from dynamic metadata implementation */
-extern int calculate_dynamic_metadata_sectors(sector_t spare_size_sectors,
-                                            sector_t *sectors_out,
-                                            int *max_copies);
-
-extern const char *get_placement_strategy_name(u32 strategy);
+extern int dmr_validate_v4_spare_device_size(sector_t spare_size_sectors);
 
 #endif /* _DM_REMAP_RESERVATION_H */

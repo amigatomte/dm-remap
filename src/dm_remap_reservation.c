@@ -42,7 +42,7 @@ int dmr_init_reservation_system(struct remap_c *rc)
     /* Initialize spare allocation cursor */
     rc->next_spare_sector = 0;
     rc->metadata_copies_count = 0;
-    rc->placement_strategy = 0;
+    rc->reserved_field = 0;
     
     /* Clear metadata sector array */
     memset(rc->metadata_sectors, 0, sizeof(rc->metadata_sectors));
@@ -202,63 +202,39 @@ bool dmr_check_sector_reserved(struct remap_c *rc, sector_t sector)
  * ============================================================================ */
 
 /**
- * dmr_setup_dynamic_metadata_reservations - Set up reservations for dynamic metadata
+ * dmr_setup_v4_metadata_reservations - Set up reservations for v4.0 fixed metadata
  * @rc: remap context
  * Returns: 0 on success, negative error code on failure
  */
-int dmr_setup_dynamic_metadata_reservations(struct remap_c *rc)
+int dmr_setup_v4_metadata_reservations(struct remap_c *rc)
 {
-    sector_t metadata_sectors[8];
-    int max_copies = 5;
-    int actual_copies;
+    const sector_t metadata_sectors[5] = {0, 1024, 2048, 4096, 8192};
     int ret;
-    u8 strategy;
     
     if (!rc) {
         return -EINVAL;
     }
     
-    /* Calculate optimal metadata placement for this spare device */
-    ret = calculate_dynamic_metadata_sectors(rc->spare_len, metadata_sectors, &max_copies);
-    if (ret < 0) {
-        if (ret == -ENOSPC) {
-            printk(KERN_WARNING "dm-remap: Spare device too small for metadata (%llu sectors)\n",
-                   rc->spare_len);
-        }
-        return ret;
+    /* v4.0 Simplified Approach: Require adequate spare device size */
+    if (rc->spare_len < DM_REMAP_MIN_SPARE_SIZE_SECTORS) {
+        printk(KERN_ERR "dm-remap: Spare device too small (%llu sectors)\n", rc->spare_len);
+        printk(KERN_ERR "dm-remap: Minimum required: %d sectors (8MB)\n", 
+               DM_REMAP_MIN_SPARE_SIZE_SECTORS);
+        printk(KERN_ERR "dm-remap: Use spare device of at least 8MB\n");
+        return -EINVAL;
     }
     
-    actual_copies = max_copies;
-    
-    /* Determine placement strategy */
-    if (rc->spare_len >= 8192) {  /* 4MB+ */
-        strategy = PLACEMENT_STRATEGY_GEOMETRIC;
-    } else if (rc->spare_len >= 1024) {  /* 512KB+ */
-        strategy = PLACEMENT_STRATEGY_LINEAR;
-    } else if (rc->spare_len >= 72) {  /* 36KB+ */
-        strategy = PLACEMENT_STRATEGY_MINIMAL;
-    } else {
-        /* Too small for practical use */
-        return -ENOSPC;
-    }
-    
-    rc->placement_strategy = strategy;
-    
-    /* Convert relative sectors to absolute sectors */
-    for (int i = 0; i < actual_copies; i++) {
-        metadata_sectors[i] += rc->spare_start;
-    }
-    
-    /* Reserve sectors for metadata */
-    ret = dmr_reserve_metadata_sectors(rc, metadata_sectors, actual_copies, 
+    /* Reserve sectors for 5 fixed metadata copies */
+    ret = dmr_reserve_metadata_sectors(rc, metadata_sectors, 5, 
                                      DM_REMAP_METADATA_SECTORS);
     if (ret < 0) {
         printk(KERN_ERR "dm-remap: Failed to reserve metadata sectors: %d\n", ret);
         return ret;
     }
     
-    printk(KERN_INFO "dm-remap: Set up %s metadata strategy with %d copies\n",
-           get_placement_strategy_name(strategy), actual_copies);
+    printk(KERN_INFO "dm-remap: Reserved 5 metadata copies at fixed sectors (0, 1024, 2048, 4096, 8192)\n");
+    printk(KERN_INFO "dm-remap: Spare sectors available for remapping: %llu\n", 
+           rc->spare_len - DM_REMAP_METADATA_RESERVED_SECTORS);
     
     return 0;
 }
@@ -346,76 +322,27 @@ void dmr_print_reservation_map(struct remap_c *rc, sector_t max_sectors)
  * ============================================================================ */
 
 /**
- * calculate_dynamic_metadata_sectors - Stub implementation for dynamic placement
+ * dmr_validate_v4_spare_device_size - Validate spare device meets v4.0 requirements
  * @spare_size_sectors: Available spare device size in sectors
- * @sectors_out: Output array for calculated sector positions
- * @max_copies: Maximum desired copies (input), actual copies (output)
- * Returns: 0 on success, negative error code on failure
+ * Returns: 0 if adequate, negative error code if too small
  */
-int calculate_dynamic_metadata_sectors(sector_t spare_size_sectors,
-                                     sector_t *sectors_out,
-                                     int *max_copies)
+int dmr_validate_v4_spare_device_size(sector_t spare_size_sectors)
 {
-    int desired_copies = *max_copies;
-    int actual_copies;
-    sector_t min_spacing = DM_REMAP_METADATA_SECTORS;
-    
-    /* Ensure minimum spare size for metadata + actual spare sectors */
-    sector_t min_viable_size = min_spacing + 64;  /* 4KB metadata + 32KB spare minimum */
-    if (spare_size_sectors < min_viable_size) {
-        return -ENOSPC;  /* Too small for practical use */
+    if (spare_size_sectors < DM_REMAP_MIN_SPARE_SIZE_SECTORS) {
+        printk(KERN_ERR "dm-remap: Spare device validation failed\n");
+        printk(KERN_ERR "dm-remap: Size: %llu sectors (%llu MB)\n", 
+               spare_size_sectors, (spare_size_sectors * 512) / (1024 * 1024));
+        printk(KERN_ERR "dm-remap: Required: %d sectors (%d MB)\n",
+               DM_REMAP_MIN_SPARE_SIZE_SECTORS, 
+               (DM_REMAP_MIN_SPARE_SIZE_SECTORS * 512) / (1024 * 1024));
+        return -EINVAL;
     }
     
-    /* Strategy selection based on spare device size */
-    if (spare_size_sectors >= 8192) {  /* 4MB+ - geometric strategy */
-        const sector_t geometric_pattern[] = {0, 1024, 2048, 4096, 8192};
-        actual_copies = 0;
-        
-        for (int i = 0; i < 5 && i < desired_copies; i++) {
-            if (geometric_pattern[i] + min_spacing <= spare_size_sectors) {
-                sectors_out[actual_copies] = geometric_pattern[i];
-                actual_copies++;
-            }
-        }
-    } else if (spare_size_sectors >= 1024) {  /* 512KB+ - linear strategy */
-        actual_copies = min(desired_copies, (int)(spare_size_sectors / min_spacing));
-        if (actual_copies > 4) actual_copies = 4;  /* Reasonable limit */
-        
-        for (int i = 0; i < actual_copies; i++) {
-            sectors_out[i] = i * (spare_size_sectors / actual_copies);
-        }
-    } else {  /* < 512KB - minimal strategy */
-        actual_copies = min(desired_copies, (int)(spare_size_sectors / min_spacing));
-        if (actual_copies > 8) actual_copies = 8;  /* Reasonable limit */
-        
-        for (int i = 0; i < actual_copies; i++) {
-            sectors_out[i] = i * min_spacing;
-        }
-    }
+    printk(KERN_INFO "dm-remap: Spare device size validation passed\n");
+    printk(KERN_INFO "dm-remap: Available: %llu sectors (%llu MB)\n", 
+           spare_size_sectors, (spare_size_sectors * 512) / (1024 * 1024));
+    printk(KERN_INFO "dm-remap: Usable for remapping: %llu sectors\n",
+           spare_size_sectors - DM_REMAP_METADATA_RESERVED_SECTORS);
     
-    if (actual_copies < 1) {
-        return -ENOSPC;
-    }
-    
-    *max_copies = actual_copies;
     return 0;
-}
-
-/**
- * get_placement_strategy_name - Get human-readable strategy name
- * @strategy: Strategy constant
- * Returns: String name of strategy
- */
-const char *get_placement_strategy_name(u32 strategy)
-{
-    switch (strategy) {
-    case PLACEMENT_STRATEGY_GEOMETRIC:
-        return "geometric";
-    case PLACEMENT_STRATEGY_LINEAR:
-        return "linear";
-    case PLACEMENT_STRATEGY_MINIMAL:
-        return "minimal";
-    default:
-        return "unknown";
-    }
 }

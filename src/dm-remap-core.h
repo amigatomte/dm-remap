@@ -122,7 +122,7 @@ struct remap_c {
     sector_t next_spare_sector;      /* Next candidate for spare allocation */
     sector_t metadata_sectors[8];    /* Actual metadata sector locations */
     u8 metadata_copies_count;        /* Number of metadata copies stored */
-    u8 placement_strategy;           /* Current metadata placement strategy */
+    u8 reserved_field;               /* Reserved for future use */
     
     /* v2.0 Intelligence & Statistics */
     u32 write_errors;           /* Total write errors detected */
