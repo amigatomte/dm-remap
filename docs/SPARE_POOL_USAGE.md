@@ -1,17 +1,34 @@
-# dm-remap v4.0 - Spare Pool Management
+# dm-remap v4.0 - External Spare Device Support
 
 ## Overview
 
-The **Spare Pool Management** feature (Priority 3) allows dm-remap to use external block devices as additional remapping capacity when internal drive spare sectors become exhausted.
+The **External Spare Device Support** feature (Priority 3) allows dm-remap to use external block devices as additional remapping capacity when internal drive spare sectors become exhausted.
+
+**Important**: This is a **spare device registry**, not a pool management system. It provides:
+- Manual device registration (no automation)
+- First-fit allocation (no optimization)  
+- Basic tracking (no intelligence)
 
 ## Key Features
 
-- ✅ Manual spare device addition/removal
-- ✅ First-fit allocation strategy
-- ✅ Bitmap-based space tracking
+- ✅ Manual spare device registration/removal
+- ✅ First-fit allocation strategy (simple sequential search)
+- ✅ Device capacity tracking
 - ✅ Integration with health monitoring (Priority 1)
 - ✅ Persistent configuration (Priority 6)
 - ✅ Simple, robust design
+
+## What This Is NOT
+
+This is **NOT** a pool management system. We did not build:
+- ❌ Automatic device discovery
+- ❌ Load balancing or optimization
+- ❌ Best-fit or round-robin allocation
+- ❌ Pool-wide capacity planning
+- ❌ Automatic rebalancing
+- ❌ Health-based device selection
+
+It's just a **list of devices** with simple **first-fit allocation**.
 
 ## When to Use Spare Pool
 

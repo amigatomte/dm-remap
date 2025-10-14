@@ -20,7 +20,7 @@
 |----------|---------|--------|-----------------|---------------|
 | **Priority 1** | Background Health Scanning | ✅ **COMPLETE** | Oct 14, 2025 | 100% (8/8 suites) |
 | **Priority 2** | Predictive Failure Analysis | ✅ **COMPLETE** | Oct 14, 2025 | 100% (8/8 suites) |
-| **Priority 3** | Manual Spare Pool Management | ✅ **COMPLETE** | Oct 14, 2025 | 100% (5/5 tests) |
+| **Priority 3** | External Spare Device Support | ✅ **COMPLETE** | Oct 14, 2025 | 100% (5/5 tests) |
 | **Priority 4** | User-space Daemon | ❌ **NOT STARTED** | - | - |
 | **Priority 5** | Multiple Spare Redundancy | ⚠️ **PARTIAL** | Oct 14, 2025 | Metadata only |
 | **Priority 6** | Automatic Setup Reassembly | ✅ **COMPLETE** | Oct 14, 2025 | 100% (69/69 tests) |
@@ -150,14 +150,18 @@
 
 ---
 
-### 🔄 **Priority 3: Manual Spare Pool Management** ✅ **COMPLETED**
-**Status**: ✅ Fully implemented (October 14, 2025) - **Minimal Version**  
-**Goal**: Allow manual expansion of remapping capacity with external devices
+### 🔄 **Priority 3: External Spare Device Support** ✅ **COMPLETED**
+**Status**: ✅ Fully implemented (October 14, 2025) - **Basic Infrastructure**  
+**Goal**: Allow manual registration of external devices for additional remapping capacity
+
+**Accurate Description**: This is a **spare device registry**, not a pool management system.
 
 #### ✅ Implementation Completed:
-**Design Decision**: Implemented **minimal, practical version** instead of full automation
+**Design Decision**: Implemented **minimal infrastructure** - manual device registration with first-fit allocation
+- Simple device list with basic tracking
+- No automation, no optimization, no intelligence
 - Addresses real use cases without over-engineering
-- 1 day implementation vs 3 weeks for full version
+- 1 day implementation vs 3 weeks for full pool management
 - Solves ~5% edge cases (drive exhausts internal spare sectors)
 - Manual control preferred by admins
 
