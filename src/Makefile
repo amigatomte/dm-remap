@@ -1,4 +1,4 @@
-obj-m := dm-remap-v4-real.o dm-remap-v4-metadata.o
+obj-m := dm-remap-v4-real.o dm-remap-v4-metadata.o dm-remap-v4-validation.o
 
 # Multi-object modules
 dm-remap-v4-metadata-objs := dm-remap-v4-metadata-creation.o dm-remap-v4-metadata-utils.o
