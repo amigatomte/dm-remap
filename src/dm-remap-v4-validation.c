@@ -8,6 +8,8 @@
  * Date: October 14, 2025
  */
 
+#define DM_MSG_PREFIX "dm-remap-v4-validation"
+
 #include <linux/module.h>
 #include <linux/kernel.h>
 #include <linux/string.h>
