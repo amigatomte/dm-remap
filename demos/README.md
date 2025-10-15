@@ -190,11 +190,11 @@ This demo is perfect for:
 - **Spare Device**: 212MB (6% overhead)
 - **Overhead Calculation**: 200MB × 1.06 = 212MB
 
-The spare device must be at least 5% larger than the main device to accommodate:
-- Metadata storage
-- Remapping tables
-- Error tracking information
-- Future expansion
+**Note**: The current implementation (v4.0 Phase 1) conservatively requires the spare device to be ≥5% larger than the main device. This is a known limitation. In a production-optimized implementation, the spare device could be **much smaller** (e.g., 10-50GB for a 1TB main device), as it only needs to store:
+- Metadata (remapping tables, sector maps)
+- Actual remapped bad sectors
+
+This sizing requirement will be optimized in future releases (Priority 4). For now, the demo uses similar-sized devices to meet the current validation requirements.
 
 ### Performance Expectations
 

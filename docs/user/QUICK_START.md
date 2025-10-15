@@ -144,19 +144,53 @@ sudo dmesg | grep "dm-remap v4" | tail -20
 
 ### Spare Device Size Requirements
 
-⚠️ **The spare device MUST be at least 5% larger than the main device.**
+⚠️ **Current Implementation Limitation (v4.0 Phase 1)**
 
-**Why?** The spare device needs extra space for:
-- Metadata storage
-- Remapping tables
-- Error tracking
-- Future expansion
+The current implementation requires the spare device to be **at least 5% larger** than the main device due to a conservative validation check. **This is a known limitation that will be addressed in future releases.**
 
-**Calculation:**
+**Current requirement:**
 ```bash
 # If main device is 1TB:
-# Minimum spare size = 1TB × 1.05 = 1.05TB
+# Current: Spare must be ≥ 1.05TB (wasteful!)
 ```
+
+**What it SHOULD be (planned for Priority 4):**
+
+In a properly optimized spare pool implementation, the spare device should only need to store:
+- **Metadata**: Remapping tables, sector maps (~few MB)
+- **Remapped sectors**: Only the actual bad sectors that need relocation
+
+**Realistic sizing:**
+```bash
+# Main: 1TB
+# Spare: Could be as small as 10GB-50GB depending on:
+#   - Expected number of bad sectors
+#   - Metadata overhead
+#   - Safety margin
+```
+
+**Why the current implementation is conservative:**
+- Phase 1 focuses on core functionality and testing
+- Ensures adequate space for all scenarios during development
+- Will be optimized in Priority 4 (Metadata Format Migration Tool)
+
+**Workaround for now:**
+- For production use, consider that you're "wasting" 5% capacity
+- For testing with loop devices, the overhead is minimal
+- Future versions will allow proper flexible spare sizing
+
+### Better Alternative (Current Recommendation)
+
+**Your observation is correct**: If you have a spare device as large as or larger than the main device, you should consider:
+
+1. **RAID 1 (Mirroring)**: Use md/RAID or dm-mirror for full redundancy
+2. **LVM + Snapshots**: Better space utilization
+3. **Wait for dm-remap v4.1+**: Optimized spare pool sizing
+
+**dm-remap is best suited for**:
+- Small spare pools (once optimized)
+- Scenarios where you have limited spare capacity
+- Gradual bad sector management without full mirroring overhead
 
 ### Device Creation Syntax
 
