@@ -144,53 +144,72 @@ sudo dmesg | grep "dm-remap v4" | tail -20
 
 ### Spare Device Size Requirements
 
-⚠️ **Current Implementation Limitation (v4.0 Phase 1)**
+✅ **v4.0.1 Update: Intelligent Spare Sizing Implemented!**
 
-The current implementation requires the spare device to be **at least 5% larger** than the main device due to a conservative validation check. **This is a known limitation that will be addressed in future releases.**
+The spare device sizing has been dramatically improved in v4.0.1:
 
-**Current requirement:**
+**Current (v4.0.1 - Optimized Mode, Default)**:
 ```bash
-# If main device is 1TB:
-# Current: Spare must be ≥ 1.05TB (wasteful!)
-```
-
-**What it SHOULD be (planned for Priority 4):**
-
-In a properly optimized spare pool implementation, the spare device should only need to store:
-- **Metadata**: Remapping tables, sector maps (~few MB)
-- **Remapped sectors**: Only the actual bad sectors that need relocation
-
-**Realistic sizing:**
-```bash
+# Realistic sizing based on actual needs:
 # Main: 1TB
-# Spare: Could be as small as 10GB-50GB depending on:
-#   - Expected number of bad sectors
-#   - Metadata overhead
-#   - Safety margin
+# Spare: ~24-30GB (2-3% of main!)
+#
+# Calculation:
+# - Metadata: ~4KB
+# - Expected bad sectors (2% default): 20GB
+# - Mapping overhead: ~2.5MB
+# - Safety margin (20%): ~4GB
+# Total: ~24GB
 ```
 
-**Why the current implementation is conservative:**
-- Phase 1 focuses on core functionality and testing
-- Ensures adequate space for all scenarios during development
-- Will be optimized in Priority 4 (Metadata Format Migration Tool)
+**Legacy (v4.0 Phase 1 - Strict Mode)**:
+```bash
+# If you enable strict_spare_sizing=1:
+# Main: 1TB
+# Spare: 1.05TB (105% of main - wasteful!)
+```
 
-**Workaround for now:**
-- For production use, consider that you're "wasting" 5% capacity
-- For testing with loop devices, the overhead is minimal
-- Future versions will allow proper flexible spare sizing
+### Module Parameters
 
-### Better Alternative (Current Recommendation)
+Control spare sizing behavior with module parameters:
 
-**Your observation is correct**: If you have a spare device as large as or larger than the main device, you should consider:
+```bash
+# Default (optimized): 2% expected bad sectors
+sudo insmod src/dm-remap-v4-real.ko
+
+# Conservative: 5% expected bad sectors
+sudo insmod src/dm-remap-v4-real.ko spare_overhead_percent=5
+
+# Aggressive: 0.5% expected bad sectors  
+sudo insmod src/dm-remap-v4-real.ko spare_overhead_percent=1
+
+# Legacy mode (v4.0 Phase 1 behavior)
+sudo insmod src/dm-remap-v4-real.ko strict_spare_sizing=1
+```
+
+### Sizing Examples (v4.0.1 Optimized Mode)
+
+| Main Device | Expected Bad (2%) | Minimum Spare | Savings vs v4.0 |
+|-------------|-------------------|---------------|-----------------|
+| 100MB       | 2MB               | ~3MB          | 97%             |
+| 1GB         | 20MB              | ~27MB         | 97%             |
+| 100GB       | 2GB               | ~2.7GB        | 97%             |
+| 1TB         | 20GB              | ~27GB         | 97%             |
+| 10TB        | 200GB             | ~270GB        | 97%             |
+
+### Better Alternative (When Spare is Large)
+
+**Your observation was correct**: If you have a spare device ≥50% of the main device, consider:
 
 1. **RAID 1 (Mirroring)**: Use md/RAID or dm-mirror for full redundancy
 2. **LVM + Snapshots**: Better space utilization
-3. **Wait for dm-remap v4.1+**: Optimized spare pool sizing
+3. **dm-remap optimized mode**: Only when spare capacity is truly limited
 
-**dm-remap is best suited for**:
-- Small spare pools (once optimized)
-- Scenarios where you have limited spare capacity
+**dm-remap v4.0.1 is best suited for**:
+- Small spare pools (2-10% of main device)
+- Scenarios where you have limited spare capacity  
 - Gradual bad sector management without full mirroring overhead
+- Predictable bad sector patterns
 
 ### Device Creation Syntax
 

@@ -48,6 +48,15 @@ static bool real_device_mode = true;
 module_param(real_device_mode, bool, 0644);
 MODULE_PARM_DESC(real_device_mode, "Enable real device operations (vs demo mode)");
 
+/* Spare device sizing parameters (v4.0.1 optimization) */
+static uint spare_overhead_percent = 2;
+module_param(spare_overhead_percent, uint, 0644);
+MODULE_PARM_DESC(spare_overhead_percent, "Expected bad sector percentage (0-20, default 2%)");
+
+static bool strict_spare_sizing = false;
+module_param(strict_spare_sizing, bool, 0644);
+MODULE_PARM_DESC(strict_spare_sizing, "Require spare >= main size (legacy mode, default off)");
+
 #define DMR_ERROR(fmt, ...) \
     printk(KERN_ERR "dm-remap v4.0 real: ERROR: " fmt "\n", ##__VA_ARGS__)
 
@@ -105,6 +114,11 @@ struct dm_remap_metadata_v4_real {
     /* Reserved for future expansion */
     uint8_t reserved[3576];      /* Pad to 4KB total */
 };
+
+/* Metadata size calculation (v4.0.1) */
+#define DM_REMAP_METADATA_BASE_SIZE   4096  /* Base metadata: 4KB */
+#define DM_REMAP_METADATA_PER_MAPPING 64    /* Per-mapping overhead: 64 bytes */
+#define DM_REMAP_SAFETY_MARGIN_PCT    20    /* Safety margin: 20% */
 
 /* Remap entry structure for Phase 1.3 */
 struct dm_remap_entry_v4 {
@@ -798,15 +812,103 @@ static int dm_remap_validate_device_compatibility(struct file *main_dev,
         return -ENOSPC;
     }
     
-    /* Calculate minimum spare size (main + 5% overhead for metadata) */
-    min_spare_size = main_size + (main_size / 20);
+    /* Calculate minimum spare size using intelligent algorithm (v4.0.1)
+     * 
+     * LEGACY MODE (strict_spare_sizing=true):
+     *   min_spare = main_size * 1.05
+     *   
+     * OPTIMIZED MODE (strict_spare_sizing=false, default):
+     *   Components:
+     *   1. Metadata base: 4KB
+     *   2. Expected bad sectors: main_size * spare_overhead_percent / 100
+     *   3. Mapping overhead: expected_bad_sectors * 64 bytes per entry
+     *   4. Safety margin: 20% of calculated need
+     *   
+     * Example with 1TB main, 2% expected bad sectors:
+     *   - Bad sectors: 1TB * 2% = 20GB
+     *   - Metadata: 4KB + (20GB/512 * 64 bytes) = ~2.5MB
+     *   - Safety margin: (20GB + 2.5MB) * 1.2 = 24GB
+     *   - Total: ~24GB spare instead of 1.05TB!
+     */
+    if (strict_spare_sizing) {
+        /* Legacy mode: spare must be >= main + 5% */
+        min_spare_size = main_size + (main_size / 20);
+        DMR_INFO("Using strict spare sizing (legacy): %llu sectors required",
+                 (unsigned long long)min_spare_size);
+    } else {
+        /* Optimized mode: calculate realistic minimum */
+        sector_t metadata_sectors;
+        sector_t expected_bad_sectors;
+        sector_t mapping_overhead_sectors;
+        sector_t base_requirement;
+        
+        /* Clamp overhead percentage to sane range (0-20%) */
+        uint overhead_pct = spare_overhead_percent;
+        if (overhead_pct > 20) {
+            DMR_INFO("Clamping spare_overhead_percent from %u to 20%%", overhead_pct);
+            overhead_pct = 20;
+        }
+        
+        /* Calculate components */
+        metadata_sectors = DM_REMAP_METADATA_BASE_SIZE / main_sector_size + 1;
+        expected_bad_sectors = (main_size * overhead_pct) / 100;
+        mapping_overhead_sectors = (expected_bad_sectors * DM_REMAP_METADATA_PER_MAPPING) / main_sector_size + 1;
+        
+        /* Base requirement = metadata + bad sectors + mapping overhead */
+        base_requirement = metadata_sectors + expected_bad_sectors + mapping_overhead_sectors;
+        
+        /* Add safety margin (20%) */
+        min_spare_size = base_requirement + (base_requirement * DM_REMAP_SAFETY_MARGIN_PCT / 100);
+        
+        DMR_INFO("Optimized spare sizing calculation:");
+        DMR_INFO("  Main device: %llu sectors (%llu MB)",
+                 (unsigned long long)main_size,
+                 (unsigned long long)(main_size * main_sector_size / (1024*1024)));
+        DMR_INFO("  Expected bad sectors (%u%%): %llu sectors (%llu MB)",
+                 overhead_pct,
+                 (unsigned long long)expected_bad_sectors,
+                 (unsigned long long)(expected_bad_sectors * main_sector_size / (1024*1024)));
+        DMR_INFO("  Metadata overhead: %llu sectors (%llu KB)",
+                 (unsigned long long)(metadata_sectors + mapping_overhead_sectors),
+                 (unsigned long long)((metadata_sectors + mapping_overhead_sectors) * main_sector_size / 1024));
+        DMR_INFO("  Minimum spare (with %u%% safety margin): %llu sectors (%llu MB)",
+                 DM_REMAP_SAFETY_MARGIN_PCT,
+                 (unsigned long long)min_spare_size,
+                 (unsigned long long)(min_spare_size * main_sector_size / (1024*1024)));
+    }
     
     /* Spare device should have adequate capacity */
     if (spare_size < min_spare_size) {
-        DMR_ERROR("Spare device insufficient: %llu < %llu sectors (need %llu + 5%% overhead)",
-                  (unsigned long long)spare_size, (unsigned long long)min_spare_size,
-                  (unsigned long long)main_size);
+        if (strict_spare_sizing) {
+            DMR_ERROR("Spare device insufficient: %llu < %llu sectors (need %llu + 5%% overhead)",
+                      (unsigned long long)spare_size, (unsigned long long)min_spare_size,
+                      (unsigned long long)main_size);
+        } else {
+            DMR_ERROR("Spare device insufficient: %llu < %llu sectors", 
+                      (unsigned long long)spare_size, (unsigned long long)min_spare_size);
+            DMR_ERROR("  Increase spare size or reduce spare_overhead_percent parameter");
+            DMR_ERROR("  Current overhead: %u%%, try lower value or use strict_spare_sizing=1",
+                      spare_overhead_percent);
+        }
         return -ENOSPC;
+    }
+    
+    /* Success - log the spare utilization efficiency */
+    {
+        u64 spare_size_mb = (spare_size * main_sector_size) / (1024*1024);
+        u64 main_size_mb = (main_size * main_sector_size) / (1024*1024);
+        uint efficiency_pct = (spare_size_mb * 100) / main_size_mb;
+        
+        if (efficiency_pct < 10) {
+            DMR_INFO("Excellent spare efficiency: %llu MB spare for %llu MB main (%u%%)",
+                     (unsigned long long)spare_size_mb, (unsigned long long)main_size_mb, efficiency_pct);
+        } else if (efficiency_pct < 50) {
+            DMR_INFO("Good spare efficiency: %llu MB spare for %llu MB main (%u%%)",
+                     (unsigned long long)spare_size_mb, (unsigned long long)main_size_mb, efficiency_pct);
+        } else {
+            DMR_INFO("Consider RAID1 mirroring: %llu MB spare for %llu MB main (%u%%)",
+                     (unsigned long long)spare_size_mb, (unsigned long long)main_size_mb, efficiency_pct);
+        }
     }
     
     /* Warn about physical sector size differences */
