@@ -1,15 +1,61 @@
-# dm-remap v4.0 Enterprise Edition - Complete Implementation
+# dm-remap v4.0 - Transparent Bad Sector Remapping
 
-**dm-remap v4.0** represents a revolutionary **clean slate architecture** implementation with enterprise-grade features and optimal performance. This version eliminates all backward compatibility with v3.0 to achieve maximum efficiency and modern kernel integration.
+**dm-remap** is a Linux kernel module that provides transparent bad sector remapping for block devices. When your drive starts developing bad sectors beyond its internal spare pool, dm-remap keeps your data accessible by remapping failed sectors to an external spare device.
 
-**🎉 MAJOR MILESTONE**: v4.0 Enterprise Edition is now **FULLY IMPLEMENTED** with enhanced metadata infrastructure, background health scanning, automatic device discovery, and comprehensive monitoring - all achieving <1% performance overhead.
+**Latest Release: v4.0.2** (October 15, 2025)
 
 ### Version Status
-- **v3.2C (Production)**: ✅ Complete with advanced stress testing validation  
-- **v4.0 (Enterprise)**: ✅ **FULLY IMPLEMENTED** - Clean slate architecture with enterprise features
-- **Documentation**: ✅ Complete implementation guide available
+- **v3.2C**: ✅ Complete - Production-ready with stress testing validation  
+- **v4.0.2**: ✅ **Current** - Optimized spare sizing + monitoring tool integration
+- **Documentation**: ✅ Complete user guides and integration examples
 
-It provides transparent bad sector remapping with enterprise-grade reliability, intelligent health monitoring, and automatic device management. Created for production environments requiring maximum performance with comprehensive observability.
+### Key Features
+- ✅ **Intelligent Spare Sizing**: 97% less spare capacity needed (v4.0.1)
+- ✅ **Monitoring Integration**: sysfs statistics for Prometheus, Nagios, Grafana (v4.0.2)
+- ✅ **Automatic Reassembly**: Devices automatically reassociate after reboot
+- ✅ **Real Device Support**: Works with actual block devices, not just demos
+
+dm-remap is designed for production environments where you need to extend the life of aging storage infrastructure without replacing entire drives.
+
+---
+
+## 🎉 What's New in v4.0.2 (October 15, 2025)
+
+### Statistics Monitoring Integration
+**Simple, useful metrics for real monitoring tools.**
+
+```bash
+# Prometheus-style metrics
+cat /sys/kernel/dm_remap/all_stats
+
+# Individual statistics
+cat /sys/kernel/dm_remap/health_score      # 0-100
+cat /sys/kernel/dm_remap/total_remaps      # Count
+cat /sys/kernel/dm_remap/total_errors      # Count
+```
+
+**Integrates with**: Prometheus, Grafana, Nagios, Zabbix, or simple bash scripts
+
+**See**: [Statistics Monitoring Guide](docs/user/STATISTICS_MONITORING.md)
+
+### Recent Changes
+
+**v4.0.2** (Oct 15, 2025) - Monitoring integration
+- Added sysfs statistics export for monitoring tools
+- Prometheus-format metrics output
+- Integration examples for all major monitoring platforms
+
+**v4.0.1** (Oct 15, 2025) - Intelligent spare sizing
+- **97% storage savings**: 1TB main now needs only ~27GB spare (was 1.05TB)
+- Dynamic spare sizing based on expected bad sector percentage
+- Configurable via module parameters (`spare_overhead_percent`)
+
+**v4.0.0** (Oct 14, 2025) - Phase 1 release
+- External spare device support
+- Automatic setup reassembly after reboot
+- Real device integration (beyond demo mode)
+
+---
 
 ## 📚 Table of Contents
 
@@ -722,51 +768,58 @@ sudo dmsetup message <device> 0 clear_stats
 - ✅ ~~Metadata I/O operations~~ **COMPLETED in v3.0** - Save/sync commands
 - ✅ ~~Advanced Error Injection Testing~~ **COMPLETED in v3.0** - dm-flakey integration and specialized frameworks
 
-### � v4.0 Advanced Features (In Planning)
+### ✅ v4.0 Implemented Features
 
-**Vision**: Transform dm-remap from reactive bad sector management to proactive storage intelligence with predictive failure analysis and autonomous optimization.
+**Status**: Production-ready | **Release**: October 2025
 
-**Timeline**: Q1-Q4 2026 | **Status**: Planning & Research Phase
+#### ✅ External Spare Device Support (v4.0.0)
+- Manual spare device registration via `dmsetup message`
+- Works with any block device (physical, loop, LVM, partitions)
+- Filesystem-agnostic spare pool backend
+- **See**: [Spare Pool Usage Guide](docs/SPARE_POOL_USAGE.md)
 
-#### 🔍 Priority 1: Background Health Scanning
-- **Goal**: Proactive sector health assessment 24-48 hours before failure
-- **Features**: Non-intrusive scanning, health scoring, predictive wear analysis
-- **Impact**: 90%+ reduction in unexpected storage failures
+#### ✅ Intelligent Spare Sizing (v4.0.1)
+- **Dynamic sizing**: Spare only needs space for metadata + expected bad sectors
+- **97% savings**: 1TB main needs ~27GB spare (not 1.05TB)
+- **Configurable**: `spare_overhead_percent` module parameter (default 2%)
+- **Backward compatible**: `strict_spare_sizing=1` for legacy behavior
 
-#### 🧠 Priority 2: Predictive Failure Analysis  
-- **Goal**: Machine learning-based failure prediction with 85%+ accuracy
-- **Features**: Pattern recognition, risk scoring, adaptive remapping strategies
-- **Impact**: Early warning system with automatic preventive actions
+#### ✅ Statistics Monitoring (v4.0.2)
+- **sysfs export**: `/sys/kernel/dm_remap/` statistics directory
+- **Prometheus format**: Compatible with node_exporter textfile collector
+- **Simple integration**: Works with Nagios, Zabbix, Grafana, bash scripts
+- **Honest metrics**: Real counters, no "AI/ML" hype
+- **See**: [Statistics Monitoring Guide](docs/user/STATISTICS_MONITORING.md)
 
-#### 🔄 Priority 3: Hot Spare Management
-- **Goal**: Dynamic spare pool management without downtime
-- **Features**: Hot-swap support, automatic spare selection, load balancing
-- **Impact**: Zero-downtime maintenance and optimal spare utilization
+#### ✅ Automatic Setup Reassembly (v4.0.0)
+- Devices automatically reassociate after reboot
+- Metadata stored on spare device
+- Symbol exports for inter-module communication
+- 69/69 tests passing
 
-#### 👁️ Priority 4: User-space Daemon (dm-remapd)
-- **Goal**: Centralized monitoring and policy-based automation
-- **Features**: REST API, web UI, integration with monitoring systems
-- **Impact**: Manage 100+ instances with automated policy responses
+### 🔮 Future Considerations
 
-#### 🔗 Priority 5: Multiple Spare Devices & Redundancy
-- **Goal**: Redundant metadata storage and enhanced reliability
-- **Features**: RAID-like metadata redundancy, automatic repair, load distribution
-- **Impact**: Zero data loss even with multiple component failures
+**Note**: These may or may not be implemented. Use existing tools where they work better.
 
-#### 🔧 Priority 6: Automatic Setup Reassembly
-- **Goal**: Store configuration metadata for automatic device discovery and reassembly
-- **Features**: Configuration storage, device fingerprinting, automatic reconstruction
-- **Impact**: Disaster recovery, system migration, simplified maintenance operations
+#### Potential Future Work (if there's demand)
+- **Health Monitoring**: Integration with SMART data (use `smartctl` for now)
+- **Predictive Analysis**: Failure prediction (use `smartd` for now)  
+- **User-space Daemon**: Centralized management (use existing tools for now)
+- **Multiple Spares**: Load balancing across spares (overkill for most users)
 
-**📋 See [V4_ROADMAP.md](V4_ROADMAP.md) for detailed technical specifications and development timeline.**
+**Current Recommendation**: dm-remap does what it does well (sector remapping). For comprehensive disk health monitoring, use established tools like:
+- `smartmontools` (smartctl/smartd) - Disk health and SMART monitoring
+- `badblocks` - Sector-level testing
+- Prometheus + node_exporter - Metrics and alerting
+- Grafana - Visualization dashboards
 
 ---
 
-### ⚠️ Current Limitations (v3.0)
-- Spare pool size is fixed at creation
-- Single spare device per dm-remap instance
-- Minimal metadata I/O overhead for persistence operations
-- No background health scanning (manual remap detection only)
+### ⚠️ Current Limitations (v4.0.2)
+- Single spare device per dm-remap instance (multiple spares = over-engineering)
+- Statistics are global, not per-device (use `dmsetup status` for per-device info)
+- No built-in SMART integration (use `smartctl` instead)
+- No predictive failure analysis (use `smartd` instead)
 
 ---
 
@@ -775,6 +828,9 @@ sudo dmsetup message <device> 0 clear_stats
 * [Linux kernel source: drivers/md](https://github.com/torvalds/linux/tree/master/drivers/md)
 * [fio: Flexible I/O tester](https://github.com/axboe/fio)
 * [dmsetup man page](https://man7.org/linux/man-pages/man8/dmsetup.8.html)
+* [smartmontools](https://www.smartmontools.org/) - SMART monitoring
+* [Prometheus](https://prometheus.io/) - Metrics and monitoring
+* [Grafana](https://grafana.com/) - Visualization
 
 ---
 
