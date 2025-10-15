@@ -8,10 +8,13 @@
  * Date: October 14, 2025
  */
 
+#define DM_MSG_PREFIX "dm-remap-v4-setup"
+
 #include <linux/module.h>
 #include <linux/kernel.h>
 #include <linux/bio.h>
 #include <linux/blkdev.h>
+#include <linux/device-mapper.h>
 #include <linux/file.h>
 #include <linux/fs.h>
 #include <linux/slab.h>
@@ -585,7 +588,3 @@ int dm_remap_v4_clean_metadata_from_device(const char *device_path)
     
     return DM_REMAP_V4_REASSEMBLY_SUCCESS;
 }
-
-MODULE_DESCRIPTION("dm-remap v4.0 Setup Reassembly Storage I/O Functions");
-MODULE_AUTHOR("dm-remap development team");
-MODULE_LICENSE("GPL");

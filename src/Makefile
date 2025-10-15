@@ -8,7 +8,7 @@ obj-m += dm-remap-v4-spare-pool.o dm-remap-v4-setup-reassembly.o
 dm-remap-v4-metadata-objs := dm-remap-v4-metadata-creation.o dm-remap-v4-metadata-utils.o
 # dm-remap-v4-version-control-objs := dm-remap-v4-version-control.o dm-remap-v4-version-control-utils.o
 dm-remap-v4-health-monitoring-objs := dm-remap-v4-health-monitoring.o dm-remap-v4-health-monitoring-utils.o
-dm-remap-v4-setup-reassembly-objs := dm-remap-v4-setup-reassembly.o dm-remap-v4-setup-reassembly-storage.o dm-remap-v4-setup-reassembly-discovery.o
+dm-remap-v4-setup-reassembly-objs := dm-remap-v4-setup-reassembly-core.o dm-remap-v4-setup-reassembly-storage.o dm-remap-v4-setup-reassembly-discovery.o
 
 KDIR := /lib/modules/$(shell uname -r)/build
 PWD := $(shell pwd)

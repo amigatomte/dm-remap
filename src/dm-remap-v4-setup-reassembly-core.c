@@ -8,6 +8,8 @@
  * Date: October 14, 2025
  */
 
+#define DM_MSG_PREFIX "dm-remap-v4-setup"
+
 #include <linux/module.h>
 #include <linux/kernel.h>
 #include <linux/slab.h>
@@ -76,6 +78,7 @@ int dm_remap_v4_verify_metadata_integrity(const struct dm_remap_v4_setup_metadat
     DMINFO("Metadata integrity verification passed");
     return DM_REMAP_V4_REASSEMBLY_SUCCESS;
 }
+EXPORT_SYMBOL(dm_remap_v4_verify_metadata_integrity);
 
 /*
  * Create device fingerprint for identification
@@ -125,8 +128,8 @@ int dm_remap_v4_create_device_fingerprint(
     }
     
     /* Extract device information */
-    fingerprint->device_size = i_size_read(bdev->bd_inode) >> 9; /* Convert to sectors */
-    fingerprint->device_capacity = i_size_read(bdev->bd_inode);
+    fingerprint->device_size = bdev_nr_sectors(bdev);
+    fingerprint->device_capacity = fingerprint->device_size * bdev_logical_block_size(bdev);
     fingerprint->sector_size = bdev_logical_block_size(bdev);
     
     /* Generate UUID based on device characteristics */
@@ -254,6 +257,7 @@ int dm_remap_v4_update_metadata_version(struct dm_remap_v4_setup_metadata *metad
     DMINFO("Updated metadata version to %llu", metadata->version_counter);
     return DM_REMAP_V4_REASSEMBLY_SUCCESS;
 }
+EXPORT_SYMBOL(dm_remap_v4_update_metadata_version);
 
 /*
  * Create complete setup metadata
@@ -376,51 +380,55 @@ int dm_remap_v4_add_spare_device_to_metadata(
 
 /*
  * Calculate confidence score for discovery result
+ * Returns integer percentage (0-100) instead of float
  */
-float dm_remap_v4_calculate_confidence_score(const struct dm_remap_v4_discovery_result *result)
+uint32_t dm_remap_v4_calculate_confidence_score(const struct dm_remap_v4_discovery_result *result)
 {
-    float confidence = 0.0f;
+    int32_t confidence = 0;  /* Use signed int for intermediate calculations */
     
     if (!result) {
-        return 0.0f;
+        return 0;
     }
     
-    /* Base confidence from valid copies */
-    if (result->copies_valid > 0) {
-        confidence += 0.3f * ((float)result->copies_valid / (float)result->copies_found);
+    /* Base confidence from valid copies (0-30 points) */
+    if (result->copies_valid > 0 && result->copies_found > 0) {
+        confidence += (30 * result->copies_valid) / result->copies_found;
     }
     
-    /* Bonus for multiple valid copies */
+    /* Bonus for multiple valid copies (20 points) */
     if (result->copies_valid >= 3) {
-        confidence += 0.2f;
+        confidence += 20;
     }
     
-    /* Penalty for corruption */
+    /* Penalty for corruption (up to -10 points) */
     if (result->corruption_level > 0) {
-        confidence -= 0.1f * (float)result->corruption_level / 10.0f;
+        int32_t penalty = (10 * result->corruption_level) / 10;
+        if (penalty > 10) penalty = 10;
+        confidence -= penalty;
     }
     
-    /* Bonus for recent metadata */
+    /* Bonus for recent metadata (10 points) */
     uint64_t current_time = ktime_get_real_seconds();
     uint64_t age_hours = (current_time - result->metadata.modified_timestamp) / 3600;
     if (age_hours < 24) {
-        confidence += 0.1f;
-    } else if (age_hours > 168) { /* > 1 week */
-        confidence -= 0.1f;
+        confidence += 10;
+    } else if (age_hours > 168) { /* > 1 week (-10 points) */
+        confidence -= 10;
     }
     
-    /* Bonus for complete metadata */
+    /* Bonus for complete metadata (30 points) */
     if (result->metadata.magic == DM_REMAP_V4_REASSEMBLY_MAGIC &&
         result->metadata.num_spare_devices > 0) {
-        confidence += 0.3f;
+        confidence += 30;
     }
     
-    /* Clamp to valid range */
-    if (confidence < 0.0f) confidence = 0.0f;
-    if (confidence > 1.0f) confidence = 1.0f;
+    /* Clamp to valid range [0, 100] */
+    if (confidence < 0) confidence = 0;
+    if (confidence > 100) confidence = 100;
     
-    return confidence;
+    return (uint32_t)confidence;
 }
+EXPORT_SYMBOL(dm_remap_v4_calculate_confidence_score);
 
 /*
  * Convert error code to human-readable string

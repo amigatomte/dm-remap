@@ -8,6 +8,8 @@
  * Date: October 14, 2025
  */
 
+#define DM_MSG_PREFIX "dm-remap-v4-setup"
+
 #include <linux/module.h>
 #include <linux/kernel.h>
 #include <linux/blkdev.h>
@@ -121,19 +123,19 @@ int dm_remap_v4_scan_device_for_metadata(
         result->has_metadata = true;
         result->confidence_score = dm_remap_v4_calculate_confidence_score(result);
         
-        DMINFO("Found dm-remap metadata on %s: setup='%s', confidence=%.2f",
+        DMINFO("Found dm-remap metadata on %s: setup='%s', confidence=%u%%",
                device_path, metadata.setup_description, result->confidence_score);
         
         return DM_REMAP_V4_REASSEMBLY_SUCCESS;
     } else if (scan_result == -DM_REMAP_V4_REASSEMBLY_ERROR_NO_METADATA) {
         /* No metadata found - normal case */
         result->has_metadata = false;
-        result->confidence_score = 0.0f;
+        result->confidence_score = 0;
         return DM_REMAP_V4_REASSEMBLY_SUCCESS;
     } else {
         /* Error occurred during scanning */
         result->has_metadata = false;
-        result->confidence_score = 0.0f;
+        result->confidence_score = 0;
         result->corruption_level = 10; /* Maximum corruption */
         
         DMWARN("Error scanning device %s for metadata: %d", device_path, scan_result);
@@ -363,7 +365,7 @@ int dm_remap_v4_validate_setup_group(const struct dm_remap_v4_setup_group *group
     const struct dm_remap_v4_setup_metadata *ref_metadata;
     uint64_t version_conflicts = 0;
     uint64_t highest_version = 0;
-    float min_confidence = 1.0f;
+    uint32_t min_confidence = 100;
     int i;
     
     if (!group || group->num_devices == 0) {
@@ -411,13 +413,13 @@ int dm_remap_v4_validate_setup_group(const struct dm_remap_v4_setup_group *group
     }
     
     if (min_confidence < DM_REMAP_V4_MIN_CONFIDENCE_THRESHOLD) {
-        DMWARN("Setup group %u has low minimum confidence: %.2f",
+        DMWARN("Setup group %u has low minimum confidence: %u%%",
                group->group_id, min_confidence);
         return -DM_REMAP_V4_REASSEMBLY_ERROR_LOW_CONFIDENCE;
     }
     
     if (group->group_confidence < DM_REMAP_V4_MIN_CONFIDENCE_THRESHOLD) {
-        DMWARN("Setup group %u has low group confidence: %.2f",
+        DMWARN("Setup group %u has low group confidence: %u%%",
                group->group_id, group->group_confidence);
         return -DM_REMAP_V4_REASSEMBLY_ERROR_LOW_CONFIDENCE;
     }
@@ -548,7 +550,3 @@ int dm_remap_v4_get_discovery_stats(struct dm_remap_v4_discovery_stats *stats)
     
     return DM_REMAP_V4_REASSEMBLY_SUCCESS;
 }
-
-MODULE_DESCRIPTION("dm-remap v4.0 Setup Reassembly Discovery Engine");
-MODULE_AUTHOR("dm-remap development team");
-MODULE_LICENSE("GPL");

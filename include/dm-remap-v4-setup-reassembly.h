@@ -46,6 +46,7 @@
 #define DM_REMAP_V4_MIN_VALID_COPIES        1    /* Minimum copies needed for reassembly */
 #define DM_REMAP_V4_PREFERRED_VALID_COPIES  3    /* Preferred copies for reliability */
 #define DM_REMAP_V4_VERSION_TOLERANCE       100  /* Max version difference to consider valid */
+#define DM_REMAP_V4_MIN_CONFIDENCE_THRESHOLD 70  /* Minimum confidence % for auto-reassembly */
 
 /*
  * Device Fingerprint Structure
@@ -53,7 +54,7 @@
  */
 struct dm_remap_v4_device_fingerprint {
     uint32_t magic;                    /* DM_REMAP_V4_DEVICE_FINGERPRINT_MAGIC */
-    uint8_t device_uuid[16];           /* Device UUID (16 bytes) */
+    uuid_t device_uuid;                /* Device UUID */
     char device_path[DM_REMAP_V4_MAX_DEVICE_PATH];  /* Device path (/dev/...) */
     uint64_t device_size;              /* Device size in sectors */
     uint64_t device_capacity;          /* Total capacity in bytes */
@@ -184,14 +185,80 @@ struct dm_remap_v4_setup_metadata {
  * Results from scanning system for dm-remap setups
  */
 struct dm_remap_v4_discovery_result {
+    struct list_head list;            /* Linked list node for tracking */
     struct dm_remap_v4_setup_metadata metadata;  /* Discovered metadata */
+    char device_path[DM_REMAP_V4_MAX_DEVICE_PATH];  /* Device being scanned */
     char spare_device_path[DM_REMAP_V4_MAX_DEVICE_PATH];  /* Where it was found */
     uint64_t discovery_timestamp;     /* When it was discovered */
     uint32_t copies_found;            /* Number of copies found */
     uint32_t copies_valid;            /* Number of valid copies */
     uint32_t corruption_level;        /* Level of corruption detected */
-    float confidence_score;           /* Confidence in this result (0.0-1.0) */
+    uint32_t confidence_score;        /* Confidence percentage (0-100) */
     uint32_t discovery_flags;         /* Discovery status flags */
+    bool has_metadata;                /* Whether valid metadata was found */
+};
+
+/*
+ * Metadata Read Result Structure
+ * Results from reading and validating metadata from a device
+ */
+struct dm_remap_v4_metadata_read_result {
+    char device_path[DM_REMAP_V4_MAX_DEVICE_PATH];  /* Device that was read */
+    uint64_t read_timestamp;          /* When the read occurred */
+    uint32_t copies_found;            /* Number of copies found */
+    uint32_t copies_valid;            /* Number of valid copies */
+    uint32_t corruption_level;        /* Level of corruption detected */
+    uint32_t confidence_score;        /* Confidence percentage (0-100) */
+};
+
+/* Maximum devices per setup group during discovery */
+#define DM_REMAP_V4_MAX_DEVICES_PER_GROUP   16
+
+/*
+ * Setup Group Structure
+ * Groups discovered results that belong to the same setup
+ */
+struct dm_remap_v4_setup_group {
+    uint32_t group_id;                /* Unique group identifier */
+    char setup_description[DM_REMAP_V4_SETUP_DESCRIPTION_SIZE];  /* Setup description */
+    uuid_t main_device_uuid;          /* Main device UUID */
+    uint64_t discovery_timestamp;     /* When group was created */
+    uint32_t group_confidence;        /* Overall group confidence (0-100) */
+    struct dm_remap_v4_setup_metadata best_metadata;  /* Best metadata found */
+    struct dm_remap_v4_discovery_result devices[DM_REMAP_V4_MAX_DEVICES_PER_GROUP];  /* Devices in group */
+    uint32_t num_devices;             /* Number of devices in group */
+};
+
+/*
+ * Reconstruction Step Structure
+ * Individual step in the setup reconstruction process
+ */
+struct dm_remap_v4_reconstruction_step {
+    char description[128];            /* Step description */
+    uint32_t step_type;               /* Step type (1=verify, 2=create, 3=configure) */
+    uint32_t status;                  /* Step status */
+    uint32_t reserved;                /* Reserved for future use */
+};
+
+/*
+ * Reconstruction Plan Structure
+ * Complete plan for reconstructing a dm-remap setup
+ */
+struct dm_remap_v4_reconstruction_plan {
+    uint32_t group_id;                /* Setup group ID */
+    uint64_t plan_timestamp;          /* When plan was created */
+    uint32_t confidence_score;        /* Overall confidence (0-100) */
+    char setup_name[DM_REMAP_V4_SETUP_DESCRIPTION_SIZE];  /* Setup name */
+    char target_name[32];             /* DM target name */
+    char target_params[DM_REMAP_V4_MAX_TARGET_PARAMS];  /* Target parameters */
+    char main_device_path[DM_REMAP_V4_MAX_DEVICE_PATH];  /* Main device */
+    char spare_device_paths[DM_REMAP_V4_MAX_SPARE_DEVICES][DM_REMAP_V4_MAX_DEVICE_PATH];  /* Spare devices */
+    uint32_t num_spare_devices;       /* Number of spare devices */
+    struct dm_remap_v4_sysfs_setting sysfs_settings[DM_REMAP_V4_MAX_SYSFS_SETTINGS];  /* Sysfs settings */
+    uint32_t num_sysfs_settings;      /* Number of sysfs settings */
+    char dmsetup_create_command[512]; /* dmsetup command to run */
+    struct dm_remap_v4_reconstruction_step steps[16];  /* Reconstruction steps */
+    uint32_t num_steps;               /* Number of steps */
 };
 
 /*
@@ -212,6 +279,19 @@ struct dm_remap_v4_reassembly_context {
 };
 
 /*
+ * Discovery Statistics Structure
+ * Runtime statistics for device discovery and setup scanning
+ */
+struct dm_remap_v4_discovery_stats {
+    uint64_t last_scan_timestamp;     /* Last scan time */
+    uint32_t total_devices_scanned;   /* Total devices scanned */
+    uint32_t setups_discovered;       /* Total setups discovered */
+    uint64_t system_uptime;           /* System uptime */
+    uint32_t setups_in_memory;        /* Setups currently in memory */
+    uint32_t high_confidence_setups;  /* Setups with high confidence */
+};
+
+/*
  * Function Prototypes for Setup Reassembly API
  */
 
@@ -226,6 +306,12 @@ int dm_remap_v4_store_metadata_redundantly(
     const struct dm_remap_v4_setup_metadata *metadata,
     const struct dm_remap_v4_spare_relationship *spare_devices,
     uint32_t num_spares
+);
+
+int dm_remap_v4_read_metadata_validated(
+    const char *device_path,
+    struct dm_remap_v4_setup_metadata *metadata,
+    struct dm_remap_v4_metadata_read_result *read_result
 );
 
 int dm_remap_v4_update_metadata_version(
@@ -317,7 +403,7 @@ int dm_remap_v4_verify_metadata_integrity(
     const struct dm_remap_v4_setup_metadata *metadata
 );
 
-float dm_remap_v4_calculate_confidence_score(
+uint32_t dm_remap_v4_calculate_confidence_score(
     const struct dm_remap_v4_discovery_result *result
 );
 
@@ -346,6 +432,7 @@ const char* dm_remap_v4_reassembly_error_to_string(int error_code);
 #define DM_REMAP_V4_REASSEMBLY_ERROR_CRC_MISMATCH   -8
 #define DM_REMAP_V4_REASSEMBLY_ERROR_DEVICE_MISMATCH -9
 #define DM_REMAP_V4_REASSEMBLY_ERROR_PERMISSION_DENIED -10
+#define DM_REMAP_V4_REASSEMBLY_ERROR_LOW_CONFIDENCE -11
 
 /*
  * Status Flags
