@@ -78,3 +78,12 @@ tests/debug_*.img
 
 # Backup directories
 backup_*/
+
+# Test artifacts (cleanup)
+*.img
+test_results.txt
+error_results.txt
+backup_*/
+
+# Development archives (local only)
+archive/
