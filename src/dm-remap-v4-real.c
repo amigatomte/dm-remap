@@ -24,6 +24,7 @@
 #include <linux/crc32.h>
 
 #include "dm-remap-v4-compat.h"
+#include "../include/dm-remap-v4-stats.h"
 
 /* Module metadata */
 MODULE_DESCRIPTION("Device Mapper Remapping Target v4.0 - Real Device Integration");
@@ -373,6 +374,9 @@ static int dm_remap_add_remap_entry(struct dm_remap_device_v4_real *device,
     device->metadata.active_mappings++;
     spin_unlock(&device->remap_lock);
     
+    /* Update statistics */
+    dm_remap_stats_inc_remaps();  /* Update stats module */
+    
     DMR_INFO("Added remap entry: sector %llu -> %llu",
              (unsigned long long)original_sector,
              (unsigned long long)spare_sector);
@@ -394,6 +398,7 @@ static void dm_remap_handle_io_error(struct dm_remap_device_v4_real *device,
              
     /* Update error statistics */
     atomic64_inc(&device->stats.io_errors);
+    dm_remap_stats_inc_errors();  /* Update stats module */
     
     /* Phase 1.4: Analyze error pattern */
     dm_remap_analyze_error_pattern(device, failed_sector);
@@ -1027,9 +1032,11 @@ static int dm_remap_map_v4_real(struct dm_target *ti, struct bio *bio)
     if (is_read) {
         atomic64_inc(&device->read_count);
         atomic64_inc(&global_reads);
+        dm_remap_stats_inc_reads();  /* Update stats module */
     } else {
         atomic64_inc(&device->write_count);
         atomic64_inc(&global_writes);
+        dm_remap_stats_inc_writes();  /* Update stats module */
     }
     
     atomic64_inc(&device->io_operations);
