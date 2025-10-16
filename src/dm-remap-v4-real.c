@@ -1540,6 +1540,106 @@ static int dm_remap_end_io_v4_real(struct dm_target *ti, struct bio *bio,
     return DM_ENDIO_DONE;
 }
 
+/**
+ * dm_remap_message_v4_real() - Handle dmsetup message commands
+ * 
+ * Allows runtime control via: dmsetup message <device> 0 <command> [args]
+ */
+static int dm_remap_message_v4_real(struct dm_target *ti, unsigned argc, char **argv,
+                                   char *result, unsigned maxlen)
+{
+    struct dm_remap_device_v4_real *device = ti->private;
+    
+    if (argc < 1) {
+        return -EINVAL;
+    }
+    
+    /* Help command */
+    if (!strcasecmp(argv[0], "help")) {
+        scnprintf(result, maxlen,
+                 "Commands: help, status, stats, clear_stats, health, cache_stats");
+        return 0;
+    }
+    
+    /* Status command - quick overview */
+    if (!strcasecmp(argv[0], "status")) {
+        scnprintf(result, maxlen,
+                 "mappings=%u reads=%llu writes=%llu errors=%llu health=%u%%",
+                 device->metadata.active_mappings,
+                 (unsigned long long)atomic64_read(&device->read_count),
+                 (unsigned long long)atomic64_read(&device->write_count),
+                 (unsigned long long)atomic64_read(&device->stats.io_errors),
+                 device->health_monitor.failure_prediction_score);
+        return 0;
+    }
+    
+    /* Stats command - detailed statistics */
+    if (!strcasecmp(argv[0], "stats")) {
+        scnprintf(result, maxlen,
+                 "total_ios=%llu normal=%llu remapped=%llu errors=%llu "
+                 "remapped_sectors=%llu avg_latency_ns=%llu max_latency_ns=%llu",
+                 (unsigned long long)atomic64_read(&device->stats.total_ios),
+                 (unsigned long long)atomic64_read(&device->stats.normal_ios),
+                 (unsigned long long)atomic64_read(&device->stats.remapped_ios),
+                 (unsigned long long)atomic64_read(&device->stats.io_errors),
+                 (unsigned long long)atomic64_read(&device->stats.remapped_sectors),
+                 atomic64_read(&device->stats.total_ios) > 0 ?
+                     device->stats.total_latency_ns / atomic64_read(&device->stats.total_ios) : 0,
+                 device->stats.max_latency_ns);
+        return 0;
+    }
+    
+    /* Clear stats command */
+    if (!strcasecmp(argv[0], "clear_stats")) {
+        atomic64_set(&device->read_count, 0);
+        atomic64_set(&device->write_count, 0);
+        atomic64_set(&device->remap_count, 0);
+        atomic64_set(&device->error_count, 0);
+        atomic64_set(&device->stats.total_ios, 0);
+        atomic64_set(&device->stats.normal_ios, 0);
+        atomic64_set(&device->stats.remapped_ios, 0);
+        atomic64_set(&device->stats.io_errors, 0);
+        atomic64_set(&device->stats.remapped_sectors, 0);
+        device->stats.total_latency_ns = 0;
+        device->stats.max_latency_ns = 0;
+        scnprintf(result, maxlen, "Statistics cleared");
+        return 0;
+    }
+    
+    /* Health command - health monitoring info */
+    if (!strcasecmp(argv[0], "health")) {
+        scnprintf(result, maxlen,
+                 "health_score=%u%% scan_count=%llu hotspot_sectors=%u "
+                 "consecutive_errors=%u trend=%u",
+                 device->health_monitor.failure_prediction_score,
+                 (unsigned long long)atomic64_read(&device->health_scan_count),
+                 device->health_monitor.hotspot_count,
+                 device->health_monitor.consecutive_errors,
+                 device->health_monitor.health_trend);
+        return 0;
+    }
+    
+    /* Cache stats command - performance cache info */
+    if (!strcasecmp(argv[0], "cache_stats")) {
+        u64 hits = atomic64_read(&device->perf_optimizer.cache_hits);
+        u64 misses = atomic64_read(&device->perf_optimizer.cache_misses);
+        u64 total = hits + misses;
+        u64 hit_rate = total > 0 ? (hits * 100) / total : 0;
+        
+        scnprintf(result, maxlen,
+                 "cache_hits=%llu cache_misses=%llu hit_rate=%llu%% "
+                 "fast_path=%llu cache_size=%u",
+                 hits, misses, hit_rate,
+                 (unsigned long long)atomic64_read(&device->perf_optimizer.fast_path_hits),
+                 device->perf_optimizer.cache_size);
+        return 0;
+    }
+    
+    /* Unknown command */
+    scnprintf(result, maxlen, "Unknown command '%s'. Try 'help'", argv[0]);
+    return -EINVAL;
+}
+
 /* Device mapper target structure */
 static struct target_type dm_remap_target_v4_real = {
     .name = "dm-remap-v4",
@@ -1550,6 +1650,7 @@ static struct target_type dm_remap_target_v4_real = {
     .map = dm_remap_map_v4_real,
     .end_io = dm_remap_end_io_v4_real,
     .status = dm_remap_status_v4_real,
+    .message = dm_remap_message_v4_real,
 };
 
 /**
