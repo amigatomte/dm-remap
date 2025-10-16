@@ -99,7 +99,8 @@ git clone https://github.com/amigatomte/dm-remap.git
 cd dm-remap/src
 make
 
-# Load the modules
+# Load the modules (stats module is optional but recommended)
+sudo insmod dm-remap-v4-stats.ko           # Load stats first (exports symbols)
 sudo insmod dm-remap-v4-real.ko
 sudo insmod dm-remap-v4-metadata.ko
 sudo insmod dm-remap-v4-spare-pool.ko
@@ -131,7 +132,54 @@ sudo dmsetup status my_remap
 cat /sys/kernel/dm_remap/total_remaps
 cat /sys/kernel/dm_remap/health_score
 cat /sys/kernel/dm_remap/all_stats    # Prometheus format
+
+# Use dmsetup message commands for runtime control
+sudo dmsetup message my_remap 0 help
+sudo dmsetup message my_remap 0 status
+sudo dmsetup message my_remap 0 stats
 ```
+
+### Runtime Control with Message Commands
+
+dm-remap supports interactive runtime control via `dmsetup message`:
+
+```bash
+# Get help on available commands
+sudo dmsetup message my_remap 0 help
+
+# Check device status
+sudo dmsetup message my_remap 0 status
+
+# View detailed statistics
+sudo dmsetup message my_remap 0 stats
+
+# Check health metrics
+sudo dmsetup message my_remap 0 health
+
+# View cache statistics
+sudo dmsetup message my_remap 0 cache_stats
+
+# Clear all statistics counters (non-destructive)
+sudo dmsetup message my_remap 0 clear_stats
+```
+
+**Important**: Message command results appear in kernel log (`dmesg`), not stdout:
+
+```bash
+# View message results
+sudo dmsetup message my_remap 0 stats
+sudo dmesg | tail -20    # Check kernel log for output
+```
+
+**Available commands:**
+- `help` - List all available commands
+- `status` - Device configuration and current state
+- `stats` - Detailed I/O and remap statistics
+- `health` - Health metrics (error rates, trends, consecutive errors)
+- `cache_stats` - Cache hit rates and efficiency
+- `clear_stats` - Reset statistics counters to zero
+
+See [TESTING_RESULTS.md](TESTING_RESULTS.md) for detailed command examples and output formats.
 
 ### Testing with Loop Devices
 
@@ -220,16 +268,19 @@ Expected output: All tests should pass with green checkmarks ✓
 - ✅ **Multiple spare devices**: Pool multiple spare devices for capacity
 
 ### Monitoring & Operations
-- ✅ **sysfs statistics**: `/sys/kernel/dm_remap/`
+- ✅ **sysfs statistics**: `/sys/kernel/dm_remap/` with 14 metrics
+- ✅ **Stats integration**: Real-time I/O counters (reads, writes, remaps, errors)
+- ✅ **Message handler**: Runtime control via `dmsetup message` (6 commands)
 - ✅ **Monitoring integration**: Prometheus, Grafana, Nagios examples
 - ✅ **dmsetup commands**: Standard device-mapper interface
-- ✅ **Health scoring**: 0-100 health metric
+- ✅ **Health scoring**: 0-100 health metric with trend analysis
 
 ### Reliability
 - ✅ **Automatic reassembly**: Devices reconnect after reboot
 - ✅ **Metadata redundancy**: Multiple copies for safety
 - ✅ **Error recovery**: Graceful handling of corruption
 - ✅ **Resource management**: Proper cleanup and error paths
+- ✅ **Validated remapping**: Automatic bad sector remapping tested with dm-flakey
 
 ---
 
@@ -239,6 +290,7 @@ Detailed guides are available in the `docs/` directory:
 
 - **[User Guide](docs/user/)** - Setup, configuration, monitoring
 - **[Statistics Monitoring](docs/user/STATISTICS_MONITORING.md)** - Integration with monitoring tools
+- **[Testing Results](TESTING_RESULTS.md)** - Validation testing with dm-flakey error injection
 - **[Developer Notes](docs/development/)** - Architecture and internals
 
 ---
@@ -262,11 +314,18 @@ Detailed guides are available in the `docs/` directory:
 Export statistics to your monitoring stack:
 
 ```bash
-# Load statistics module
+# Load statistics module (must load BEFORE dm-remap-v4-real.ko)
 sudo insmod src/dm-remap-v4-stats.ko
 
-# Prometheus scraping
+# Load main module (imports stats symbols)
+sudo insmod src/dm-remap-v4-real.ko
+
+# Prometheus scraping from sysfs
 curl http://localhost:9100/sys/kernel/dm_remap/all_stats
+
+# Or use dmsetup message (results in dmesg)
+sudo dmsetup message my_remap 0 stats
+sudo dmesg | tail -20
 
 # Nagios check
 HEALTH=$(cat /sys/kernel/dm_remap/health_score)
@@ -277,6 +336,8 @@ exit 0  # OK
 # Grafana dashboard
 # Import metrics from Prometheus, visualize health_score, total_remaps, etc.
 ```
+
+**Module Loading Order**: The stats module exports symbols that dm-remap-v4-real imports. Always load stats first.
 
 See [STATISTICS_MONITORING.md](docs/user/STATISTICS_MONITORING.md) for complete examples.
 
@@ -351,14 +412,29 @@ Christian ([@amigatomte](https://github.com/amigatomte))
 
 ## Project Status
 
+**Version: 4.0.3** (October 16, 2025)
+
 **Latest Updates:**
+- **Stats integration**: Real-time I/O counters integrated into I/O path (Oct 16, 2025)
+- **Message handler**: Runtime control with 6 dmsetup commands (Oct 16, 2025)
+- **Automatic remapping validated**: Error injection testing with dm-flakey (Oct 16, 2025)
 - Intelligent spare sizing (Oct 15, 2025)
 - Statistics monitoring integration (Oct 15, 2025)
 - Automatic setup reassembly (Oct 14, 2025)
 
+**Testing:**
+- ✅ Stats integration validated (105 reads, 100 writes verified)
+- ✅ Message handler tested (all 6 commands working)
+- ✅ Automatic remapping validated (19 sectors remapped during error injection)
+- ✅ Error detection working (38+ I/O errors handled)
+- ✅ Device stacking validated (dm-remap → dm-flakey → loop device)
+
+See [TESTING_RESULTS.md](TESTING_RESULTS.md) for detailed test results and validation evidence.
+
 **In Progress:**
+- Spare pool integration (spare-pool module exists but not integrated yet)
 - Real hardware validation
-- Performance optimization
+- Performance benchmarking
 - Production hardening
 
 **Planned:**
