@@ -240,6 +240,8 @@ struct dm_remap_device_v4_real {
     /* Background metadata sync - Phase 1.3 */
     struct workqueue_struct *metadata_workqueue; /* Background metadata sync */
     struct work_struct metadata_sync_work; /* Metadata sync work item */
+    struct work_struct error_analysis_work; /* Deferred error pattern analysis */
+    sector_t pending_error_sector; /* Sector pending error analysis */
     
     /* Statistics - Enhanced */
     atomic64_t read_count;
@@ -400,8 +402,15 @@ static void dm_remap_handle_io_error(struct dm_remap_device_v4_real *device,
     atomic64_inc(&device->stats.io_errors);
     dm_remap_stats_inc_errors();  /* Update stats module */
     
-    /* Phase 1.4: Analyze error pattern */
-    dm_remap_analyze_error_pattern(device, failed_sector);
+    /* Phase 1.4: Defer error pattern analysis to avoid mutex deadlock
+     * We cannot call dm_remap_analyze_error_pattern() directly from I/O
+     * completion context because it takes mutexes which may already be held.
+     * Instead, queue it to a workqueue for safe deferred execution.
+     */
+    spin_lock(&device->remap_lock);
+    device->pending_error_sector = failed_sector;
+    spin_unlock(&device->remap_lock);
+    queue_work(device->metadata_workqueue, &device->error_analysis_work);
     
     /* Check if sector is already remapped */
     if (dm_remap_find_remap_entry(device, failed_sector) != NULL) {
@@ -490,6 +499,28 @@ static void dm_remap_sync_metadata_work(struct work_struct *work)
     
     DMR_DEBUG(2, "Metadata sync completed (CRC: 0x%08x)",
               device->metadata.metadata_crc);
+}
+
+/**
+ * dm_remap_error_analysis_work() - Deferred error pattern analysis
+ * 
+ * This work function performs error pattern analysis in a safe context where
+ * mutexes can be taken. It's called from a workqueue instead of from I/O
+ * completion context to avoid deadlocks.
+ */
+static void dm_remap_error_analysis_work(struct work_struct *work)
+{
+    struct dm_remap_device_v4_real *device = 
+        container_of(work, struct dm_remap_device_v4_real, error_analysis_work);
+    sector_t failed_sector;
+    
+    /* Get the pending error sector */
+    spin_lock(&device->remap_lock);
+    failed_sector = device->pending_error_sector;
+    spin_unlock(&device->remap_lock);
+    
+    /* Now safe to call mutex-taking function */
+    dm_remap_analyze_error_pattern(device, failed_sector);
 }
 
 /**
@@ -1272,6 +1303,7 @@ static int dm_remap_ctr_v4_real(struct dm_target *ti, unsigned int argc, char **
         return -ENOMEM;
     }
     INIT_WORK(&device->metadata_sync_work, dm_remap_sync_metadata_work);
+    INIT_WORK(&device->error_analysis_work, dm_remap_error_analysis_work);
     
     /* Initialize statistics */
     atomic64_set(&device->read_count, 0);
