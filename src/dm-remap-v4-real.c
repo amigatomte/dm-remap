@@ -1527,13 +1527,23 @@ static int dm_remap_end_io_v4_real(struct dm_target *ti, struct bio *bio,
     if (*error != BLK_STS_OK) {
         sector_t failed_sector = bio->bi_iter.bi_sector;
         int errno_val = blk_status_to_errno(*error);
+        struct block_device *main_bdev = device->main_dev ? file_bdev(device->main_dev) : NULL;
         
         DMR_WARN("I/O error detected on sector %llu (error=%d)",
                  (unsigned long long)failed_sector, errno_val);
         
-        /* Only handle errors on main device, not spare device */
-        if (device->main_dev && file_bdev(device->main_dev) == bio->bi_bdev) {
-            dm_remap_handle_io_error(device, failed_sector, errno_val);
+        /* Handle errors from main device or any device in the stack below it.
+         * This allows dm-remap to work with stacked device-mapper configurations
+         * (e.g., dm-remap -> dm-flakey -> loop device).
+         * We only reject errors from the spare device to avoid remapping spare errors.
+         */
+        if (device->main_dev) {
+            struct block_device *spare_bdev = device->spare_dev ? file_bdev(device->spare_dev) : NULL;
+            
+            /* Only reject if error is from spare device */
+            if (!spare_bdev || bio->bi_bdev != spare_bdev) {
+                dm_remap_handle_io_error(device, failed_sector, errno_val);
+            }
         }
     }
     
