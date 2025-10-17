@@ -25,12 +25,14 @@
 
 #include "dm-remap-v4-compat.h"
 #include "../include/dm-remap-v4-stats.h"
+#include "dm-remap-v4.h"  /* Shared v4 metadata structures */
 
 /* Module metadata */
 MODULE_DESCRIPTION("Device Mapper Remapping Target v4.0 - Real Device Integration");
 MODULE_AUTHOR("dm-remap Development Team");  
 MODULE_LICENSE("GPL");
 MODULE_VERSION("4.0.0-real");
+MODULE_SOFTDEP("pre: dm-remap-v4-metadata");
 
 /* Module parameters */
 int dm_remap_debug = 1;
@@ -230,6 +232,9 @@ struct dm_remap_device_v4_real {
     bool metadata_dirty;
     sector_t metadata_sector;    /* Where metadata is stored on spare device */
     
+    /* Persistent v4 metadata (shared module) */
+    struct dm_remap_metadata_v4 *persistent_metadata;  /* For disk I/O */
+    
     /* Sector remapping - Phase 1.3 */
     struct list_head remap_list; /* List of active remaps */  
     spinlock_t remap_lock;       /* Lock for remap operations */
@@ -340,6 +345,157 @@ static struct dm_remap_entry_v4 *dm_remap_find_remap_entry(
 }
 
 /**
+ * dm_remap_sync_persistent_metadata() - Sync in-memory remaps to persistent metadata
+ */
+static void dm_remap_sync_persistent_metadata(struct dm_remap_device_v4_real *device)
+{
+    struct dm_remap_entry_v4 *entry;
+    int i = 0;
+    
+    if (!device->persistent_metadata)
+        return;
+    
+    /* Update remap table in persistent metadata */
+    device->persistent_metadata->remap_data.active_remaps = 0;
+    
+    list_for_each_entry(entry, &device->remap_list, list) {
+        if (i >= DM_REMAP_V4_MAX_REMAPS) {
+            DMR_WARN("Remap count exceeds maximum, truncating");
+            break;
+        }
+        
+        device->persistent_metadata->remap_data.remaps[i].original_sector = entry->original_sector;
+        device->persistent_metadata->remap_data.remaps[i].spare_sector = entry->spare_sector;
+        device->persistent_metadata->remap_data.remaps[i].remap_timestamp = entry->remap_time;
+        device->persistent_metadata->remap_data.remaps[i].error_count = entry->error_count;
+        device->persistent_metadata->remap_data.remaps[i].flags = entry->flags;
+        
+        i++;
+    }
+    
+    device->persistent_metadata->remap_data.active_remaps = i;
+    device->persistent_metadata->header.sequence_number++;
+    device->persistent_metadata->header.timestamp = ktime_to_ns(ktime_get_real());
+}
+
+/**
+ * dm_remap_write_persistent_metadata() - Write metadata to spare device
+ */
+static int dm_remap_write_persistent_metadata(struct dm_remap_device_v4_real *device)
+{
+    struct block_device *bdev;
+    int ret;
+    
+    if (!device->persistent_metadata || !device->spare_dev)
+        return -EINVAL;
+    
+    /* Sync current state to persistent metadata */
+    dm_remap_sync_persistent_metadata(device);
+    
+    /* Get block device from file */
+    bdev = file_bdev(device->spare_dev);
+    if (!bdev) {
+        DMR_ERROR("Failed to get block device from spare device file");
+        return -EINVAL;
+    }
+    
+    /* Write to spare device using v4 metadata module */
+    ret = dm_remap_write_metadata_v4(bdev, device->persistent_metadata);
+    if (ret) {
+        DMR_ERROR("Failed to write metadata: %d", ret);
+        return ret;
+    }
+    
+    DMR_INFO("Wrote metadata with %u remaps",
+             device->persistent_metadata->remap_data.active_remaps);
+    
+    return 0;
+}
+
+/**
+ * dm_remap_init_persistent_metadata() - Initialize persistent v4 metadata
+ */
+static int dm_remap_init_persistent_metadata(struct dm_remap_device_v4_real *device)
+{
+    /* Allocate persistent metadata structure */
+    device->persistent_metadata = kzalloc(sizeof(struct dm_remap_metadata_v4), GFP_KERNEL);
+    if (!device->persistent_metadata) {
+        DMR_ERROR("Failed to allocate persistent metadata");
+        return -ENOMEM;
+    }
+    
+    /* Initialize with device information */
+    dm_remap_init_metadata_v4(device->persistent_metadata,
+                              device->metadata.main_device_uuid,
+                              device->metadata.spare_device_uuid,
+                              device->main_device_sectors,
+                              device->spare_device_sectors);
+    
+    DMR_INFO("Initialized persistent v4 metadata");
+    return 0;
+}
+
+/**
+ * dm_remap_read_persistent_metadata() - Read and restore metadata from spare device
+ */
+static int dm_remap_read_persistent_metadata(struct dm_remap_device_v4_real *device)
+{
+    struct block_device *bdev;
+    struct dm_remap_entry_v4 *entry;
+    int ret, i;
+    
+    if (!device->persistent_metadata || !device->spare_dev)
+        return -EINVAL;
+    
+    /* Get block device from file */
+    bdev = file_bdev(device->spare_dev);
+    if (!bdev) {
+        DMR_INFO("No block device available, skipping metadata read");
+        return 0;  /* Not an error, just no metadata to restore */
+    }
+    
+    /* Read from spare device using v4 metadata module */
+    ret = dm_remap_read_metadata_v4(bdev, device->persistent_metadata);
+    if (ret) {
+        DMR_INFO("No valid metadata found, starting fresh: %d", ret);
+        return 0;  /* Not an error, device may be new */
+    }
+    
+    DMR_INFO("Read persistent metadata with %u remaps",
+             device->persistent_metadata->remap_data.active_remaps);
+    
+    /* Restore remap entries to in-memory list */
+    for (i = 0; i < device->persistent_metadata->remap_data.active_remaps; i++) {
+        if (i >= DM_REMAP_V4_MAX_REMAPS)
+            break;
+        
+        entry = kzalloc(sizeof(*entry), GFP_KERNEL);
+        if (!entry) {
+            DMR_ERROR("Failed to allocate remap entry during restore");
+            return -ENOMEM;
+        }
+        
+        entry->original_sector = device->persistent_metadata->remap_data.remaps[i].original_sector;
+        entry->spare_sector = device->persistent_metadata->remap_data.remaps[i].spare_sector;
+        entry->remap_time = device->persistent_metadata->remap_data.remaps[i].remap_timestamp;
+        entry->error_count = device->persistent_metadata->remap_data.remaps[i].error_count;
+        entry->flags = device->persistent_metadata->remap_data.remaps[i].flags;
+        
+        spin_lock(&device->remap_lock);
+        list_add_tail(&entry->list, &device->remap_list);
+        device->remap_count_active++;
+        spin_unlock(&device->remap_lock);
+        
+        DMR_INFO("Restored remap: sector %llu -> %llu",
+                 (unsigned long long)entry->original_sector,
+                 (unsigned long long)entry->spare_sector);
+    }
+    
+    DMR_INFO("Restored %u remap entries from persistent metadata", i);
+    return 0;
+}
+
+/**
  * dm_remap_add_remap_entry() - Add new sector remap entry
  */
 static int dm_remap_add_remap_entry(struct dm_remap_device_v4_real *device,
@@ -382,6 +538,9 @@ static int dm_remap_add_remap_entry(struct dm_remap_device_v4_real *device,
     DMR_INFO("Added remap entry: sector %llu -> %llu",
              (unsigned long long)original_sector,
              (unsigned long long)spare_sector);
+    
+    /* Mark metadata as dirty - will write on device shutdown */
+    device->metadata_dirty = true;
     
     return 0;
 }
@@ -491,14 +650,25 @@ static void dm_remap_sync_metadata_work(struct work_struct *work)
     device->metadata.metadata_crc = dm_remap_calculate_crc32(&device->metadata,
                                                             sizeof(device->metadata));
     
-    /* TODO: Write metadata to spare device sectors */
-    /* For now, just mark as clean - actual disk I/O will be added */
+    /* Write persistent metadata to spare device */
+    if (device->persistent_metadata) {
+        int ret = dm_remap_write_persistent_metadata(device);
+        if (ret) {
+            DMR_ERROR("Failed to write persistent metadata: %d", ret);
+            /* Don't mark as clean if write failed */
+            mutex_unlock(&device->metadata_mutex);
+            return;
+        }
+    }
+    
+    /* Mark as clean after successful write */
     device->metadata_dirty = false;
     
     mutex_unlock(&device->metadata_mutex);
     
-    DMR_DEBUG(2, "Metadata sync completed (CRC: 0x%08x)",
-              device->metadata.metadata_crc);
+    DMR_DEBUG(2, "Metadata sync completed (CRC: 0x%08x, %u remaps)",
+              device->metadata.metadata_crc,
+              device->persistent_metadata ? device->persistent_metadata->remap_data.active_remaps : 0);
 }
 
 /**
@@ -1361,6 +1531,24 @@ static int dm_remap_ctr_v4_real(struct dm_target *ti, unsigned int argc, char **
     /* Initialize enhanced metadata */
     dm_remap_initialize_metadata_v4_real(device);
     
+    /* Initialize persistent v4 metadata structure */
+    ret = dm_remap_init_persistent_metadata(device);
+    if (ret) {
+        DMR_ERROR("Failed to initialize persistent metadata: %d", ret);
+        goto error_cleanup;
+    }
+    
+    /* NOTE: Metadata reading is deferred to avoid blocking I/O during construction.
+     * Reading metadata during dm target construction can cause deadlocks because:
+     * 1. Device-mapper may be holding locks
+     * 2. Block layer may not be fully initialized
+     * 3. Synchronous I/O (submit_bio_wait) can block indefinitely
+     * 
+     * For now, we start with empty metadata. In a future version, metadata
+     * reading could be done asynchronously via a workqueue after device creation.
+     */
+    DMR_INFO("Metadata reading deferred (avoiding constructor deadlock)");
+    
     /* Start background health monitoring */
     schedule_delayed_work(&device->health_scan_work, 
                          msecs_to_jiffies(device->health_monitor.scan_interval_seconds * 1000));
@@ -1380,6 +1568,22 @@ static int dm_remap_ctr_v4_real(struct dm_target *ti, unsigned int argc, char **
              real_device_mode ? "real device" : "demo");
     
     return 0;
+
+error_cleanup:
+    /* Cleanup on error */
+    destroy_workqueue(device->metadata_workqueue);
+    if (device->perf_optimizer.cache_entries)
+        kfree(device->perf_optimizer.cache_entries);
+    mutex_destroy(&device->cache_mutex);
+    mutex_destroy(&device->health_mutex);
+    mutex_destroy(&device->metadata_mutex);
+    kfree(device);
+    if (real_device_mode) {
+        dm_remap_close_bdev_real(main_dev);
+        dm_remap_close_bdev_real(spare_dev);
+    }
+    ti->error = "Initialization failed";
+    return ret;
 }
 
 /**
@@ -1419,11 +1623,22 @@ static void dm_remap_dtr_v4_real(struct dm_target *ti)
         destroy_workqueue(device->metadata_workqueue);
     }
     
+    /* Write persistent metadata if dirty (final save on shutdown) */
+    if (device->persistent_metadata && device->metadata_dirty && device->spare_dev) {
+        DMR_INFO("Writing final metadata on device shutdown...");
+        dm_remap_write_persistent_metadata(device);
+    }
+    
     /* Free remap entries */
     struct dm_remap_entry_v4 *entry, *tmp;
     list_for_each_entry_safe(entry, tmp, &device->remap_list, list) {
         list_del(&entry->list);
         kfree(entry);
+    }
+    
+    /* Free persistent metadata */
+    if (device->persistent_metadata) {
+        kfree(device->persistent_metadata);
     }
     
     /* Close real devices if opened */

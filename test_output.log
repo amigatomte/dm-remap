@@ -1,0 +1,94 @@
+[2025-10-17 21:10:59.389785023] =========================================
+[2025-10-17 21:10:59.903760086] DM-REMAP CRASH-SAFE METADATA TEST START
+[2025-10-17 21:11:00.408750838] =========================================
+[2025-10-17 21:11:00.914680580] STEP 1: Checking if modules are loaded...
+[2025-10-17 21:11:01.424451434] STEP 1: Loading dm-remap modules...
+[2025-10-17 21:11:01.930671909] STEP 1a: Loading dm_remap_v4_stats...
+[2025-10-17 21:11:02.449588253] STEP 1a: dm_remap_v4_stats loaded OK
+[2025-10-17 21:11:02.957419296] STEP 1b: Loading dm_remap_v4_real...
+[2025-10-17 21:11:03.477801161] STEP 1b: dm_remap_v4_real loaded OK
+[2025-10-17 21:11:03.984599020] STEP 2: Creating test image files...
+[2025-10-17 21:11:04.527401403] STEP 2a: Created main.img (100MB)
+[2025-10-17 21:11:05.067148682] STEP 2b: Created spare.img (100MB)
+[2025-10-17 21:11:05.574060445] STEP 3: Setting up loop devices...
+[2025-10-17 21:11:06.090761957] STEP 3a: Loop20 attached to main.img
+[2025-10-17 21:11:06.607689331] STEP 3b: Loop21 attached to spare.img
+[2025-10-17 21:11:07.115265786] STEP 4: Creating dm-linear and dm-error devices...
+[2025-10-17 21:11:07.646355787] STEP 4a: Created dm-linear-main
+[2025-10-17 21:11:08.172324504] STEP 4b: Created dm-error-spare
+[2025-10-17 21:11:08.679834875] STEP 5: About to create dm-remap device...
+[2025-10-17 21:11:09.186008060] STEP 5: Command: dmsetup create testdev --table '0 204800 dm-remap-v4 /dev/mapper/dm-linear-main /dev/loop21'
+[2025-10-17 21:11:10.695295420] STEP 5: EXECUTING DMSETUP CREATE NOW...
+[2025-10-17 21:11:11.229534857] STEP 5: SUCCESS - dm-remap device created!
+[2025-10-17 21:11:11.737613609] STEP 6: Device created successfully, checking status...
+0 204800 dm-remap-v4 v4.0-phase1.4 /dev/mapper/dm-linear-main /dev/loop21 49 0 0 0 0 49 18825 384 643511221945 512 0 49 49 0 0 1 48 1 0 0 100 0 2 operational real
+[2025-10-17 21:11:12.255274853] STEP 7: Reading from device (should work)...
+10+0 records in
+10+0 records out
+40960 bytes (41 kB, 40 KiB) copied, 0,000436981 s, 93,7 MB/s
+[2025-10-17 21:11:12.770242418] STEP 7: Read completed OK
+[2025-10-17 21:11:13.276657877] STEP 8: Writing to device (should work)...
+10+0 records in
+10+0 records out
+40960 bytes (41 kB, 40 KiB) copied, 0,000337727 s, 121 MB/s
+[2025-10-17 21:11:13.790939613] STEP 8: Write completed OK
+[2025-10-17 21:11:14.297350602] STEP 9: Checking dmesg for dm-remap messages...
+[  240.910298] dm-remap v4.0 real: Creating real device target: main=/dev/mapper/dm-linear-main, spare=/dev/loop21
+[  240.910319] dm-remap v4.0 real: Optimized spare sizing calculation:
+[  240.910320] dm-remap v4.0 real:   Main device: 204800 sectors (100 MB)
+[  240.910322] dm-remap v4.0 real:   Expected bad sectors (2%): 4096 sectors (2 MB)
+[  240.910324] dm-remap v4.0 real:   Metadata overhead: 522 sectors (261 KB)
+[  240.910325] dm-remap v4.0 real:   Minimum spare (with 20% safety margin): 5541 sectors (2 MB)
+[  240.910327] dm-remap v4.0 real: Consider RAID1 mirroring: 100 MB spare for 100 MB main (100%)
+[  240.910329] dm-remap v4.0 real: Enhanced device compatibility validated:
+[  240.910330] dm-remap v4.0 real:   Main: 204800 sectors, 104857600 bytes (512/512 sector size)
+[  240.910331] dm-remap v4.0 real:   Spare: 204800 sectors, 104857600 bytes (512/512 sector size)
+[  240.910333] dm-remap v4.0 real:   Overhead available: 0 sectors (0% of main size)
+[  240.910335] dm-remap v4.0 real: Real devices opened with enhanced detection:
+[  240.910337] dm-remap v4.0 real:   Main: dm-0 (204800 sectors, 512 byte sectors)
+[  240.910338] dm-remap v4.0 real:   Spare: loop21 (204800 sectors, 512 byte sectors)
+[  240.910535] dm-remap-v4: Initialized v4.0 metadata: main=, spare=
+[  240.910538] dm-remap v4.0 real: Initialized persistent v4 metadata
+[  240.910539] dm-remap v4.0 real: Metadata reading deferred (avoiding constructor deadlock)
+[  240.910541] dm-remap v4.0 real: Real device target created successfully (real device mode)
+[2025-10-17 21:11:14.818053396] STEP 10: Device operations complete, about to remove device...
+[2025-10-17 21:11:16.327626441] STEP 10: EXECUTING DMSETUP REMOVE NOW...
+[2025-10-17 21:11:16.856959077] STEP 10: Device removed successfully
+[2025-10-17 21:11:17.365141672] STEP 11: Checking dmesg after removal...
+[  232.148350] dm-remap-stats: Statistics export initialized
+[  232.148354] dm-remap-stats: Available at /sys/kernel/dm_remap/
+[  232.148355] dm-remap-stats: Prometheus-style: cat /sys/kernel/dm_remap/all_stats
+[  233.176496] dm-remap v4.0 real: Loading dm-remap v4.0 with Real Device Support
+[  233.176717] dm-remap v4.0 real: dm-remap v4.0 Real Device Support loaded successfully
+[  233.176720] dm-remap v4.0 real: Mode: Real Device, Background scanning: enabled
+[  240.910298] dm-remap v4.0 real: Creating real device target: main=/dev/mapper/dm-linear-main, spare=/dev/loop21
+[  240.910319] dm-remap v4.0 real: Optimized spare sizing calculation:
+[  240.910320] dm-remap v4.0 real:   Main device: 204800 sectors (100 MB)
+[  240.910322] dm-remap v4.0 real:   Expected bad sectors (2%): 4096 sectors (2 MB)
+[  240.910324] dm-remap v4.0 real:   Metadata overhead: 522 sectors (261 KB)
+[  240.910325] dm-remap v4.0 real:   Minimum spare (with 20% safety margin): 5541 sectors (2 MB)
+[  240.910327] dm-remap v4.0 real: Consider RAID1 mirroring: 100 MB spare for 100 MB main (100%)
+[  240.910329] dm-remap v4.0 real: Enhanced device compatibility validated:
+[  240.910330] dm-remap v4.0 real:   Main: 204800 sectors, 104857600 bytes (512/512 sector size)
+[  240.910331] dm-remap v4.0 real:   Spare: 204800 sectors, 104857600 bytes (512/512 sector size)
+[  240.910333] dm-remap v4.0 real:   Overhead available: 0 sectors (0% of main size)
+[  240.910335] dm-remap v4.0 real: Real devices opened with enhanced detection:
+[  240.910337] dm-remap v4.0 real:   Main: dm-0 (204800 sectors, 512 byte sectors)
+[  240.910338] dm-remap v4.0 real:   Spare: loop21 (204800 sectors, 512 byte sectors)
+[  240.910535] dm-remap-v4: Initialized v4.0 metadata: main=, spare=
+[  240.910538] dm-remap v4.0 real: Initialized persistent v4 metadata
+[  240.910539] dm-remap v4.0 real: Metadata reading deferred (avoiding constructor deadlock)
+[  240.910541] dm-remap v4.0 real: Real device target created successfully (real device mode)
+[  246.541332] dm-remap v4.0 real: Destroying real device target: main=/dev/mapper/dm-linear-main, spare=/dev/loop21
+[  246.541509] dm-remap v4.0 real: Real device target destroyed
+[2025-10-17 21:11:17.885747468] =========================================
+[2025-10-17 21:11:18.391496757] TEST COMPLETED SUCCESSFULLY!
+[2025-10-17 21:11:18.897908141] =========================================
+[2025-10-17 21:11:19.404441116] Check /var/log/dm-remap-test.log for full log
+[2025-10-17 21:11:19.910045379] CLEANUP: Starting cleanup...
+[2025-10-17 21:11:20.435897282] CLEANUP: Removed dm-linear-main
+[2025-10-17 21:11:21.016751998] CLEANUP: Removed dm-error-spare
+[2025-10-17 21:11:21.524099943] CLEANUP: Detached loop20
+[2025-10-17 21:11:22.057807817] CLEANUP: Detached loop21
+[2025-10-17 21:11:22.591539171] CLEANUP: Removed temp files
+[2025-10-17 21:11:23.175624919] CLEANUP: Complete

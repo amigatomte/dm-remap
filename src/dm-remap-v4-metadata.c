@@ -139,15 +139,13 @@ static int read_metadata_copy(struct block_device *bdev, sector_t sector,
     }
     
     /* Create bio for reading metadata */
-    bio = bio_alloc(GFP_KERNEL, 1);
+    bio = bio_alloc(bdev, 1, REQ_OP_READ | REQ_SYNC, GFP_KERNEL);
     if (!bio) {
         __free_page(page);
         return -ENOMEM;
     }
     
-    bio_set_dev(bio, bdev);
     bio->bi_iter.bi_sector = sector;
-    bio->bi_opf = REQ_OP_READ | REQ_SYNC;
     
     /* Add pages to cover entire metadata structure */
     bio_add_page(bio, page, PAGE_SIZE, 0);
@@ -199,15 +197,13 @@ static int write_metadata_copy(struct block_device *bdev, sector_t sector,
     kunmap(page);
     
     /* Create bio for writing */
-    bio = bio_alloc(GFP_KERNEL, 1);
+    bio = bio_alloc(bdev, 1, REQ_OP_WRITE | REQ_SYNC | REQ_FUA, GFP_KERNEL);
     if (!bio) {
         __free_page(page);
         return -ENOMEM;
     }
     
-    bio_set_dev(bio, bdev);
     bio->bi_iter.bi_sector = sector;
-    bio->bi_opf = REQ_OP_WRITE | REQ_SYNC | REQ_FUA; /* Force Unit Access for reliability */
     
     bio_add_page(bio, page, PAGE_SIZE, 0);
     
@@ -247,7 +243,7 @@ int dm_remap_read_metadata_v4(struct block_device *bdev,
     
     start_time = ktime_get();
     
-    DMR_DEBUG(2, "Reading v4.0 metadata from device %s", bdev_name(bdev));
+    DMR_DEBUG(2, "Reading v4.0 metadata from device");
     
     /* Read all 5 copies */
     for (i = 0; i < 5; i++) {
@@ -282,7 +278,7 @@ int dm_remap_read_metadata_v4(struct block_device *bdev,
         
         ret = 0;
     } else {
-        DMR_DEBUG(0, "No valid metadata copies found on device %s", bdev_name(bdev));
+        DMR_DEBUG(0, "No valid metadata copies found on device");
         ret = -ENODATA;
     }
     
@@ -364,7 +360,7 @@ int dm_remap_repair_metadata_v4(struct block_device *bdev)
     const sector_t copy_sectors[] = DM_REMAP_V4_COPY_SECTORS;
     int ret, i, repairs_made = 0;
     
-    DMR_DEBUG(1, "Repairing metadata on device %s", bdev_name(bdev));
+    DMR_DEBUG(1, "Repairing metadata on device");
     
     /* Find best copy */
     ret = dm_remap_read_metadata_v4(bdev, &best_metadata);
