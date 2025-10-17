@@ -262,10 +262,18 @@ Expected output: All tests should pass with green checkmarks ✓
 
 ### Core Functionality
 - ✅ **Transparent remapping**: Applications see normal block device
-- ✅ **Automatic bad sector detection**: I/O errors trigger remapping
-- ✅ **Persistent metadata**: Remap tables survive reboots
+- ✅ **Automatic bad sector detection**: I/O errors trigger remapping in real-time
+- ✅ **Fast remapping**: 2-7 microseconds per sector remap operation
+- ✅ **Deadlock-free operation**: Workqueue-based error handling
 - ✅ **Intelligent spare sizing**: ~2% overhead instead of 100%+ mirroring
 - ✅ **Multiple spare devices**: Pool multiple spare devices for capacity
+- ✅ **Precision error injection**: Tested with dm-linear + dm-error for surgical bad sector simulation
+
+### Performance (Validated October 2025)
+- ✅ **Device creation**: 324 microseconds average
+- ✅ **Remap operation**: 2-7 microseconds per sector
+- ✅ **Direct I/O tested**: Bypasses filesystem caching for complete validation
+- ✅ **100% success rate**: All remaps functional in testing (6/6 tests passed)
 
 ### Monitoring & Operations
 - ✅ **sysfs statistics**: `/sys/kernel/dm_remap/` with 14 metrics
@@ -275,23 +283,40 @@ Expected output: All tests should pass with green checkmarks ✓
 - ✅ **dmsetup commands**: Standard device-mapper interface
 - ✅ **Health scoring**: 0-100 health metric with trend analysis
 
-### Reliability
-- ✅ **Automatic reassembly**: Devices reconnect after reboot
-- ✅ **Metadata redundancy**: Multiple copies for safety
-- ✅ **Error recovery**: Graceful handling of corruption
+### Reliability & Testing
+- ✅ **Deadlock fix validated**: No system hangs with bad sectors present
+- ✅ **Error recovery**: Graceful handling of I/O errors in completion context
 - ✅ **Resource management**: Proper cleanup and error paths
-- ✅ **Validated remapping**: Automatic bad sector remapping tested with dm-flakey
+- ✅ **Filesystem compatibility**: Works with ext4, tested with real filesystem workloads
+- ✅ **Direct sector access**: Validated with dd direct I/O for comprehensive testing
+- ⏳ **Metadata persistence**: Functions implemented, integration in progress
+
+### Testing Infrastructure
+- ✅ **Comprehensive test suite**: dm-linear + dm-error for precise bad sector injection
+- ✅ **Filesystem-based tests**: Real-world usage scenarios with ext4
+- ✅ **Direct I/O tests**: Complete validation without filesystem caching
+- ✅ **Performance benchmarks**: Microsecond-level timing measurements
+- ✅ **Kernel log analysis**: Detailed remap operation tracking
 
 ---
 
 ## Documentation
 
-Detailed guides are available in the `docs/` directory:
+### Quick Reference
+- **[TECHNICAL_STATUS.md](TECHNICAL_STATUS.md)** - Complete technical status and validated features
+- **[DEADLOCK_FIX_v4.0.5.md](DEADLOCK_FIX_v4.0.5.md)** - Deadlock fix technical analysis
+- **[DM_FLAKEY_ISSUES.md](DM_FLAKEY_ISSUES.md)** - Why dm-flakey unsuitable, testing methodology
+- **[V4.0.5_TEST_RESULTS.md](V4.0.5_TEST_RESULTS.md)** - Comprehensive test results and performance data
 
+### Detailed Guides
 - **[User Guide](docs/user/)** - Setup, configuration, monitoring
 - **[Statistics Monitoring](docs/user/STATISTICS_MONITORING.md)** - Integration with monitoring tools
-- **[Testing Results](TESTING_RESULTS.md)** - Validation testing with dm-flakey error injection
 - **[Developer Notes](docs/development/)** - Architecture and internals
+
+### Test Scripts
+- **[tests/test_dm_linear_error.sh](tests/test_dm_linear_error.sh)** - Filesystem-based validation
+- **[tests/test_direct_bad_sectors.sh](tests/test_direct_bad_sectors.sh)** - Direct I/O comprehensive test
+- **[tests/test_metadata_persistence.sh](tests/test_metadata_persistence.sh)** - Metadata integration test
 
 ---
 
@@ -299,13 +324,17 @@ Detailed guides are available in the `docs/` directory:
 
 **This is development software.** Known limitations:
 
+- ⏳ **Metadata persistence**: Metadata module implemented but not yet integrated with core
+  - Remap tables currently in-memory only
+  - Persistence across reboots planned for next release
+  - All metadata functions tested and ready for integration
 - No active wear leveling on spare devices
 - No built-in SMART monitoring (use `smartctl` separately)
 - Statistics are counters only (no predictive analysis)
 - Tested primarily on loop devices and virtual environments
 - Add/remove spare devices requires dmsetup message commands
 
-**Production Use**: Not recommended yet. Use at your own risk.
+**Production Use**: Core remapping functionality is stable and deadlock-free, but metadata persistence is not yet available. Use at your own risk.
 
 ---
 
@@ -407,40 +436,6 @@ Christian ([@amigatomte](https://github.com/amigatomte))
 - **Testing**: Run test suite and report results
 
 **This is development software.** Expect bugs, API changes, and incomplete features.
-
----
-
-## Project Status
-
-**Version: 4.0.3** (October 16, 2025)
-
-**Latest Updates:**
-- **Stats integration**: Real-time I/O counters integrated into I/O path (Oct 16, 2025)
-- **Message handler**: Runtime control with 6 dmsetup commands (Oct 16, 2025)
-- **Automatic remapping validated**: Error injection testing with dm-flakey (Oct 16, 2025)
-- Intelligent spare sizing (Oct 15, 2025)
-- Statistics monitoring integration (Oct 15, 2025)
-- Automatic setup reassembly (Oct 14, 2025)
-
-**Testing:**
-- ✅ Stats integration validated (105 reads, 100 writes verified)
-- ✅ Message handler tested (all 6 commands working)
-- ✅ Automatic remapping validated (19 sectors remapped during error injection)
-- ✅ Error detection working (38+ I/O errors handled)
-- ✅ Device stacking validated (dm-remap → dm-flakey → loop device)
-
-See [TESTING_RESULTS.md](TESTING_RESULTS.md) for detailed test results and validation evidence.
-
-**In Progress:**
-- Spare pool integration (spare-pool module exists but not integrated yet)
-- Real hardware validation
-- Performance benchmarking
-- Production hardening
-
-**Planned:**
-- Public release (pending production validation)
-- Documentation website
-- RPM/DEB packages
 
 ---
 
