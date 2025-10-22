@@ -182,44 +182,81 @@ static int write_metadata_copy(struct block_device *bdev, sector_t sector,
     void *page_data;
     int ret;
     
+    printk(KERN_CRIT "dm-remap CRASH-DEBUG: write_metadata_copy START sector=%llu bdev=%p\n",
+           (unsigned long long)sector, bdev);
+    
     /* Allocate page for writing */
+    printk(KERN_CRIT "dm-remap CRASH-DEBUG: write_metadata_copy before alloc_page\n");
     page = alloc_page(GFP_KERNEL);
+    printk(KERN_CRIT "dm-remap CRASH-DEBUG: write_metadata_copy after alloc_page, page=%p\n", page);
+    
     if (!page) {
+        printk(KERN_CRIT "dm-remap CRASH-DEBUG: write_metadata_copy alloc_page failed\n");
         return -ENOMEM;
     }
     
     /* Copy metadata to page */
+    printk(KERN_CRIT "dm-remap CRASH-DEBUG: write_metadata_copy before kmap\n");
     page_data = kmap(page);
+    printk(KERN_CRIT "dm-remap CRASH-DEBUG: write_metadata_copy after kmap, page_data=%p\n", page_data);
+    
+    printk(KERN_CRIT "dm-remap CRASH-DEBUG: write_metadata_copy before memcpy\n");
     memcpy(page_data, metadata, sizeof(*metadata));
+    printk(KERN_CRIT "dm-remap CRASH-DEBUG: write_metadata_copy after memcpy\n");
+    
     /* Clear rest of page */
+    printk(KERN_CRIT "dm-remap CRASH-DEBUG: write_metadata_copy before memset\n");
     memset((uint8_t*)page_data + sizeof(*metadata), 0, 
            PAGE_SIZE - sizeof(*metadata));
+    printk(KERN_CRIT "dm-remap CRASH-DEBUG: write_metadata_copy after memset\n");
+    
+    printk(KERN_CRIT "dm-remap CRASH-DEBUG: write_metadata_copy before kunmap\n");
     kunmap(page);
+    printk(KERN_CRIT "dm-remap CRASH-DEBUG: write_metadata_copy after kunmap\n");
     
     /* Create bio for writing */
+    printk(KERN_CRIT "dm-remap CRASH-DEBUG: write_metadata_copy *** CALLING bio_alloc ***\n");
     bio = bio_alloc(bdev, 1, REQ_OP_WRITE | REQ_SYNC | REQ_FUA, GFP_KERNEL);
+    printk(KERN_CRIT "dm-remap CRASH-DEBUG: write_metadata_copy *** RETURNED from bio_alloc, bio=%p ***\n", bio);
+    
     if (!bio) {
+        printk(KERN_CRIT "dm-remap CRASH-DEBUG: write_metadata_copy bio_alloc failed\n");
         __free_page(page);
         return -ENOMEM;
     }
     
+    printk(KERN_CRIT "dm-remap CRASH-DEBUG: write_metadata_copy before setting bi_sector\n");
     bio->bi_iter.bi_sector = sector;
+    printk(KERN_CRIT "dm-remap CRASH-DEBUG: write_metadata_copy after setting bi_sector=%llu\n",
+           (unsigned long long)sector);
     
+    printk(KERN_CRIT "dm-remap CRASH-DEBUG: write_metadata_copy before bio_add_page\n");
     bio_add_page(bio, page, PAGE_SIZE, 0);
+    printk(KERN_CRIT "dm-remap CRASH-DEBUG: write_metadata_copy after bio_add_page\n");
     
     /* Submit bio and wait for completion */
+    printk(KERN_CRIT "dm-remap CRASH-DEBUG: write_metadata_copy *** CALLING submit_bio_wait ***\n");
     ret = submit_bio_wait(bio);
+    printk(KERN_CRIT "dm-remap CRASH-DEBUG: write_metadata_copy *** RETURNED from submit_bio_wait, ret=%d ***\n", ret);
     
     if (ret == 0) {
         DMR_DEBUG(3, "Wrote metadata copy to sector %llu: seq=%llu, copy=%u",
                   sector, metadata->header.sequence_number, metadata->header.copy_index);
+        printk(KERN_CRIT "dm-remap CRASH-DEBUG: write_metadata_copy write successful\n");
     } else {
         DMR_DEBUG(1, "Failed to write metadata to sector %llu: %d", sector, ret);
+        printk(KERN_CRIT "dm-remap CRASH-DEBUG: write_metadata_copy write failed ret=%d\n", ret);
     }
     
+    printk(KERN_CRIT "dm-remap CRASH-DEBUG: write_metadata_copy before bio_put\n");
     bio_put(bio);
-    __free_page(page);
+    printk(KERN_CRIT "dm-remap CRASH-DEBUG: write_metadata_copy after bio_put\n");
     
+    printk(KERN_CRIT "dm-remap CRASH-DEBUG: write_metadata_copy before __free_page\n");
+    __free_page(page);
+    printk(KERN_CRIT "dm-remap CRASH-DEBUG: write_metadata_copy after __free_page\n");
+    
+    printk(KERN_CRIT "dm-remap CRASH-DEBUG: write_metadata_copy END returning %d\n", ret);
     return ret;
 }
 
@@ -303,30 +340,49 @@ int dm_remap_write_metadata_v4(struct block_device *bdev,
     int i;
     ktime_t start_time, end_time;
     
+    printk(KERN_CRIT "dm-remap CRASH-DEBUG: write_metadata_v4 START bdev=%p metadata=%p\n",
+           bdev, metadata);
+    
     start_time = ktime_get();
     
+    printk(KERN_CRIT "dm-remap CRASH-DEBUG: write_metadata_v4 before mutex_lock\n");
     mutex_lock(&dm_remap_metadata_mutex);
+    printk(KERN_CRIT "dm-remap CRASH-DEBUG: write_metadata_v4 after mutex_lock\n");
     
     /* Update metadata header */
+    printk(KERN_CRIT "dm-remap CRASH-DEBUG: write_metadata_v4 updating header\n");
     metadata->header.magic = DM_REMAP_METADATA_V4_MAGIC;
     metadata->header.version = DM_REMAP_METADATA_V4_VERSION;
     metadata->header.sequence_number = atomic64_inc_return(&dm_remap_global_sequence);
     metadata->header.timestamp = ktime_get_real_seconds();
     metadata->header.structure_size = sizeof(*metadata);
+    printk(KERN_CRIT "dm-remap CRASH-DEBUG: write_metadata_v4 header updated\n");
     
     /* Calculate checksum for updated metadata */
+    printk(KERN_CRIT "dm-remap CRASH-DEBUG: write_metadata_v4 before calculate_metadata_crc32\n");
     metadata->header.metadata_checksum = calculate_metadata_crc32(metadata);
+    printk(KERN_CRIT "dm-remap CRASH-DEBUG: write_metadata_v4 after calculate_metadata_crc32, checksum=0x%08x\n",
+           metadata->header.metadata_checksum);
     
     DMR_DEBUG(2, "Writing v4.0 metadata: seq=%llu, checksum=0x%08x",
               metadata->header.sequence_number, metadata->header.metadata_checksum);
     
     /* Write all 5 copies atomically */
+    printk(KERN_CRIT "dm-remap CRASH-DEBUG: write_metadata_v4 starting loop to write 5 copies\n");
     for (i = 0; i < 5; i++) {
+        printk(KERN_CRIT "dm-remap CRASH-DEBUG: write_metadata_v4 writing copy %d to sector %llu\n",
+               i, (unsigned long long)copy_sectors[i]);
+        
         metadata->header.copy_index = i;
         
+        printk(KERN_CRIT "dm-remap CRASH-DEBUG: write_metadata_v4 *** CALLING write_metadata_copy copy=%d ***\n", i);
         ret = write_metadata_copy(bdev, copy_sectors[i], metadata);
+        printk(KERN_CRIT "dm-remap CRASH-DEBUG: write_metadata_v4 *** RETURNED from write_metadata_copy copy=%d ret=%d ***\n",
+               i, ret);
+        
         if (ret) {
             DMR_DEBUG(0, "Failed to write metadata copy %d: %d", i, ret);
+            printk(KERN_CRIT "dm-remap CRASH-DEBUG: write_metadata_v4 copy %d failed, breaking loop\n", i);
             
             /* Rollback: attempt to restore previous state */
             /* TODO: Implement rollback mechanism */
@@ -337,9 +393,12 @@ int dm_remap_write_metadata_v4(struct block_device *bdev,
     if (ret == 0) {
         DMR_DEBUG(1, "Successfully wrote metadata to all 5 copies: seq=%llu",
                   metadata->header.sequence_number);
+        printk(KERN_CRIT "dm-remap CRASH-DEBUG: write_metadata_v4 all 5 copies written successfully\n");
     }
     
+    printk(KERN_CRIT "dm-remap CRASH-DEBUG: write_metadata_v4 before mutex_unlock\n");
     mutex_unlock(&dm_remap_metadata_mutex);
+    printk(KERN_CRIT "dm-remap CRASH-DEBUG: write_metadata_v4 after mutex_unlock\n");
     
     end_time = ktime_get();
     atomic64_add(ktime_to_ns(ktime_sub(end_time, start_time)),

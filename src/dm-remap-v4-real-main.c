@@ -33,7 +33,8 @@ MODULE_DESCRIPTION("Device Mapper Remapping Target v4.0 - Real Device Integratio
 MODULE_AUTHOR("dm-remap Development Team");  
 MODULE_LICENSE("GPL");
 MODULE_VERSION("4.0.0-real");
-MODULE_SOFTDEP("pre: dm-remap-v4-metadata");
+/* REMOVED MODULE_SOFTDEP - was referencing non-existent dm-remap-v4-metadata module */
+/* This was likely causing the kernel crashes during module loading */
 
 /* Module parameters */
 int dm_remap_debug = 1;
@@ -1333,43 +1334,52 @@ static void dm_remap_initialize_metadata_v4_real(struct dm_remap_device_v4_real 
  */
 static int dm_remap_map_v4_real(struct dm_target *ti, struct bio *bio)
 {
+    static atomic_t total_map_calls = ATOMIC_INIT(0);
+    int map_call_count = atomic_inc_return(&total_map_calls);
+    
+    /* NOTE: bio->bi_blkg being NULL is NORMAL for kernel-generated I/O!
+     * Device-mapper internal I/O, metadata I/O, and flush I/O legitimately have NULL bi_blkg.
+     * The kernel's block layer handles this correctly - we do NOT need to "fix" it.
+     * 
+     * PREVIOUS BUG: We were calling bio_associate_blkg() which caused massive memory leaks!
+     * Calling bio_associate_blkg() on every I/O allocated resources that were never freed,
+     * leading to 28GB+ memory consumption and OOM crashes.
+     * 
+     * CORRECT BEHAVIOR: Just let the bio pass through - kernel handles NULL bi_blkg correctly.
+     */
+    
     struct dm_remap_device_v4_real *device = ti->private;
+    
     bool is_read = bio_data_dir(bio) == READ;
     uint64_t sector = bio->bi_iter.bi_sector;
     unsigned int bio_size = bio->bi_iter.bi_size;
     ktime_t start_time = ktime_get();
     ktime_t io_time;
     uint64_t throughput;
-    static atomic_t total_map_calls = ATOMIC_INIT(0);
-    int map_call_count = atomic_inc_return(&total_map_calls);
-    
-    /* Only log every 1000 calls or first 10 calls to reduce log spam */
-    if (map_call_count <= 10 || map_call_count % 1000 == 0) {
-        printk(KERN_CRIT "dm-remap CRASH-DEBUG: MAP-ENTRY #%d sector=%llu read=%d device=%p\n",
-               map_call_count, (unsigned long long)sector, is_read, device);
-    }
     
     /* CRITICAL: Reject all I/O if shutdown is in progress */
     if (atomic_read(&device->shutdown_in_progress)) {
         int call_count = atomic_inc_return(&device->map_calls_during_shutdown);
-        printk(KERN_CRIT "dm-remap CRASH-DEBUG: MAP CALL #%d DURING SHUTDOWN - RETURNING DM_MAPIO_KILL\n", call_count);
+        
+        /* Only log first shutdown call and panic threshold */
+        if (call_count == 1) {
+            printk(KERN_WARNING "dm-remap: Rejecting I/O during shutdown\n");
+        }
         
         if (call_count > 100) {
-            printk(KERN_CRIT "dm-remap CRASH-DEBUG: *** INFINITE LOOP DETECTED - %d MAP CALLS DURING SHUTDOWN ***\n", call_count);
-            printk(KERN_CRIT "dm-remap CRASH-DEBUG: *** FORCING KERNEL PANIC TO GET STACK TRACE ***\n");
-            /* Emergency: Force panic to get kernel trace */
+            printk(KERN_CRIT "dm-remap: Infinite loop detected - %d map calls during shutdown\n", call_count);
             panic("dm-remap: Infinite loop in map during shutdown - %d calls\n", call_count);
         }
-        /* Return DM_MAPIO_KILL to tell device-mapper to stop this I/O immediately
-         * without resubmission. This should prevent infinite loops during removal.
-         */
+        
         return DM_MAPIO_KILL;
     }
     
     /* Increment in-flight counter - this I/O is now tracked */
+    printk(KERN_INFO "dm-remap: MAP incrementing in-flight counter...\n");
     atomic_inc(&device->in_flight_ios);
     
     /* Validate I/O parameters */
+    printk(KERN_INFO "dm-remap: MAP validating I/O parameters...\n");
     if (sector >= device->main_device_sectors) {
         DMR_ERROR("I/O beyond device bounds: sector %llu >= %llu",
                   (unsigned long long)sector,
@@ -1378,11 +1388,14 @@ static int dm_remap_map_v4_real(struct dm_target *ti, struct bio *bio)
     }
     
     /* Check alignment for optimal performance */
+    printk(KERN_INFO "dm-remap: MAP checking alignment...\n");
     if (!dm_remap_check_device_alignment(device->main_dev, sector)) {
         DMR_DEBUG(2, "Unaligned I/O detected at sector %llu", (unsigned long long)sector);
     }
+    printk(KERN_INFO "dm-remap: MAP alignment checked\n");
     
     /* Update statistics with enhanced tracking */
+    printk(KERN_INFO "dm-remap: MAP updating statistics...\n");
     if (is_read) {
         atomic64_inc(&device->read_count);
         atomic64_inc(&global_reads);
@@ -1396,11 +1409,15 @@ static int dm_remap_map_v4_real(struct dm_target *ti, struct bio *bio)
     atomic64_inc(&device->io_operations);
     atomic64_inc(&device->stats.total_ios);
     device->last_io_time = start_time;
+    printk(KERN_INFO "dm-remap: MAP statistics updated\n");
     
     /* Phase 1.4: Update I/O pattern analysis */
+    printk(KERN_INFO "dm-remap: MAP updating I/O pattern...\n");
     dm_remap_update_io_pattern(device, sector);
+    printk(KERN_INFO "dm-remap: MAP I/O pattern updated\n");
     
     /* Phase 1.4: Check for cached remap first (fast path) */
+    printk(KERN_INFO "dm-remap: MAP checking remap cache...\n");
     sector_t cached_remap = 0;
     if (device->perf_optimizer.fast_path_enabled) {
         cached_remap = dm_remap_cache_lookup(device, sector);
@@ -1502,15 +1519,19 @@ static int dm_remap_ctr_v4_real(struct dm_target *ti, unsigned int argc, char **
     struct file *main_dev, *spare_dev;
     int ret;
     
+    printk(KERN_INFO "dm-remap: CONSTRUCTOR ENTRY argc=%u\n", argc);
+    
     if (argc != 2) {
         ti->error = "Invalid argument count: dm-remap-v4 <main_device> <spare_device>";
         return -EINVAL;
     }
     
+    printk(KERN_INFO "dm-remap: CONSTRUCTOR args: main=%s, spare=%s\n", argv[0], argv[1]);
     DMR_INFO("Creating real device target: main=%s, spare=%s", argv[0], argv[1]);
     
     /* Open devices */
     if (real_device_mode) {
+        printk(KERN_INFO "dm-remap: CONSTRUCTOR opening main device...\n");
         main_dev = dm_remap_open_bdev_real(argv[0], BLK_OPEN_READ | BLK_OPEN_WRITE, ti);
         if (IS_ERR(main_dev)) {
             ret = PTR_ERR(main_dev);
@@ -1518,7 +1539,9 @@ static int dm_remap_ctr_v4_real(struct dm_target *ti, unsigned int argc, char **
             DMR_ERROR("Failed to open main device %s: %d", argv[0], ret);
             return ret;
         }
+        printk(KERN_INFO "dm-remap: CONSTRUCTOR main device opened successfully\n");
         
+        printk(KERN_INFO "dm-remap: CONSTRUCTOR opening spare device...\n");
         spare_dev = dm_remap_open_bdev_real(argv[1], BLK_OPEN_READ | BLK_OPEN_WRITE, ti);
         if (IS_ERR(spare_dev)) {
             ret = PTR_ERR(spare_dev);
@@ -1527,8 +1550,10 @@ static int dm_remap_ctr_v4_real(struct dm_target *ti, unsigned int argc, char **
             dm_remap_close_bdev_real(main_dev);
             return ret;
         }
+        printk(KERN_INFO "dm-remap: CONSTRUCTOR spare device opened successfully\n");
         
         /* Validate device compatibility */
+        printk(KERN_INFO "dm-remap: CONSTRUCTOR validating device compatibility...\n");
         ret = dm_remap_validate_device_compatibility(main_dev, spare_dev);
         if (ret) {
             ti->error = "Device compatibility validation failed";
@@ -1536,6 +1561,7 @@ static int dm_remap_ctr_v4_real(struct dm_target *ti, unsigned int argc, char **
             dm_remap_close_bdev_real(spare_dev);
             return ret;
         }
+        printk(KERN_INFO "dm-remap: CONSTRUCTOR device compatibility validated\n");
     } else {
         /* Demo mode - validate paths but don't open real devices */
         ret = dm_remap_open_bdev(argv[0], FMODE_READ | FMODE_WRITE, ti);
@@ -1557,6 +1583,7 @@ static int dm_remap_ctr_v4_real(struct dm_target *ti, unsigned int argc, char **
     }
     
     /* Allocate device structure */
+    printk(KERN_INFO "dm-remap: CONSTRUCTOR allocating device structure...\n");
     device = kzalloc(sizeof(*device), GFP_KERNEL);
     if (!device) {
         ti->error = "Cannot allocate device structure";
@@ -1566,8 +1593,10 @@ static int dm_remap_ctr_v4_real(struct dm_target *ti, unsigned int argc, char **
         }
         return -ENOMEM;
     }
+    printk(KERN_INFO "dm-remap: CONSTRUCTOR device structure allocated\n");
     
     /* Initialize device structure */
+    printk(KERN_INFO "dm-remap: CONSTRUCTOR initializing device structure...\n");
     device->main_dev = main_dev;
     device->spare_dev = spare_dev;
     device->device_mode = BLK_OPEN_READ | BLK_OPEN_WRITE;
@@ -1616,11 +1645,13 @@ static int dm_remap_ctr_v4_real(struct dm_target *ti, unsigned int argc, char **
     /* ITERATION 10: Removed bio_set initialization - no longer using bio cloning */
     
     /* Initialize Phase 1.3 sector remapping */
+    printk(KERN_INFO "dm-remap: CONSTRUCTOR initializing remap structures...\n");
     INIT_LIST_HEAD(&device->remap_list);
     spin_lock_init(&device->remap_lock);
     device->remap_count_active = 0;
     device->spare_sector_count = device->spare_device_sectors / 2; /* Reserve half for remapping */
     device->next_spare_sector = 0;
+    printk(KERN_INFO "dm-remap: CONSTRUCTOR remap structures initialized\n");
     
     /* Initialize metadata sync workqueue */
     /* DISABLED FOR TESTING - workqueue can cause deadlocks during device removal
@@ -1695,14 +1726,18 @@ static int dm_remap_ctr_v4_real(struct dm_target *ti, unsigned int argc, char **
     device->enterprise.configuration_version = 1;
     
     /* Initialize enhanced metadata */
+    printk(KERN_INFO "dm-remap: CONSTRUCTOR initializing metadata...\n");
     dm_remap_initialize_metadata_v4_real(device);
+    printk(KERN_INFO "dm-remap: CONSTRUCTOR metadata initialized\n");
     
     /* Initialize persistent v4 metadata structure */
+    printk(KERN_INFO "dm-remap: CONSTRUCTOR initializing persistent metadata...\n");
     ret = dm_remap_init_persistent_metadata(device);
     if (ret) {
         DMR_ERROR("Failed to initialize persistent metadata: %d", ret);
         goto error_cleanup;
     }
+    printk(KERN_INFO "dm-remap: CONSTRUCTOR persistent metadata initialized\n");
     
     /* NOTE: Metadata reading is deferred to avoid blocking I/O during construction.
      * Reading metadata during dm target construction can cause deadlocks because:
@@ -1725,16 +1760,20 @@ static int dm_remap_ctr_v4_real(struct dm_target *ti, unsigned int argc, char **
     DMR_INFO("Background health scanning disabled during testing");
     
     /* Set target length */
+    printk(KERN_INFO "dm-remap: CONSTRUCTOR setting target length...\n");
     ti->len = device->main_device_sectors;
     
     /* Add to global device list */
+    printk(KERN_INFO "dm-remap: CONSTRUCTOR adding to global device list...\n");
     mutex_lock(&dm_remap_devices_mutex);
     list_add_tail(&device->device_list, &dm_remap_devices);
     atomic_inc(&dm_remap_device_count);
     mutex_unlock(&dm_remap_devices_mutex);
+    printk(KERN_INFO "dm-remap: CONSTRUCTOR added to global device list\n");
     
     ti->private = device;
     
+    printk(KERN_INFO "dm-remap: CONSTRUCTOR completed successfully!\n");
     DMR_INFO("Real device target created successfully (%s mode)",
              real_device_mode ? "real device" : "demo");
     
