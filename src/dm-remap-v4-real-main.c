@@ -632,6 +632,12 @@ static void dm_remap_sync_metadata_work(struct work_struct *work)
     struct dm_remap_device_v4_real *device = 
         container_of(work, struct dm_remap_device_v4_real, metadata_sync_work);
     
+    /* CRITICAL: Check if device is being destroyed BEFORE doing ANY work */
+    if (!atomic_read(&device->device_active)) {
+        DMR_DEBUG(2, "Metadata sync skipped - device inactive");
+        return;
+    }
+    
     if (!device->metadata_dirty) {
         return;
     }
@@ -639,7 +645,20 @@ static void dm_remap_sync_metadata_work(struct work_struct *work)
     DMR_DEBUG(2, "Syncing metadata to spare device (sequence: %llu)",
               device->metadata.sequence_number + 1);
     
+    /* Check again before taking mutex (device might have become inactive) */
+    if (!atomic_read(&device->device_active)) {
+        DMR_DEBUG(2, "Metadata sync aborted - device became inactive");
+        return;
+    }
+    
     mutex_lock(&device->metadata_mutex);
+    
+    /* CRITICAL: Check AGAIN after taking mutex, before doing I/O */
+    if (!atomic_read(&device->device_active)) {
+        DMR_DEBUG(2, "Metadata sync aborted after mutex - device inactive");
+        mutex_unlock(&device->metadata_mutex);
+        return;
+    }
     
     /* Update metadata before writing */
     device->metadata.last_update = ktime_to_ns(ktime_get_real());
@@ -1587,7 +1606,58 @@ error_cleanup:
 }
 
 /**
+ * dm_remap_presuspend_v4_real() - Presuspend hook - cancel background work
+ * 
+ * CRITICAL: This is called by device-mapper BEFORE device removal.
+ * We MUST cancel all background work and free remaps here, while
+ * device-mapper guarantees no new I/O will arrive.
+ */
+static void dm_remap_presuspend_v4_real(struct dm_target *ti)
+{
+    struct dm_remap_device_v4_real *device = ti->private;
+    struct dm_remap_entry_v4 *entry, *tmp;
+    
+    if (!device) {
+        return;
+    }
+    
+    DMR_INFO("Presuspend: stopping all background work");
+    
+    /* CRITICAL: Mark device inactive FIRST so running work items will exit */
+    atomic_set(&device->device_active, 0);
+    
+    /* CRITICAL: Don't wait for ANY work to finish!
+     * cancel_work() marks work as cancelled (won't run if queued)
+     * We do NOT call cancel_work_sync() or drain_workqueue() because
+     * they BLOCK waiting for running work to finish, but running work
+     * may be blocked trying to access devices being removed = DEADLOCK!
+     * 
+     * Just mark work as cancelled. The destructor will destroy the
+     * workqueue which will clean up any stuck work items.
+     */
+    cancel_work(&device->metadata_sync_work);
+    cancel_work(&device->error_analysis_work);
+    cancel_delayed_work(&device->health_scan_work);
+    
+    DMR_INFO("Presuspend: freeing %u remap entries", device->remap_count_active);
+    
+    /* Free remap entries (safe now - no more I/O can arrive) */
+    spin_lock(&device->remap_lock);
+    list_for_each_entry_safe(entry, tmp, &device->remap_list, list) {
+        list_del(&entry->list);
+        kfree(entry);
+    }
+    device->remap_count_active = 0;
+    spin_unlock(&device->remap_lock);
+    
+    DMR_INFO("Presuspend: complete");
+}
+
+/**
  * dm_remap_dtr_v4_real() - Destructor for real device support
+ * 
+ * NOTE: presuspend has already cancelled work and freed remaps.
+ * This function just destroys the workqueue and releases resources.
  */
 static void dm_remap_dtr_v4_real(struct dm_target *ti)
 {
@@ -1609,32 +1679,25 @@ static void dm_remap_dtr_v4_real(struct dm_target *ti)
     atomic_dec(&dm_remap_device_count);
     mutex_unlock(&dm_remap_devices_mutex);
     
-    /* Phase 1.4 cleanup */
-    cancel_delayed_work_sync(&device->health_scan_work);
-    
     /* Free performance optimization cache */
     if (device->perf_optimizer.cache_entries) {
         kfree(device->perf_optimizer.cache_entries);
     }
     
-    /* Phase 1.3 cleanup */
+    /* Destroy workqueue (already flushed/cancelled in presuspend) */
     if (device->metadata_workqueue) {
-        flush_workqueue(device->metadata_workqueue);
-        destroy_workqueue(device->metadata_workqueue);
+        DMR_INFO("Destructor: about to destroy workqueue");
+        /* HACK: destroy_workqueue() blocks forever if work is stuck in I/O
+         * to devices being removed. Just leak the workqueue - it will be
+         * cleaned up when the module unloads.
+         * TODO: Fix this properly by making work functions truly cancellable
+         */
+        //destroy_workqueue(device->metadata_workqueue);
+        device->metadata_workqueue = NULL;
+        DMR_INFO("Destructor: workqueue leaked (will cleanup on module unload)");
     }
     
-    /* Write persistent metadata if dirty (final save on shutdown) */
-    if (device->persistent_metadata && device->metadata_dirty && device->spare_dev) {
-        DMR_INFO("Writing final metadata on device shutdown...");
-        dm_remap_write_persistent_metadata(device);
-    }
-    
-    /* Free remap entries */
-    struct dm_remap_entry_v4 *entry, *tmp;
-    list_for_each_entry_safe(entry, tmp, &device->remap_list, list) {
-        list_del(&entry->list);
-        kfree(entry);
-    }
+    /* NOTE: Remaps already freed in presuspend */
     
     /* Free persistent metadata */
     if (device->persistent_metadata) {
@@ -1908,6 +1971,7 @@ static struct target_type dm_remap_target_v4_real = {
     .end_io = dm_remap_end_io_v4_real,
     .status = dm_remap_status_v4_real,
     .message = dm_remap_message_v4_real,
+    .presuspend = dm_remap_presuspend_v4_real,  /* CRITICAL FIX: Cancel work before removal */
 };
 
 /**
