@@ -1691,7 +1691,10 @@ static void dm_remap_presuspend_v4_real(struct dm_target *ti)
     /* CRITICAL: Mark device inactive FIRST so running work items will exit */
     atomic_set(&device->device_active, 0);
     
-    /* v4.1: Cancel any in-flight async metadata writes */
+    /* v4.1: Cancel any in-flight async metadata writes
+     * This must be done BEFORE cancel_work_sync() to ensure the work
+     * function's async I/O is cancelled before we wait for it to finish.
+     */
     if (atomic_read(&device->metadata_write_in_progress)) {
         DMR_INFO("Presuspend: cancelling in-flight async metadata write");
         dm_remap_cancel_metadata_write(&device->async_metadata_ctx);
@@ -1699,18 +1702,17 @@ static void dm_remap_presuspend_v4_real(struct dm_target *ti)
         atomic_set(&device->metadata_write_in_progress, 0);
     }
     
-    /* CRITICAL: Don't wait for ANY work to finish!
-     * cancel_work() marks work as cancelled (won't run if queued)
-     * We do NOT call cancel_work_sync() or drain_workqueue() because
-     * they BLOCK waiting for running work to finish, but running work
-     * may be blocked trying to access devices being removed = DEADLOCK!
-     * 
-     * With v4.1 async I/O, work can be safely cancelled even if in-progress
-     * because we use non-blocking bio submission with cancellation support.
+    /* v4.1: NOW we can safely wait for work to finish!
+     * cancel_work_sync() waits for running work, but it's safe because:
+     * 1. device_active=0 causes work to exit early
+     * 2. Any async I/O has been cancelled above
+     * 3. Work function checks device_active before every blocking operation
      */
-    cancel_work(&device->metadata_sync_work);
-    cancel_work(&device->error_analysis_work);
-    cancel_delayed_work(&device->health_scan_work);
+    DMR_INFO("Presuspend: waiting for work items to complete");
+    cancel_work_sync(&device->metadata_sync_work);
+    cancel_work_sync(&device->error_analysis_work);
+    cancel_delayed_work_sync(&device->health_scan_work);
+    DMR_INFO("Presuspend: all work items stopped");
     
     DMR_INFO("Presuspend: freeing %u remap entries", device->remap_count_active);
     
