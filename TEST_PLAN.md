@@ -580,13 +580,65 @@ bio_put(clone);  // Free clone
 - ✅ Device removal should work (no bio lifecycle conflicts) 
 - ✅ Error handling should work (failures detected in end_io())
 
-## Next Steps (Iteration 11 Test)
-1. 🔄 **REBOOT VM** - clean state after previous crashes
-2. 🔄 **Load module** - should load without issues
-3. 🔄 **Test device creation** - CRITICAL: should not crash!
-4. 🔄 **Test normal I/O** - should work normally
-5. 🔄 **Test device removal** - should complete successfully
-6. 🔄 **EXPECT SUCCESS!** No more bio redirection issues
+## ITERATION 11 CODE COMMITTED ✅
+
+**Git Commits:**
+1. ✅ **Main implementation** (commit a4de861): Lazy remapping architecture changes
+   - Modified `src/dm-remap-v4-real-main.c` with new map() and end_io() logic
+   - Updated `TEST_PLAN.md` with implementation details
+   
+2. ✅ **Documentation and tests** (commit bcb57f5): Added test scripts and debug docs
+   - Test scripts for device lifecycle testing
+   - Crash debugging documentation
+   - Test execution history
+
+**Code is now safely committed before testing!**
+
+## ITERATION 11 TEST RESULTS - ❌ CRITICAL DISCOVERY ❌
+
+**Test Execution:** VM froze again during device creation test
+**Evidence:** Dmesg shows NULL pointer dereference: `blk_cgroup_bio_start+0x35`
+**Memory Address:** `0x0000000000000028` - same as ALL previous iterations
+
+### � CRITICAL DISCOVERY 🚨
+
+**THE CRASH IS NOT CAUSED BY BIO REDIRECTION!**
+
+Even with ZERO bio manipulation, we get the EXACT same crash:
+- ❌ **Iteration 9a-9c:** Bio cloning approach → crash in `blk_cgroup_bio_start+0x35`
+- ❌ **Iteration 10:** Simple bio redirection → crash in `blk_cgroup_bio_start+0x35`  
+- ❌ **Iteration 11:** NO bio redirection, lazy remapping → crash in `blk_cgroup_bio_start+0x35`
+
+**All three architectures produce IDENTICAL crash signatures!**
+
+### Root Cause Analysis - The REAL Problem
+
+The crash happens **IMMEDIATELY on the first map() call** before ANY I/O processing:
+1. **Line 1102.401187**: `dm-remap CRASH-DEBUG: MAP-ENTRY #1 sector=204672 read=1`
+2. **Line 1102.401199**: `BUG: kernel NULL pointer dereference, address: 0000000000000028`
+3. **Line 1102.401222**: `RIP: 0010:blk_cgroup_bio_start+0x35/0x190`
+
+**This means the problem is NOT:**
+- ❌ Bio redirection (we removed it all)
+- ❌ Bio cloning (we removed it all)
+- ❌ DM_MAPIO_SUBMITTED returns (we removed them all)
+- ❌ Spare device I/O (never reached)
+
+**The REAL problem is likely:**
+1. **Device-mapper target registration issue** - our target structure is corrupt
+2. **Bio structure corruption** - the bio entering map() is already corrupted  
+3. **Cgroup accounting issue** - bio->bi_blkg is NULL when it shouldn't be
+4. **Memory corruption in our module** - we're corrupting kernel memory elsewhere
+
+### Next Investigation Steps
+
+We need to investigate the FUNDAMENTALS:
+1. **Target registration** - check dm_target structure for corruption
+2. **Bio validation** - check bio->bi_blkg state when entering map()
+3. **Memory debugging** - add KASAN, check for buffer overflows
+4. **Module initialization** - check if something in init corrupts kernel state
+
+**Status:** All bio handling approaches fail identically - problem is deeper than I/O architecture
 
 ## File Backup
 Module compiled successfully at: src/dm-remap-v4-real.ko
