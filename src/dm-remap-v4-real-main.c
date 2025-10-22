@@ -724,12 +724,20 @@ static void dm_remap_sync_metadata_work(struct work_struct *work)
             return;
         }
         
+        /* CRITICAL: Release mutex before waiting so presuspend can proceed
+         * This allows presuspend to cancel the async I/O if device is being removed
+         */
+        mutex_unlock(&device->metadata_mutex);
+        
         /* Wait for completion with timeout (can be cancelled by presuspend) */
         ret = dm_remap_wait_metadata_write(&device->async_metadata_ctx, 5000); /* 5 sec timeout */
         
         /* Clean up async context */
         dm_remap_cleanup_async_context(&device->async_metadata_ctx);
         atomic_set(&device->metadata_write_in_progress, 0);
+        
+        /* Re-acquire mutex for cleanup */
+        mutex_lock(&device->metadata_mutex);
         
         if (ret) {
             DMR_ERROR("Async metadata write failed: %d", ret);
@@ -1691,22 +1699,20 @@ static void dm_remap_presuspend_v4_real(struct dm_target *ti)
     /* CRITICAL: Mark device inactive FIRST so running work items will exit */
     atomic_set(&device->device_active, 0);
     
-    /* v4.1: Cancel any in-flight async metadata writes
-     * This must be done BEFORE cancel_work_sync() to ensure the work
-     * function's async I/O is cancelled before we wait for it to finish.
+    /* v4.1: Signal cancellation for any in-flight async metadata writes
+     * Just set the cancel flag - DON'T wait here or we'll deadlock!
+     * The work function is already waiting and will see the cancel flag.
      */
     if (atomic_read(&device->metadata_write_in_progress)) {
-        DMR_INFO("Presuspend: cancelling in-flight async metadata write");
-        dm_remap_cancel_metadata_write(&device->async_metadata_ctx);
-        dm_remap_cleanup_async_context(&device->async_metadata_ctx);
-        atomic_set(&device->metadata_write_in_progress, 0);
+        DMR_INFO("Presuspend: signaling cancellation for in-flight async write");
+        atomic_set(&device->async_metadata_ctx.write_cancelled, 1);
     }
     
     /* v4.1: NOW we can safely wait for work to finish!
      * cancel_work_sync() waits for running work, but it's safe because:
-     * 1. device_active=0 causes work to exit early
-     * 2. Any async I/O has been cancelled above
-     * 3. Work function checks device_active before every blocking operation
+     * 1. device_active=0 causes work to exit early at checkpoints
+     * 2. Async I/O cancellation has been signaled (bios will complete soon)
+     * 3. Work function will exit from wait when bios complete
      */
     DMR_INFO("Presuspend: waiting for work items to complete");
     cancel_work_sync(&device->metadata_sync_work);
