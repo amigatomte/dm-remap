@@ -287,4 +287,83 @@ void dm_remap_health_v4_cleanup(void);
 int dm_remap_discovery_v4_init(void);
 void dm_remap_discovery_v4_cleanup(void);
 
+/* ========================================================================
+ * v4.1 Async Metadata I/O API
+ * ======================================================================== */
+
+/**
+ * struct dm_remap_async_metadata_context - Async metadata write context
+ * 
+ * Tracks state for an in-flight async metadata write operation.
+ * Used for cancellation and completion signaling.
+ */
+struct dm_remap_async_metadata_context {
+	atomic_t copies_pending;        /* Number of bio copies still in-flight */
+	atomic_t write_cancelled;       /* Set to 1 if write should be aborted */
+	atomic_t error_occurred;        /* Set to non-zero error code if any copy fails */
+	struct completion all_copies_done; /* Signaled when all 5 copies complete or cancel */
+	
+	/* Timeout handling */
+	unsigned long timeout_jiffies;  /* When operation times out */
+	bool timeout_expired;           /* Timeout expiration flag */
+	
+	/* For cleanup */
+	struct bio *bios[5];            /* Bio pointers for cleanup */
+	struct page *pages[5];          /* Page pointers for cleanup */
+};
+
+/**
+ * dm_remap_write_metadata_v4_async - Write metadata asynchronously
+ * @bdev: Block device to write metadata to (spare device)
+ * @metadata: Metadata structure to write
+ * @context: Async context for tracking completion/cancellation
+ * 
+ * Submits metadata writes to all 5 redundant locations without blocking.
+ * Caller must wait on context->all_copies_done or call cancel function.
+ * 
+ * Returns: 0 on successful submission, negative error if submission fails
+ */
+int dm_remap_write_metadata_v4_async(struct block_device *bdev,
+                                     struct dm_remap_metadata_v4 *metadata,
+                                     struct dm_remap_async_metadata_context *context);
+
+/**
+ * dm_remap_cancel_metadata_write - Cancel in-flight async metadata write
+ * @context: Async context for the write to cancel
+ * 
+ * Sets cancellation flag and waits for all in-flight bios to complete.
+ * Safe to call from presuspend hook.
+ * 
+ * Returns: 0 on successful cancellation, -ETIMEDOUT if timeout occurs
+ */
+int dm_remap_cancel_metadata_write(struct dm_remap_async_metadata_context *context);
+
+/**
+ * dm_remap_wait_metadata_write - Wait for async metadata write completion
+ * @context: Async context to wait on
+ * @timeout_ms: Maximum time to wait in milliseconds (0 = infinite)
+ * 
+ * Waits for all copies to complete successfully or any error to occur.
+ * 
+ * Returns: 0 on success, negative error code on failure or timeout
+ */
+int dm_remap_wait_metadata_write(struct dm_remap_async_metadata_context *context,
+                                 unsigned int timeout_ms);
+
+/**
+ * dm_remap_init_async_context - Initialize async metadata context
+ * @context: Context to initialize
+ * 
+ * Must be called before using context with async write functions.
+ */
+void dm_remap_init_async_context(struct dm_remap_async_metadata_context *context);
+
+/**
+ * dm_remap_cleanup_async_context - Clean up async metadata context
+ * @context: Context to clean up
+ * 
+ * Frees any remaining resources. Safe to call even if write was cancelled.
+ */
+void dm_remap_cleanup_async_context(struct dm_remap_async_metadata_context *context);
+
 #endif /* DM_REMAP_V4_H */

@@ -21,8 +21,17 @@
 #include <linux/mutex.h>
 #include <linux/atomic.h>
 #include <linux/ktime.h>
+#include <linux/completion.h>
+#include <linux/jiffies.h>
 
 #include "dm-remap-v4.h"
+
+/* Error and info logging macros for metadata module */
+#define DMR_ERROR(fmt, ...) \
+    printk(KERN_ERR "dm-remap-v4-metadata: " fmt "\n", ##__VA_ARGS__)
+
+#define DMR_INFO(fmt, ...) \
+    printk(KERN_INFO "dm-remap-v4-metadata: " fmt "\n", ##__VA_ARGS__)
 
 /* Global sequence counter for metadata updates */
 static atomic64_t dm_remap_global_sequence = ATOMIC64_INIT(1);
@@ -505,6 +514,235 @@ void dm_remap_init_metadata_v4(struct dm_remap_metadata_v4 *metadata,
               main_device_uuid ? main_device_uuid : "unknown",
               spare_device_uuid ? spare_device_uuid : "unknown");
 }
+
+/* ========================================================================
+ * v4.1 Async Metadata I/O Implementation
+ * ======================================================================== */
+
+/**
+ * dm_remap_metadata_write_endio - Completion handler for async metadata writes
+ * 
+ * Called from bio completion context (may be interrupt context).
+ * Must be fast and non-blocking.
+ */
+static void dm_remap_metadata_write_endio(struct bio *bio)
+{
+	struct dm_remap_async_metadata_context *context = bio->bi_private;
+	int error = blk_status_to_errno(bio->bi_status);
+	
+	/* Check if operation was cancelled */
+	if (atomic_read(&context->write_cancelled)) {
+		DMR_DEBUG(3, "Metadata write completion (cancelled): error=%d", error);
+	} else if (error) {
+		/* Record error - use cmpxchg to set first error only */
+		atomic_cmpxchg(&context->error_occurred, 0, error);
+		DMR_DEBUG(1, "Metadata write failed: %d", error);
+	} else {
+		DMR_DEBUG(3, "Metadata write copy completed successfully");
+	}
+	
+	/* Decrement pending counter - if we're last, signal completion */
+	if (atomic_dec_and_test(&context->copies_pending)) {
+		complete(&context->all_copies_done);
+		DMR_DEBUG(2, "All metadata copies completed");
+	}
+}
+
+/**
+ * dm_remap_init_async_context - Initialize async metadata context
+ */
+void dm_remap_init_async_context(struct dm_remap_async_metadata_context *context)
+{
+	atomic_set(&context->copies_pending, 0);
+	atomic_set(&context->write_cancelled, 0);
+	atomic_set(&context->error_occurred, 0);
+	init_completion(&context->all_copies_done);
+	context->timeout_jiffies = 0;
+	context->timeout_expired = false;
+	memset(context->bios, 0, sizeof(context->bios));
+	memset(context->pages, 0, sizeof(context->pages));
+}
+EXPORT_SYMBOL(dm_remap_init_async_context);
+
+/**
+ * dm_remap_cleanup_async_context - Clean up async metadata context
+ * 
+ * Frees any remaining bios and pages. Safe to call after cancellation.
+ */
+void dm_remap_cleanup_async_context(struct dm_remap_async_metadata_context *context)
+{
+	int i;
+	
+	for (i = 0; i < 5; i++) {
+		if (context->bios[i]) {
+			bio_put(context->bios[i]);
+			context->bios[i] = NULL;
+		}
+		if (context->pages[i]) {
+			__free_page(context->pages[i]);
+			context->pages[i] = NULL;
+		}
+	}
+}
+EXPORT_SYMBOL(dm_remap_cleanup_async_context);
+
+/**
+ * dm_remap_write_metadata_v4_async - Write metadata asynchronously
+ * 
+ * Non-blocking version that submits all 5 copies without waiting.
+ * Caller must wait on context->all_copies_done or call cancel function.
+ */
+int dm_remap_write_metadata_v4_async(struct block_device *bdev,
+                                     struct dm_remap_metadata_v4 *metadata,
+                                     struct dm_remap_async_metadata_context *context)
+{
+	const sector_t copy_sectors[] = DM_REMAP_V4_COPY_SECTORS;
+	int i, ret = 0;
+	int submitted = 0;
+	
+	DMR_DEBUG(2, "Starting async metadata write to 5 copies");
+	
+	mutex_lock(&dm_remap_metadata_mutex);
+	
+	/* Update metadata header (same as sync version) */
+	metadata->header.magic = DM_REMAP_METADATA_V4_MAGIC;
+	metadata->header.version = DM_REMAP_METADATA_V4_VERSION;
+	metadata->header.sequence_number = atomic64_inc_return(&dm_remap_global_sequence);
+	metadata->header.timestamp = ktime_get_real_seconds();
+	metadata->header.structure_size = sizeof(*metadata);
+	metadata->header.metadata_checksum = calculate_metadata_crc32(metadata);
+	
+	/* Set pending counter to 5 (will submit 5 bios) */
+	atomic_set(&context->copies_pending, 5);
+	
+	/* Submit all 5 copies */
+	for (i = 0; i < 5; i++) {
+		struct bio *bio;
+		struct page *page;
+		void *page_data;
+		
+		/* Allocate page for this copy */
+		page = alloc_page(GFP_KERNEL);
+		if (!page) {
+			DMR_ERROR("Failed to allocate page for metadata copy %d", i);
+			ret = -ENOMEM;
+			goto cleanup_on_error;
+		}
+		context->pages[i] = page;
+		
+		/* Copy metadata to page */
+		page_data = kmap(page);
+		metadata->header.copy_index = i;
+		memcpy(page_data, metadata, sizeof(*metadata));
+		memset((uint8_t*)page_data + sizeof(*metadata), 0, 
+		       PAGE_SIZE - sizeof(*metadata));
+		kunmap(page);
+		
+		/* Create bio for async write */
+		bio = bio_alloc(bdev, 1, REQ_OP_WRITE | REQ_SYNC | REQ_FUA, GFP_KERNEL);
+		if (!bio) {
+			DMR_ERROR("Failed to allocate bio for metadata copy %d", i);
+			ret = -ENOMEM;
+			goto cleanup_on_error;
+		}
+		context->bios[i] = bio;
+		
+		bio->bi_iter.bi_sector = copy_sectors[i];
+		bio->bi_private = context;
+		bio->bi_end_io = dm_remap_metadata_write_endio;
+		bio_add_page(bio, page, PAGE_SIZE, 0);
+		
+		/* Submit bio - non-blocking */
+		submit_bio(bio);
+		submitted++;
+		
+		DMR_DEBUG(3, "Submitted async metadata copy %d to sector %llu",
+		          i, copy_sectors[i]);
+	}
+	
+	mutex_unlock(&dm_remap_metadata_mutex);
+	
+	DMR_DEBUG(2, "All %d metadata copies submitted successfully", submitted);
+	return 0;
+
+cleanup_on_error:
+	/* Adjust pending counter for copies we didn't submit */
+	atomic_sub(5 - submitted, &context->copies_pending);
+	
+	/* If we didn't submit any, signal completion immediately */
+	if (submitted == 0) {
+		atomic_set(&context->error_occurred, ret);
+		complete(&context->all_copies_done);
+	}
+	
+	mutex_unlock(&dm_remap_metadata_mutex);
+	
+	DMR_ERROR("Async metadata write failed: submitted=%d/%d, error=%d",
+	          submitted, 5, ret);
+	return ret;
+}
+EXPORT_SYMBOL(dm_remap_write_metadata_v4_async);
+
+/**
+ * dm_remap_wait_metadata_write - Wait for async metadata write completion
+ */
+int dm_remap_wait_metadata_write(struct dm_remap_async_metadata_context *context,
+                                 unsigned int timeout_ms)
+{
+	unsigned long timeout_jiffies = timeout_ms ? msecs_to_jiffies(timeout_ms) : MAX_SCHEDULE_TIMEOUT;
+	unsigned long ret_jiffies;
+	
+	DMR_DEBUG(3, "Waiting for async metadata write (timeout=%u ms)", timeout_ms);
+	
+	ret_jiffies = wait_for_completion_timeout(&context->all_copies_done, timeout_jiffies);
+	
+	if (ret_jiffies == 0) {
+		DMR_ERROR("Metadata write timeout after %u ms", timeout_ms);
+		context->timeout_expired = true;
+		return -ETIMEDOUT;
+	}
+	
+	/* Check if any errors occurred */
+	int error = atomic_read(&context->error_occurred);
+	if (error) {
+		DMR_ERROR("Metadata write failed with error: %d", error);
+		return error;
+	}
+	
+	DMR_DEBUG(2, "Async metadata write completed successfully");
+	return 0;
+}
+EXPORT_SYMBOL(dm_remap_wait_metadata_write);
+
+/**
+ * dm_remap_cancel_metadata_write - Cancel in-flight async metadata write
+ * 
+ * Sets cancellation flag and waits for all bios to complete.
+ * Safe to call from presuspend hook.
+ */
+int dm_remap_cancel_metadata_write(struct dm_remap_async_metadata_context *context)
+{
+	unsigned long timeout_jiffies = msecs_to_jiffies(5000); /* 5 second timeout */
+	unsigned long ret_jiffies;
+	
+	DMR_DEBUG(2, "Cancelling async metadata write");
+	
+	/* Set cancellation flag - completion handler will see this */
+	atomic_set(&context->write_cancelled, 1);
+	
+	/* Wait for all in-flight bios to complete (with timeout) */
+	ret_jiffies = wait_for_completion_timeout(&context->all_copies_done, timeout_jiffies);
+	
+	if (ret_jiffies == 0) {
+		DMR_ERROR("Metadata write cancellation timeout - bios still in-flight");
+		context->timeout_expired = true;
+		return -ETIMEDOUT;
+	}
+	
+	DMR_DEBUG(2, "Metadata write successfully cancelled");
+	return 0;
+}
+EXPORT_SYMBOL(dm_remap_cancel_metadata_write);
 
 /* Module initialization and cleanup */
 int dm_remap_metadata_v4_init(void)
