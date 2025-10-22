@@ -1708,17 +1708,15 @@ static void dm_remap_presuspend_v4_real(struct dm_target *ti)
         atomic_set(&device->async_metadata_ctx.write_cancelled, 1);
     }
     
-    /* v4.1: NOW we can safely wait for work to finish!
-     * cancel_work_sync() waits for running work, but it's safe because:
-     * 1. device_active=0 causes work to exit early at checkpoints
-     * 2. Async I/O cancellation has been signaled (bios will complete soon)
-     * 3. Work function will exit from wait when bios complete
+    /* v4.1: Just cancel work (non-blocking)
+     * DON'T use cancel_work_sync() - it can deadlock if work is queued but not running.
+     * Instead, we'll let destroy_workqueue() in destructor handle cleanup properly.
      */
-    DMR_INFO("Presuspend: waiting for work items to complete");
-    cancel_work_sync(&device->metadata_sync_work);
-    cancel_work_sync(&device->error_analysis_work);
-    cancel_delayed_work_sync(&device->health_scan_work);
-    DMR_INFO("Presuspend: all work items stopped");
+    DMR_INFO("Presuspend: cancelling work items (non-blocking)");
+    cancel_work(&device->metadata_sync_work);
+    cancel_work(&device->error_analysis_work);
+    cancel_delayed_work(&device->health_scan_work);
+    DMR_INFO("Presuspend: work cancellation signaled");
     
     DMR_INFO("Presuspend: freeing %u remap entries", device->remap_count_active);
     
@@ -1772,9 +1770,13 @@ static void dm_remap_dtr_v4_real(struct dm_target *ti)
      * No more workqueue leak!
      */
     if (device->metadata_workqueue) {
-        DMR_INFO("Destructor: destroying workqueue (safe with async I/O)");
+        DMR_INFO("Destructor: draining and destroying workqueue");
+        /* First drain any pending work */
+        drain_workqueue(device->metadata_workqueue);
+        /* Then destroy the workqueue */
         destroy_workqueue(device->metadata_workqueue);
         device->metadata_workqueue = NULL;
+        DMR_INFO("Destructor: workqueue destroyed successfully");
     }
     
     /* NOTE: Remaps already freed in presuspend */
