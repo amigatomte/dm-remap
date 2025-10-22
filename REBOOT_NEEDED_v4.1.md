@@ -1,78 +1,63 @@
-# v4.1 Development - Reboot Required #2
+# v4.1 Development - Reboot Required #3
 
 **Date:** October 22, 2025  
 **Branch:** v4.1-async-io  
-**Reason:** Fixed deadlock issues, need clean reboot to test
+**Reason:** cancel_work_sync() deadlock, switched to drain_workqueue() approach
 
-## What happened - Multiple deadlock issues found and fixed
+## What happened - THREE iterations of deadlock fixes
 
-### Iteration 1: Workqueue not cancelled
+### Iteration 1: Workqueue not cancelled properly
 - Used `cancel_work()` instead of `cancel_work_sync()`
 - Destructor hung at `destroy_workqueue()`
 
-### Iteration 2: Deadlock on cancel
+### Iteration 2: Deadlock in cancellation
 - Work function held mutex while waiting for async I/O
 - Presuspend called `dm_remap_cancel_metadata_write()` which ALSO waits
-- Result: presuspend waits for work, work waits for cancel, cancel waits for completion
-- **DEADLOCK!**
+- Result: circular wait deadlock
 
-## Final Fix - Three critical changes
+### Iteration 3: cancel_work_sync() hangs on queued work  
+- Presuspend used `cancel_work_sync()` which waits for work
+- But work was queued and NOT running yet
+- `cancel_work_sync()` blocks waiting for work that will never run (device_active=0)
+- **NEW DEADLOCK!**
 
-### 1. Release mutex before waiting (in work function)
+## Final Fix - drain_workqueue() approach
+
+Instead of trying to cancel work synchronously, let the destructor handle it:
+
+### Presuspend (non-blocking)
 ```c
-// Submit async I/O
-dm_remap_write_metadata_v4_async(...);
+// Set device inactive
+atomic_set(&device->device_active, 0);
 
-// CRITICAL: Release mutex BEFORE waiting
-mutex_unlock(&device->metadata_mutex);
-
-// Wait for async I/O (cancellable)
-dm_remap_wait_metadata_write(...);
-
-// Cleanup and re-acquire
-mutex_lock(&device->metadata_mutex);
-```
-
-### 2. Just signal cancellation (in presuspend)
-```c
-// DON'T call dm_remap_cancel_metadata_write() - it waits!
-// Just set the atomic flag directly:
+// Signal async I/O cancellation (just the flag!)
 atomic_set(&device->async_metadata_ctx.write_cancelled, 1);
+
+// Cancel work (non-blocking - just marks as cancelled)
+cancel_work(&device->metadata_sync_work);
 ```
 
-### 3. Use cancel_work_sync (in presuspend)
+### Destructor (blocking cleanup)
 ```c
-// Now safe because work can exit from wait
-cancel_work_sync(&device->metadata_sync_work);
+// Drain all pending/running work
+drain_workqueue(device->metadata_workqueue);
+
+// Destroy the workqueue
+destroy_workqueue(device->metadata_workqueue);
 ```
 
-## After reboot
-
-Run the test again:
-```bash
-cd /home/christian/kernel_dev/dm-remap
-sudo bash tests/test_v4.0.5_baseline.sh
-```
-
-**Expected result:** Clean device removal, no workqueue leak, destructor completes immediately.
+### Why this works
+1. **Presuspend is non-blocking** - just signals cancellation
+2. **drain_workqueue() is designed for this** - handles queued, running, and completed work
+3. **No circular waits** - destructor waits, but nothing waits on destructor
+4. **Work exits cleanly** - sees device_active=0 and cancelled flag
 
 ## Commits ready to test
 
 - `41ff167` - v4.1: Implement async metadata I/O API
 - `3489c2d` - v4.1: Complete async I/O integration  
 - `f2af120` - v4.1: Fix presuspend to use cancel_work_sync()
-- `f88f116` - v4.1: Fix deadlock - release mutex before waiting ← **LATEST**
+- `f88f116` - v4.1: Fix deadlock - release mutex before waiting
+- `eabb808` - v4.1: Back to cancel_work() + drain_workqueue() ← **LATEST**
 
-**Status:** Deadlock fixes applied, ready for testing after reboot ✓
-
-## How the fix works
-
-1. Work function submits async I/O (non-blocking)
-2. Work releases mutex and waits for completion
-3. Device removal triggers presuspend:
-   - Sets device_active=0
-   - Sets write_cancelled=1 (just the flag, no waiting!)
-4. In-flight bios complete (see cancel flag, exit quickly)
-5. Work function's wait returns
-6. cancel_work_sync() succeeds
-7. Workqueue destroyed cleanly!
+**Status:** drain_workqueue approach implemented, ready for testing after reboot ✓
