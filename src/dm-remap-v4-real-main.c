@@ -249,6 +249,10 @@ struct dm_remap_device_v4_real {
     struct work_struct error_analysis_work; /* Deferred error pattern analysis */
     sector_t pending_error_sector; /* Sector pending error analysis */
     
+    /* v4.1 Async metadata I/O */
+    struct dm_remap_async_metadata_context async_metadata_ctx; /* Async metadata write context */
+    atomic_t metadata_write_in_progress; /* Flag for in-flight async writes */
+    
     /* Statistics - Enhanced */
     atomic64_t read_count;
     atomic64_t write_count;
@@ -638,12 +642,14 @@ static void dm_remap_handle_io_error(struct dm_remap_device_v4_real *device,
 }
 
 /**
- * dm_remap_sync_metadata_work() - Background metadata synchronization
+ * dm_remap_sync_metadata_work() - Background metadata synchronization (v4.1 async)
  */
 static void dm_remap_sync_metadata_work(struct work_struct *work)
 {
     struct dm_remap_device_v4_real *device = 
         container_of(work, struct dm_remap_device_v4_real, metadata_sync_work);
+    struct block_device *bdev;
+    int ret;
     
     /* CRITICAL: Check if device is being destroyed BEFORE doing ANY work */
     if (!atomic_read(&device->device_active)) {
@@ -682,15 +688,57 @@ static void dm_remap_sync_metadata_work(struct work_struct *work)
     device->metadata.metadata_crc = dm_remap_calculate_crc32(&device->metadata,
                                                             sizeof(device->metadata));
     
-    /* Write persistent metadata to spare device */
-    if (device->persistent_metadata) {
-        int ret = dm_remap_write_persistent_metadata(device);
-        if (ret) {
-            DMR_ERROR("Failed to write persistent metadata: %d", ret);
-            /* Don't mark as clean if write failed */
+    /* Write persistent metadata to spare device ASYNCHRONOUSLY */
+    if (device->persistent_metadata && device->spare_dev) {
+        /* Sync current state to persistent metadata */
+        dm_remap_sync_persistent_metadata(device);
+        
+        /* Get block device from file */
+        bdev = file_bdev(device->spare_dev);
+        if (!bdev) {
+            DMR_ERROR("Failed to get block device from spare device file");
             mutex_unlock(&device->metadata_mutex);
             return;
         }
+        
+        /* Check one more time before I/O */
+        if (!atomic_read(&device->device_active)) {
+            DMR_DEBUG(2, "Metadata sync aborted before async I/O - device inactive");
+            mutex_unlock(&device->metadata_mutex);
+            return;
+        }
+        
+        /* Mark write as in-progress */
+        atomic_set(&device->metadata_write_in_progress, 1);
+        
+        /* Reinitialize async context for new write */
+        dm_remap_init_async_context(&device->async_metadata_ctx);
+        
+        /* Submit async write (non-blocking) */
+        ret = dm_remap_write_metadata_v4_async(bdev, device->persistent_metadata,
+                                               &device->async_metadata_ctx);
+        if (ret) {
+            DMR_ERROR("Failed to submit async metadata write: %d", ret);
+            atomic_set(&device->metadata_write_in_progress, 0);
+            mutex_unlock(&device->metadata_mutex);
+            return;
+        }
+        
+        /* Wait for completion with timeout (can be cancelled by presuspend) */
+        ret = dm_remap_wait_metadata_write(&device->async_metadata_ctx, 5000); /* 5 sec timeout */
+        
+        /* Clean up async context */
+        dm_remap_cleanup_async_context(&device->async_metadata_ctx);
+        atomic_set(&device->metadata_write_in_progress, 0);
+        
+        if (ret) {
+            DMR_ERROR("Async metadata write failed: %d", ret);
+            mutex_unlock(&device->metadata_mutex);
+            return;
+        }
+        
+        DMR_INFO("Wrote metadata asynchronously with %u remaps",
+                 device->persistent_metadata->remap_data.active_remaps);
     }
     
     /* Mark as clean after successful write */
@@ -1507,6 +1555,10 @@ static int dm_remap_ctr_v4_real(struct dm_target *ti, unsigned int argc, char **
     INIT_WORK(&device->metadata_sync_work, dm_remap_sync_metadata_work);
     INIT_WORK(&device->error_analysis_work, dm_remap_error_analysis_work);
     
+    /* Initialize v4.1 async metadata context */
+    dm_remap_init_async_context(&device->async_metadata_ctx);
+    atomic_set(&device->metadata_write_in_progress, 0);
+    
     /* Initialize statistics */
     atomic64_set(&device->read_count, 0);
     atomic64_set(&device->write_count, 0);  
@@ -1639,14 +1691,22 @@ static void dm_remap_presuspend_v4_real(struct dm_target *ti)
     /* CRITICAL: Mark device inactive FIRST so running work items will exit */
     atomic_set(&device->device_active, 0);
     
+    /* v4.1: Cancel any in-flight async metadata writes */
+    if (atomic_read(&device->metadata_write_in_progress)) {
+        DMR_INFO("Presuspend: cancelling in-flight async metadata write");
+        dm_remap_cancel_metadata_write(&device->async_metadata_ctx);
+        dm_remap_cleanup_async_context(&device->async_metadata_ctx);
+        atomic_set(&device->metadata_write_in_progress, 0);
+    }
+    
     /* CRITICAL: Don't wait for ANY work to finish!
      * cancel_work() marks work as cancelled (won't run if queued)
      * We do NOT call cancel_work_sync() or drain_workqueue() because
      * they BLOCK waiting for running work to finish, but running work
      * may be blocked trying to access devices being removed = DEADLOCK!
      * 
-     * Just mark work as cancelled. The destructor will destroy the
-     * workqueue which will clean up any stuck work items.
+     * With v4.1 async I/O, work can be safely cancelled even if in-progress
+     * because we use non-blocking bio submission with cancellation support.
      */
     cancel_work(&device->metadata_sync_work);
     cancel_work(&device->error_analysis_work);
@@ -1697,19 +1757,15 @@ static void dm_remap_dtr_v4_real(struct dm_target *ti)
         kfree(device->perf_optimizer.cache_entries);
     }
     
-    /* Destroy workqueue - CANNOT be done safely if work is stuck in I/O
+    /* v4.1: Destroy workqueue - NOW SAFE with async I/O!
      * 
-     * PROBLEM: If metadata_sync_work is stuck in dm_remap_write_metadata_v4()
-     * doing synchronous I/O to the spare device, and we're removing that device,
-     * destroy_workqueue() will block forever waiting for the I/O to complete.
-     * 
-     * SOLUTION: Leak the workqueue. The kernel will clean it up on module unload.
-     * This is the only safe way to handle work items stuck in blocking I/O to
-     * devices being torn down.
+     * With v4.1, async metadata writes can be cancelled without blocking,
+     * so presuspend can safely cancel any in-flight writes before we get here.
+     * No more workqueue leak!
      */
     if (device->metadata_workqueue) {
-        DMR_INFO("Destructor: skipping workqueue destroy (work may be stuck in I/O)");
-        /* Don't destroy - just NULL it out and let kernel clean up later */
+        DMR_INFO("Destructor: destroying workqueue (safe with async I/O)");
+        destroy_workqueue(device->metadata_workqueue);
         device->metadata_workqueue = NULL;
     }
     
