@@ -22,6 +22,7 @@
 #include <linux/proc_fs.h>
 #include <linux/seq_file.h>
 #include <linux/crc32.h>
+#include <linux/delay.h>  /* For msleep */
 
 #include "dm-remap-v4-compat.h"
 #include "../include/dm-remap-v4-stats.h"
@@ -291,7 +292,13 @@ struct dm_remap_device_v4_real {
     /* Device management */
     struct list_head device_list;
     atomic_t device_active;
+    atomic_t shutdown_in_progress;  /* Set in presuspend to stop all I/O */
+    atomic_t in_flight_ios;         /* Count of bios currently in flight */
+    atomic_t map_calls_during_shutdown;  /* DEBUG: Count map calls after shutdown flag */
     ktime_t creation_time;
+    
+    /* Bio cloning support for remapped I/O */
+    /* ITERATION 10: Removed bio_set - no longer using bio cloning */
     
     /* Performance tracking */
     ktime_t last_io_time;
@@ -329,23 +336,32 @@ static uint32_t dm_remap_calculate_crc32(const void *data, size_t len)
 
 /**
  * dm_remap_find_remap_entry() - Find remap entry for given sector
+ * CRITICAL: Must hold remap_lock to prevent race with presuspend clearing list
  */
 static struct dm_remap_entry_v4 *dm_remap_find_remap_entry(
     struct dm_remap_device_v4_real *device, sector_t sector)
 {
     struct dm_remap_entry_v4 *entry;
+    struct dm_remap_entry_v4 *found = NULL;
+    
+    /* CRITICAL FIX: Hold spinlock during list iteration to prevent corruption */
+    spin_lock(&device->remap_lock);
     
     list_for_each_entry(entry, &device->remap_list, list) {
         if (entry->original_sector == sector) {
-            return entry;
+            found = entry;
+            break;
         }
     }
     
-    return NULL;
+    spin_unlock(&device->remap_lock);
+    
+    return found;
 }
 
 /**
  * dm_remap_sync_persistent_metadata() - Sync in-memory remaps to persistent metadata
+ * CRITICAL: Must hold remap_lock during list iteration
  */
 static void dm_remap_sync_persistent_metadata(struct dm_remap_device_v4_real *device)
 {
@@ -357,6 +373,9 @@ static void dm_remap_sync_persistent_metadata(struct dm_remap_device_v4_real *de
     
     /* Update remap table in persistent metadata */
     device->persistent_metadata->remap_data.active_remaps = 0;
+    
+    /* CRITICAL FIX: Hold spinlock during list iteration */
+    spin_lock(&device->remap_lock);
     
     list_for_each_entry(entry, &device->remap_list, list) {
         if (i >= DM_REMAP_V4_MAX_REMAPS) {
@@ -373,6 +392,8 @@ static void dm_remap_sync_persistent_metadata(struct dm_remap_device_v4_real *de
         i++;
     }
     
+    spin_unlock(&device->remap_lock);
+    
     device->persistent_metadata->remap_data.active_remaps = i;
     device->persistent_metadata->header.sequence_number++;
     device->persistent_metadata->header.timestamp = ktime_to_ns(ktime_get_real());
@@ -386,29 +407,53 @@ static int dm_remap_write_persistent_metadata(struct dm_remap_device_v4_real *de
     struct block_device *bdev;
     int ret;
     
-    if (!device->persistent_metadata || !device->spare_dev)
+    printk(KERN_CRIT "dm-remap CRASH-DEBUG: write_persistent_metadata START\n");
+    
+    printk(KERN_CRIT "dm-remap CRASH-DEBUG: write_persistent_metadata checking pointers\n");
+    printk(KERN_CRIT "dm-remap CRASH-DEBUG: write_persistent_metadata device=%p\n", device);
+    printk(KERN_CRIT "dm-remap CRASH-DEBUG: write_persistent_metadata persistent_metadata=%p\n", 
+           device->persistent_metadata);
+    printk(KERN_CRIT "dm-remap CRASH-DEBUG: write_persistent_metadata spare_dev=%p\n", 
+           device->spare_dev);
+    
+    if (!device->persistent_metadata || !device->spare_dev) {
+        printk(KERN_CRIT "dm-remap CRASH-DEBUG: write_persistent_metadata NULL pointer, returning -EINVAL\n");
         return -EINVAL;
+    }
     
     /* Sync current state to persistent metadata */
+    printk(KERN_CRIT "dm-remap CRASH-DEBUG: write_persistent_metadata before dm_remap_sync_persistent_metadata\n");
     dm_remap_sync_persistent_metadata(device);
+    printk(KERN_CRIT "dm-remap CRASH-DEBUG: write_persistent_metadata after dm_remap_sync_persistent_metadata\n");
     
     /* Get block device from file */
+    printk(KERN_CRIT "dm-remap CRASH-DEBUG: write_persistent_metadata before file_bdev(spare_dev)\n");
     bdev = file_bdev(device->spare_dev);
+    printk(KERN_CRIT "dm-remap CRASH-DEBUG: write_persistent_metadata after file_bdev, bdev=%p\n", bdev);
+    
     if (!bdev) {
         DMR_ERROR("Failed to get block device from spare device file");
+        printk(KERN_CRIT "dm-remap CRASH-DEBUG: write_persistent_metadata bdev is NULL, returning -EINVAL\n");
         return -EINVAL;
     }
     
     /* Write to spare device using v4 metadata module */
+    printk(KERN_CRIT "dm-remap CRASH-DEBUG: write_persistent_metadata *** CALLING dm_remap_write_metadata_v4 ***\n");
+    printk(KERN_CRIT "dm-remap CRASH-DEBUG: write_persistent_metadata bdev=%p, metadata=%p\n", 
+           bdev, device->persistent_metadata);
     ret = dm_remap_write_metadata_v4(bdev, device->persistent_metadata);
+    printk(KERN_CRIT "dm-remap CRASH-DEBUG: write_persistent_metadata *** RETURNED from dm_remap_write_metadata_v4, ret=%d ***\n", ret);
+    
     if (ret) {
         DMR_ERROR("Failed to write metadata: %d", ret);
+        printk(KERN_CRIT "dm-remap CRASH-DEBUG: write_persistent_metadata failed, returning %d\n", ret);
         return ret;
     }
     
     DMR_INFO("Wrote metadata with %u remaps",
              device->persistent_metadata->remap_data.active_remaps);
     
+    printk(KERN_CRIT "dm-remap CRASH-DEBUG: write_persistent_metadata SUCCESS, returning 0\n");
     return 0;
 }
 
@@ -504,44 +549,77 @@ static int dm_remap_add_remap_entry(struct dm_remap_device_v4_real *device,
 {
     struct dm_remap_entry_v4 *entry;
     
+    printk(KERN_WARNING "dm-remap CRASH-DEBUG: add_remap_entry START sector=%llu->%llu\n",
+           (unsigned long long)original_sector, (unsigned long long)spare_sector);
+    
     /* Check if entry already exists */
+    printk(KERN_WARNING "dm-remap CRASH-DEBUG: before find_remap_entry\n");
     entry = dm_remap_find_remap_entry(device, original_sector);
+    printk(KERN_WARNING "dm-remap CRASH-DEBUG: after find_remap_entry, entry=%p\n", entry);
+    
     if (entry) {
         DMR_WARN("Remap entry already exists for sector %llu",
                  (unsigned long long)original_sector);
+        printk(KERN_WARNING "dm-remap CRASH-DEBUG: entry exists, returning -EEXIST\n");
         return -EEXIST;
     }
     
     /* Allocate new entry */
+    printk(KERN_WARNING "dm-remap CRASH-DEBUG: before kzalloc\n");
     entry = kzalloc(sizeof(*entry), GFP_KERNEL);
+    printk(KERN_WARNING "dm-remap CRASH-DEBUG: after kzalloc, entry=%p\n", entry);
+    
     if (!entry) {
+        printk(KERN_WARNING "dm-remap CRASH-DEBUG: kzalloc failed, returning -ENOMEM\n");
         return -ENOMEM;
     }
     
     /* Initialize entry */
+    printk(KERN_WARNING "dm-remap CRASH-DEBUG: initializing entry fields\n");
     entry->original_sector = original_sector;
+    printk(KERN_WARNING "dm-remap CRASH-DEBUG: set original_sector\n");
     entry->spare_sector = spare_sector;
+    printk(KERN_WARNING "dm-remap CRASH-DEBUG: set spare_sector\n");
     entry->remap_time = ktime_to_ns(ktime_get_real());
+    printk(KERN_WARNING "dm-remap CRASH-DEBUG: set remap_time\n");
     entry->error_count = 1;
+    printk(KERN_WARNING "dm-remap CRASH-DEBUG: set error_count\n");
     entry->flags = 0;
+    printk(KERN_WARNING "dm-remap CRASH-DEBUG: set flags\n");
     
     /* Add to remap list */
+    printk(KERN_WARNING "dm-remap CRASH-DEBUG: before spin_lock\n");
     spin_lock(&device->remap_lock);
+    printk(KERN_WARNING "dm-remap CRASH-DEBUG: after spin_lock\n");
+    
+    printk(KERN_WARNING "dm-remap CRASH-DEBUG: before list_add_tail\n");
     list_add_tail(&entry->list, &device->remap_list);
+    printk(KERN_WARNING "dm-remap CRASH-DEBUG: after list_add_tail\n");
+    
+    printk(KERN_WARNING "dm-remap CRASH-DEBUG: incrementing remap_count_active\n");
     device->remap_count_active++;
+    printk(KERN_WARNING "dm-remap CRASH-DEBUG: incrementing active_mappings\n");
     device->metadata.active_mappings++;
+    
+    printk(KERN_WARNING "dm-remap CRASH-DEBUG: before spin_unlock\n");
     spin_unlock(&device->remap_lock);
+    printk(KERN_WARNING "dm-remap CRASH-DEBUG: after spin_unlock\n");
     
     /* Update statistics */
-    dm_remap_stats_inc_remaps();  /* Update stats module */
+    printk(KERN_WARNING "dm-remap CRASH-DEBUG: stats disabled (module not loaded)\n");
+    /* dm_remap_stats_inc_remaps(); */  /* Disabled - stats module not loaded */
     
     DMR_INFO("Added remap entry: sector %llu -> %llu",
              (unsigned long long)original_sector,
              (unsigned long long)spare_sector);
     
     /* Mark metadata as dirty - will write on device shutdown */
+    printk(KERN_WARNING "dm-remap CRASH-DEBUG: before setting metadata_dirty\n");
     device->metadata_dirty = true;
+    printk(KERN_WARNING "dm-remap CRASH-DEBUG: after setting metadata_dirty, value=%d\n",
+           device->metadata_dirty);
     
+    printk(KERN_WARNING "dm-remap CRASH-DEBUG: add_remap_entry SUCCESS, returning 0\n");
     return 0;
 }
 
@@ -554,70 +632,112 @@ static void dm_remap_handle_io_error(struct dm_remap_device_v4_real *device,
     sector_t spare_sector;
     int result;
     
+    /* CRITICAL: Do not handle errors during shutdown - device is being torn down */
+    if (atomic_read(&device->shutdown_in_progress)) {
+        printk(KERN_CRIT "dm-remap CRASH-DEBUG: handle_io_error REJECTED - shutdown in progress\n");
+        return;
+    }
+    
+    printk(KERN_WARNING "dm-remap CRASH-DEBUG: handle_io_error START sector=%llu error=%d\n",
+           (unsigned long long)failed_sector, error);
+    
     DMR_WARN("I/O error on sector %llu (error=%d), attempting automatic remap",
              (unsigned long long)failed_sector, error);
              
     /* Update error statistics */
+    printk(KERN_WARNING "dm-remap CRASH-DEBUG: before atomic64_inc\n");
     atomic64_inc(&device->stats.io_errors);
-    dm_remap_stats_inc_errors();  /* Update stats module */
+    /* dm_remap_stats_inc_errors(); */  /* Disabled - stats module not loaded */
+    printk(KERN_WARNING "dm-remap CRASH-DEBUG: after stats update\n");
     
     /* Phase 1.4: Defer error pattern analysis to avoid mutex deadlock
      * We cannot call dm_remap_analyze_error_pattern() directly from I/O
      * completion context because it takes mutexes which may already be held.
      * Instead, queue it to a workqueue for safe deferred execution.
+     * TEMPORARILY DISABLED: Workqueues may be causing crashes during testing
      */
+    printk(KERN_WARNING "dm-remap CRASH-DEBUG: error_analysis_work DISABLED for testing\n");
+    /*
+    printk(KERN_WARNING "dm-remap CRASH-DEBUG: before queue error_analysis_work\n");
     spin_lock(&device->remap_lock);
     device->pending_error_sector = failed_sector;
     spin_unlock(&device->remap_lock);
     queue_work(device->metadata_workqueue, &device->error_analysis_work);
+    printk(KERN_WARNING "dm-remap CRASH-DEBUG: after queue error_analysis_work\n");
+    */
     
     /* Check if sector is already remapped */
+    printk(KERN_WARNING "dm-remap CRASH-DEBUG: checking if already remapped\n");
     if (dm_remap_find_remap_entry(device, failed_sector) != NULL) {
         DMR_ERROR("Sector %llu already remapped but still failing",
                   (unsigned long long)failed_sector);
+        printk(KERN_WARNING "dm-remap CRASH-DEBUG: already remapped, returning\n");
         return;
     }
+    printk(KERN_WARNING "dm-remap CRASH-DEBUG: not already remapped\n");
     
     /* Find available spare sector */
+    printk(KERN_WARNING "dm-remap CRASH-DEBUG: finding spare sector\n");
     spin_lock(&device->remap_lock);
     
     if (device->next_spare_sector >= device->spare_sector_count) {
         spin_unlock(&device->remap_lock);
         DMR_ERROR("No spare sectors available for remapping sector %llu",
                   (unsigned long long)failed_sector);
+        printk(KERN_WARNING "dm-remap CRASH-DEBUG: no spare sectors, returning\n");
         return;
     }
     
     spare_sector = device->next_spare_sector++;
     spin_unlock(&device->remap_lock);
+    printk(KERN_WARNING "dm-remap CRASH-DEBUG: found spare sector %llu\n",
+           (unsigned long long)spare_sector);
     
     /* Add remap entry */
+    printk(KERN_WARNING "dm-remap CRASH-DEBUG: about to call dm_remap_add_remap_entry\n");
     result = dm_remap_add_remap_entry(device, failed_sector, spare_sector);
+    printk(KERN_WARNING "dm-remap CRASH-DEBUG: returned from dm_remap_add_remap_entry, result=%d\n", result);
+    
     if (result != 0) {
         DMR_ERROR("Failed to add remap entry for sector %llu -> %llu (error=%d)",
                   (unsigned long long)failed_sector,
                   (unsigned long long)spare_sector, result);
         
+        printk(KERN_WARNING "dm-remap CRASH-DEBUG: add failed, returning spare sector\n");
         /* Return spare sector to pool */
         spin_lock(&device->remap_lock);
         device->next_spare_sector--;
         spin_unlock(&device->remap_lock);
+        printk(KERN_WARNING "dm-remap CRASH-DEBUG: returned spare sector, exiting\n");
         return;
     }
     
+    printk(KERN_WARNING "dm-remap CRASH-DEBUG: before atomic64_inc remapped_sectors\n");
     /* Update statistics */
     atomic64_inc(&device->stats.remapped_sectors);
+    printk(KERN_WARNING "dm-remap CRASH-DEBUG: after atomic64_inc remapped_sectors\n");
     
     /* Mark metadata as dirty for background sync */
+    printk(KERN_WARNING "dm-remap CRASH-DEBUG: before mutex_lock metadata_mutex\n");
     mutex_lock(&device->metadata_mutex);
+    printk(KERN_WARNING "dm-remap CRASH-DEBUG: after mutex_lock, setting metadata_dirty\n");
     device->metadata_dirty = true;
+    printk(KERN_WARNING "dm-remap CRASH-DEBUG: before mutex_unlock\n");
     mutex_unlock(&device->metadata_mutex);
+    printk(KERN_WARNING "dm-remap CRASH-DEBUG: after mutex_unlock\n");
     
     /* Schedule metadata sync */
-    queue_work(device->metadata_workqueue, &device->metadata_sync_work);
+    /* TEMPORARILY DISABLED: This workqueue may be causing crashes during testing
+     * printk(KERN_WARNING "dm-remap CRASH-DEBUG: before queue_work metadata_sync_work\n");
+     * queue_work(device->metadata_workqueue, &device->metadata_sync_work);
+     * printk(KERN_WARNING "dm-remap CRASH-DEBUG: after queue_work metadata_sync_work\n");
+     */
+    printk(KERN_WARNING "dm-remap CRASH-DEBUG: metadata_sync_work DISABLED for testing\n");
     
     /* Phase 1.4: Add to remap cache for fast lookup */
+    printk(KERN_WARNING "dm-remap CRASH-DEBUG: before dm_remap_cache_insert\n");
     dm_remap_cache_insert(device, failed_sector, spare_sector);
+    printk(KERN_WARNING "dm-remap CRASH-DEBUG: after dm_remap_cache_insert\n");
     
     DMR_INFO("Successfully remapped failed sector %llu -> %llu",
              (unsigned long long)failed_sector,
@@ -1203,6 +1323,11 @@ static void dm_remap_initialize_metadata_v4_real(struct dm_remap_device_v4_real 
               meta->metadata_size, meta->device_fingerprint);
 }
 
+/* 
+ * ITERATION 10: Removed bio cloning completion callback
+ * Using simple bio_disassociate_blkg() + bio_set_dev() approach instead
+ */
+
 /**
  * dm_remap_map_v4_real() - Enhanced real device I/O mapping with optimization
  */
@@ -1215,6 +1340,34 @@ static int dm_remap_map_v4_real(struct dm_target *ti, struct bio *bio)
     ktime_t start_time = ktime_get();
     ktime_t io_time;
     uint64_t throughput;
+    static atomic_t total_map_calls = ATOMIC_INIT(0);
+    int map_call_count = atomic_inc_return(&total_map_calls);
+    
+    /* Only log every 1000 calls or first 10 calls to reduce log spam */
+    if (map_call_count <= 10 || map_call_count % 1000 == 0) {
+        printk(KERN_CRIT "dm-remap CRASH-DEBUG: MAP-ENTRY #%d sector=%llu read=%d device=%p\n",
+               map_call_count, (unsigned long long)sector, is_read, device);
+    }
+    
+    /* CRITICAL: Reject all I/O if shutdown is in progress */
+    if (atomic_read(&device->shutdown_in_progress)) {
+        int call_count = atomic_inc_return(&device->map_calls_during_shutdown);
+        printk(KERN_CRIT "dm-remap CRASH-DEBUG: MAP CALL #%d DURING SHUTDOWN - RETURNING DM_MAPIO_KILL\n", call_count);
+        
+        if (call_count > 100) {
+            printk(KERN_CRIT "dm-remap CRASH-DEBUG: *** INFINITE LOOP DETECTED - %d MAP CALLS DURING SHUTDOWN ***\n", call_count);
+            printk(KERN_CRIT "dm-remap CRASH-DEBUG: *** FORCING KERNEL PANIC TO GET STACK TRACE ***\n");
+            /* Emergency: Force panic to get kernel trace */
+            panic("dm-remap: Infinite loop in map during shutdown - %d calls\n", call_count);
+        }
+        /* Return DM_MAPIO_KILL to tell device-mapper to stop this I/O immediately
+         * without resubmission. This should prevent infinite loops during removal.
+         */
+        return DM_MAPIO_KILL;
+    }
+    
+    /* Increment in-flight counter - this I/O is now tracked */
+    atomic_inc(&device->in_flight_ios);
     
     /* Validate I/O parameters */
     if (sector >= device->main_device_sectors) {
@@ -1233,11 +1386,11 @@ static int dm_remap_map_v4_real(struct dm_target *ti, struct bio *bio)
     if (is_read) {
         atomic64_inc(&device->read_count);
         atomic64_inc(&global_reads);
-        dm_remap_stats_inc_reads();  /* Update stats module */
+        /* dm_remap_stats_inc_reads(); */  /* Disabled - stats module not loaded */
     } else {
         atomic64_inc(&device->write_count);
         atomic64_inc(&global_writes);
-        dm_remap_stats_inc_writes();  /* Update stats module */
+        /* dm_remap_stats_inc_writes(); */  /* Disabled - stats module not loaded */
     }
     
     atomic64_inc(&device->io_operations);
@@ -1251,17 +1404,27 @@ static int dm_remap_map_v4_real(struct dm_target *ti, struct bio *bio)
     sector_t cached_remap = 0;
     if (device->perf_optimizer.fast_path_enabled) {
         cached_remap = dm_remap_cache_lookup(device, sector);
+        
         if (cached_remap > 0) {
-            /* Fast path: use cached remap */
+            /* Fast path: use cached remap - SAME approach as slow path */
+            printk(KERN_CRIT "dm-remap CRASH-DEBUG: FAST-PATH remap %llu->%llu\n",
+                   (unsigned long long)sector, (unsigned long long)cached_remap);
+            
             atomic64_inc(&device->stats.remapped_ios);
             
             DMR_DEBUG(3, "Fast path remap: sector %llu -> %llu (cached)",
                       (unsigned long long)sector, (unsigned long long)cached_remap);
             
-            if (real_device_mode && device->spare_dev) {
-                bio_set_dev(bio, file_bdev(device->spare_dev));
-                bio->bi_iter.bi_sector = cached_remap;
-            }
+            /* ITERATION 11: NO bio redirection in map() function!
+             * Let the I/O go to main device naturally. If it fails due to bad sector,
+             * we'll handle the spare device read in the end_io() callback.
+             * This avoids all bio redirection issues that caused kernel crashes.
+             */
+            printk(KERN_CRIT "dm-remap FAST-PATH: Found cached remap %llu->%llu, but letting I/O go to main device first\n",
+                   (unsigned long long)sector, (unsigned long long)cached_remap);
+            
+            /* Mark that this sector has a remap available for end_io() */
+            /* We'll increment remapped_ios counter in end_io() if the I/O actually fails */
             
             goto remap_complete;
         }
@@ -1280,31 +1443,26 @@ static int dm_remap_map_v4_real(struct dm_target *ti, struct bio *bio)
         
         /* Check if this sector has been remapped */
         remap_entry = dm_remap_find_remap_entry(device, sector);
+        
         if (remap_entry) {
-            /* Redirect to spare device */
-            target_bdev = file_bdev(device->spare_dev);
-            target_sector = remap_entry->spare_sector;
+            /* ITERATION 11: NO bio redirection in map() function!
+             * Even though this sector has a remap entry, we let the I/O go to the main device first.
+             * If it fails due to bad sectors, we'll handle the spare device read in end_io().
+             * This completely avoids the bio redirection crashes.
+             */
+            printk(KERN_CRIT "dm-remap SLOW-PATH: Found remap %llu->%llu, but letting I/O go to main device first\n",
+                   (unsigned long long)sector, (unsigned long long)remap_entry->spare_sector);
             
-            DMR_DEBUG(3, "Remapped I/O: sector %llu -> %llu (spare device)",
-                      (unsigned long long)sector,
-                      (unsigned long long)target_sector);
-            
-            /* Update remap statistics */
-            atomic64_inc(&device->stats.remapped_ios);
-            if (is_read) {
-                atomic64_inc(&device->remap_count);
-                atomic64_inc(&global_remaps);
-            }
+            /* Do NOT redirect the bio - let it go to main device naturally */
+            /* The end_io() callback will handle failures and spare device reads */
         } else {
-            /* Normal I/O to main device */
-            target_bdev = file_bdev(device->main_dev);
+            /* Normal I/O to main device - NO CHANGES NEEDED! 
+             * Device-mapper handles the device/sector automatically.
+             * We should NOT call bio_set_dev() for non-remapped I/O!
+             */
+            /* Do NOT modify bio - let device-mapper handle it */
             atomic64_inc(&device->stats.normal_ios);
         }
-        
-        /* Set target device and sector */
-        bio_set_dev(bio, target_bdev);
-        bio->bi_iter.bi_sector = target_sector;
-        
     } else {
         /* Demo mode - simulate successful I/O */
         DMR_DEBUG(3, "Demo mode I/O simulation");
@@ -1449,8 +1607,13 @@ static int dm_remap_ctr_v4_real(struct dm_target *ti, unsigned int argc, char **
     /* Initialize mutexes and structures */
     mutex_init(&device->metadata_mutex);
     atomic_set(&device->device_active, 1);
+    atomic_set(&device->shutdown_in_progress, 0);  /* Not shutting down yet */
+    atomic_set(&device->in_flight_ios, 0);         /* No I/O in flight yet */
+    atomic_set(&device->map_calls_during_shutdown, 0);  /* DEBUG counter */
     INIT_LIST_HEAD(&device->device_list);
     device->creation_time = ktime_get();
+    
+    /* ITERATION 10: Removed bio_set initialization - no longer using bio cloning */
     
     /* Initialize Phase 1.3 sector remapping */
     INIT_LIST_HEAD(&device->remap_list);
@@ -1460,6 +1623,7 @@ static int dm_remap_ctr_v4_real(struct dm_target *ti, unsigned int argc, char **
     device->next_spare_sector = 0;
     
     /* Initialize metadata sync workqueue */
+    /* DISABLED FOR TESTING - workqueue can cause deadlocks during device removal
     device->metadata_workqueue = alloc_workqueue("dm_remap_meta_sync", WQ_MEM_RECLAIM, 1);
     if (!device->metadata_workqueue) {
         DMR_ERROR("Failed to create metadata sync workqueue");
@@ -1474,6 +1638,8 @@ static int dm_remap_ctr_v4_real(struct dm_target *ti, unsigned int argc, char **
     }
     INIT_WORK(&device->metadata_sync_work, dm_remap_sync_metadata_work);
     INIT_WORK(&device->error_analysis_work, dm_remap_error_analysis_work);
+    */
+    device->metadata_workqueue = NULL;  /* Disabled for testing */
     
     /* Initialize statistics */
     atomic64_set(&device->read_count, 0);
@@ -1549,9 +1715,14 @@ static int dm_remap_ctr_v4_real(struct dm_target *ti, unsigned int argc, char **
      */
     DMR_INFO("Metadata reading deferred (avoiding constructor deadlock)");
     
-    /* Start background health monitoring */
-    schedule_delayed_work(&device->health_scan_work, 
-                         msecs_to_jiffies(device->health_monitor.scan_interval_seconds * 1000));
+    /* TEMPORARILY DISABLED: Background health monitoring
+     * The background scanner can cause crashes if it starts before the device
+     * is fully initialized. It performs I/O operations which can deadlock.
+     * TODO: Re-enable with proper safeguards after device initialization is complete.
+     */
+    // schedule_delayed_work(&device->health_scan_work, 
+    //                      msecs_to_jiffies(device->health_monitor.scan_interval_seconds * 1000));
+    DMR_INFO("Background health scanning disabled during testing");
     
     /* Set target length */
     ti->len = device->main_device_sectors;
@@ -1592,74 +1763,152 @@ error_cleanup:
 static void dm_remap_dtr_v4_real(struct dm_target *ti)
 {
     struct dm_remap_device_v4_real *device = ti->private;
+    struct dm_remap_entry_v4 *entry, *tmp;
+    
+    printk(KERN_CRIT "\n");
+    printk(KERN_CRIT "========================================================================\n");
+    printk(KERN_CRIT "dm-remap CRASH-DEBUG: *** DESTRUCTOR START ***\n");
+    printk(KERN_CRIT "========================================================================\n");
+    printk(KERN_CRIT "\n");
     
     if (!device) {
+        printk(KERN_CRIT "dm-remap CRASH-DEBUG: DESTRUCTOR device is NULL, returning\n");
         return;
+    }
+    
+    /* CRITICAL: Set shutdown flag IMMEDIATELY to stop all new I/O */
+    printk(KERN_CRIT "dm-remap CRASH-DEBUG: DESTRUCTOR setting shutdown flag NOW\n");
+    atomic_set(&device->shutdown_in_progress, 1);
+    printk(KERN_CRIT "dm-remap CRASH-DEBUG: DESTRUCTOR shutdown flag SET - all new I/O will be rejected\n");
+    
+    /* Wait a moment for any in-flight I/O to complete */
+    printk(KERN_CRIT "dm-remap CRASH-DEBUG: DESTRUCTOR waiting for in-flight I/O to drain\n");
+    msleep(100);  /* Wait 100ms for I/O to drain */
+    printk(KERN_CRIT "dm-remap CRASH-DEBUG: DESTRUCTOR wait complete, in_flight_ios=%d\n",
+           atomic_read(&device->in_flight_ios));
+    
+    printk(KERN_CRIT "dm-remap CRASH-DEBUG: DESTRUCTOR device=%p\n", device);
+    printk(KERN_CRIT "dm-remap CRASH-DEBUG: DESTRUCTOR remap_list.next=%p\n", device->remap_list.next);
+    printk(KERN_CRIT "dm-remap CRASH-DEBUG: DESTRUCTOR remap_list.prev=%p\n", device->remap_list.prev);
+    printk(KERN_CRIT "dm-remap CRASH-DEBUG: DESTRUCTOR remap_count_active=%u\n", device->remap_count_active);
+    
+    /* NOTE: Remaps are now cleared in presuspend hook to prevent crashes */
+    
+    /* Validate list integrity before proceeding */
+    if (device->remap_list.next == NULL || device->remap_list.prev == NULL) {
+        printk(KERN_CRIT "dm-remap CRASH-DEBUG: DESTRUCTOR *** LIST CORRUPTED - NULL POINTERS ***\n");
+    } else if (device->remap_count_active > 0 && list_empty(&device->remap_list)) {
+        printk(KERN_CRIT "dm-remap CRASH-DEBUG: DESTRUCTOR *** INCONSISTENCY - count=%u but list empty ***\n", 
+               device->remap_count_active);
+    } else {
+        printk(KERN_CRIT "dm-remap CRASH-DEBUG: DESTRUCTOR list appears valid\n");
     }
     
     DMR_INFO("Destroying real device target: main=%s, spare=%s",
              device->main_path, device->spare_path);
     
+    printk(KERN_CRIT "dm-remap CRASH-DEBUG: DESTRUCTOR before mark device inactive\n");
     /* Mark device as inactive */
     atomic_set(&device->device_active, 0);
+    printk(KERN_CRIT "dm-remap CRASH-DEBUG: DESTRUCTOR after mark device inactive\n");
     
     /* Remove from global device list */
+    printk(KERN_CRIT "dm-remap CRASH-DEBUG: DESTRUCTOR before mutex_lock devices_mutex\n");
     mutex_lock(&dm_remap_devices_mutex);
+    printk(KERN_CRIT "dm-remap CRASH-DEBUG: DESTRUCTOR after mutex_lock, before list_del\n");
     list_del(&device->device_list);
+    printk(KERN_CRIT "dm-remap CRASH-DEBUG: DESTRUCTOR after list_del, before atomic_dec\n");
     atomic_dec(&dm_remap_device_count);
+    printk(KERN_CRIT "dm-remap CRASH-DEBUG: DESTRUCTOR before mutex_unlock\n");
     mutex_unlock(&dm_remap_devices_mutex);
+    printk(KERN_CRIT "dm-remap CRASH-DEBUG: DESTRUCTOR after mutex_unlock\n");
     
     /* Phase 1.4 cleanup */
+    printk(KERN_CRIT "dm-remap CRASH-DEBUG: DESTRUCTOR before cancel_delayed_work_sync\n");
     cancel_delayed_work_sync(&device->health_scan_work);
+    printk(KERN_CRIT "dm-remap CRASH-DEBUG: DESTRUCTOR after cancel_delayed_work_sync\n");
     
     /* Free performance optimization cache */
+    printk(KERN_CRIT "dm-remap CRASH-DEBUG: DESTRUCTOR before free cache_entries\n");
     if (device->perf_optimizer.cache_entries) {
         kfree(device->perf_optimizer.cache_entries);
     }
+    printk(KERN_CRIT "dm-remap CRASH-DEBUG: DESTRUCTOR after free cache_entries\n");
     
     /* Phase 1.3 cleanup */
+    printk(KERN_CRIT "dm-remap CRASH-DEBUG: DESTRUCTOR before workqueue cleanup\n");
     if (device->metadata_workqueue) {
+        printk(KERN_CRIT "dm-remap CRASH-DEBUG: DESTRUCTOR before flush_workqueue\n");
         flush_workqueue(device->metadata_workqueue);
+        printk(KERN_CRIT "dm-remap CRASH-DEBUG: DESTRUCTOR after flush_workqueue\n");
+        printk(KERN_CRIT "dm-remap CRASH-DEBUG: DESTRUCTOR before destroy_workqueue\n");
         destroy_workqueue(device->metadata_workqueue);
+        printk(KERN_CRIT "dm-remap CRASH-DEBUG: DESTRUCTOR after destroy_workqueue\n");
     }
+    printk(KERN_CRIT "dm-remap CRASH-DEBUG: DESTRUCTOR after workqueue cleanup\n");
     
     /* Write persistent metadata if dirty (final save on shutdown) */
+    printk(KERN_CRIT "dm-remap CRASH-DEBUG: DESTRUCTOR before metadata write check\n");
     if (device->persistent_metadata && device->metadata_dirty && device->spare_dev) {
         DMR_INFO("Writing final metadata on device shutdown...");
+        printk(KERN_CRIT "dm-remap CRASH-DEBUG: DESTRUCTOR *** CALLING dm_remap_write_persistent_metadata ***\n");
         dm_remap_write_persistent_metadata(device);
+        printk(KERN_CRIT "dm-remap CRASH-DEBUG: DESTRUCTOR *** RETURNED from dm_remap_write_persistent_metadata ***\n");
     }
+    printk(KERN_CRIT "dm-remap CRASH-DEBUG: DESTRUCTOR after metadata write\n");
+    printk(KERN_CRIT "dm-remap CRASH-DEBUG: DESTRUCTOR after metadata write\n");
     
-    /* Free remap entries */
-    struct dm_remap_entry_v4 *entry, *tmp;
+    /* Free all remap entries */
+    printk(KERN_CRIT "dm-remap CRASH-DEBUG: DESTRUCTOR freeing remap entries\n");
+    spin_lock(&device->remap_lock);
     list_for_each_entry_safe(entry, tmp, &device->remap_list, list) {
+        printk(KERN_CRIT "dm-remap CRASH-DEBUG: DESTRUCTOR freeing remap sector %llu\n",
+               (unsigned long long)entry->original_sector);
         list_del(&entry->list);
         kfree(entry);
     }
+    spin_unlock(&device->remap_lock);
+    printk(KERN_CRIT "dm-remap CRASH-DEBUG: DESTRUCTOR remap entries freed\n");
     
     /* Free persistent metadata */
+    printk(KERN_CRIT "dm-remap CRASH-DEBUG: DESTRUCTOR before free persistent_metadata\n");
     if (device->persistent_metadata) {
         kfree(device->persistent_metadata);
     }
+    printk(KERN_CRIT "dm-remap CRASH-DEBUG: DESTRUCTOR after free persistent_metadata\n");
     
     /* Close real devices if opened */
+    printk(KERN_CRIT "dm-remap CRASH-DEBUG: DESTRUCTOR before close devices\n");
     if (real_device_mode) {
         if (device->main_dev) {
+            printk(KERN_CRIT "dm-remap CRASH-DEBUG: DESTRUCTOR before close main_dev\n");
             dm_remap_close_bdev_real(device->main_dev);
+            printk(KERN_CRIT "dm-remap CRASH-DEBUG: DESTRUCTOR after close main_dev\n");
         }
         if (device->spare_dev) {
-            dm_remap_close_bdev_real(device->spare_dev);  
+            printk(KERN_CRIT "dm-remap CRASH-DEBUG: DESTRUCTOR before close spare_dev\n");
+            dm_remap_close_bdev_real(device->spare_dev);
+            printk(KERN_CRIT "dm-remap CRASH-DEBUG: DESTRUCTOR after close spare_dev\n");
         }
     }
+    printk(KERN_CRIT "dm-remap CRASH-DEBUG: DESTRUCTOR after close devices\n");
+    
+    /* ITERATION 10: Removed bio_set cleanup - no longer using bio cloning */
     
     /* Destroy mutexes */
+    printk(KERN_CRIT "dm-remap CRASH-DEBUG: DESTRUCTOR before destroy mutexes\n");
     mutex_destroy(&device->metadata_mutex);
     mutex_destroy(&device->health_mutex);
     mutex_destroy(&device->cache_mutex);
+    printk(KERN_CRIT "dm-remap CRASH-DEBUG: DESTRUCTOR after destroy mutexes\n");
     
     /* Free device structure */
+    printk(KERN_CRIT "dm-remap CRASH-DEBUG: DESTRUCTOR before kfree(device)\n");
     kfree(device);
+    printk(KERN_CRIT "dm-remap CRASH-DEBUG: DESTRUCTOR after kfree(device)\n");
     
     DMR_INFO("Real device target destroyed");
+    printk(KERN_CRIT "dm-remap CRASH-DEBUG: DESTRUCTOR END\n");
 }
 
 /**
@@ -1757,6 +2006,22 @@ static void dm_remap_status_v4_real(struct dm_target *ti, status_type_t type,
 }
 
 /**
+ * dm_remap_read_from_spare() - Read data from spare device for failed I/O
+ * 
+ * This function is called when I/O fails on a sector that has a remap entry.
+ * It reads the data from the spare device and copies it to the original bio.
+ */
+static int dm_remap_read_from_spare(struct dm_remap_device_v4_real *device,
+                                   struct bio *original_bio,
+                                   sector_t spare_sector)
+{
+    /* TODO: Implement synchronous read from spare device 
+     * For now, return error to maintain current behavior while testing architecture */
+    printk(KERN_CRIT "dm-remap LAZY-REMAP: spare device read not yet implemented\n");
+    return -EIO;
+}
+
+/**
  * dm_remap_end_io_v4_real() - Handle I/O completion and error detection
  */
 static int dm_remap_end_io_v4_real(struct dm_target *ti, struct bio *bio,
@@ -1766,34 +2031,61 @@ static int dm_remap_end_io_v4_real(struct dm_target *ti, struct bio *bio,
     ktime_t io_end_time = ktime_get();
     u64 io_latency_ns = ktime_to_ns(ktime_sub(io_end_time, device->last_io_time));
     
+    /* Decrement in-flight counter - this I/O is complete */
+    atomic_dec(&device->in_flight_ios);
+    
+    /* CRITICAL: If shutdown in progress, do minimal processing */
+    if (atomic_read(&device->shutdown_in_progress)) {
+        return DM_ENDIO_DONE;
+    }
+    
     /* Update performance statistics */
     device->stats.total_latency_ns += io_latency_ns;
     device->stats.max_latency_ns = max(device->stats.max_latency_ns, io_latency_ns);
     
-    /* Handle I/O errors for automatic remapping */
+    /* ITERATION 11: Handle I/O errors with lazy remapping */
     if (*error != BLK_STS_OK) {
         sector_t failed_sector = bio->bi_iter.bi_sector;
         int errno_val = blk_status_to_errno(*error);
-        struct block_device *main_bdev = device->main_dev ? file_bdev(device->main_dev) : NULL;
+        struct dm_remap_entry_v4 *remap_entry;
         
-        DMR_WARN("I/O error detected on sector %llu (error=%d)",
-                 (unsigned long long)failed_sector, errno_val);
+        printk(KERN_CRIT "dm-remap LAZY-REMAP: I/O error on sector %llu (error=%d)\n",
+               (unsigned long long)failed_sector, errno_val);
         
-        /* Handle errors from main device or any device in the stack below it.
-         * This allows dm-remap to work with stacked device-mapper configurations
-         * (e.g., dm-remap -> dm-flakey -> loop device).
-         * We only reject errors from the spare device to avoid remapping spare errors.
-         */
-        if (device->main_dev) {
-            struct block_device *spare_bdev = device->spare_dev ? file_bdev(device->spare_dev) : NULL;
+        /* Check if this failed sector has a remap entry */
+        remap_entry = dm_remap_find_remap_entry(device, failed_sector);
+        
+        if (remap_entry && device->spare_dev) {
+            /* This sector has a remap! Try to read from spare device */
+            printk(KERN_CRIT "dm-remap LAZY-REMAP: Found remap for failed sector %llu->%llu, reading from spare\n",
+                   (unsigned long long)failed_sector, (unsigned long long)remap_entry->spare_sector);
             
-            /* Only reject if error is from spare device */
-            if (!spare_bdev || bio->bi_bdev != spare_bdev) {
+            /* Try to read from spare device */
+            int spare_read_result = dm_remap_read_from_spare(device, bio, remap_entry->spare_sector);
+            
+            if (spare_read_result == 0) {
+                /* Successfully read from spare device! */
+                printk(KERN_CRIT "dm-remap LAZY-REMAP: Successfully read from spare, masking error\n");
+                *error = BLK_STS_OK;  /* Clear the error - bio succeeds */
+                atomic64_inc(&device->stats.remapped_ios);
+                return DM_ENDIO_DONE;
+            } else {
+                /* Spare device read failed, continue with normal error handling */
+                printk(KERN_CRIT "dm-remap LAZY-REMAP: Spare device read failed, propagating error\n");
+                dm_remap_handle_io_error(device, failed_sector, errno_val);
+            }
+        } else {
+            /* No remap available, handle as normal error */
+            printk(KERN_CRIT "dm-remap LAZY-REMAP: No remap available for failed sector %llu\n",
+                   (unsigned long long)failed_sector);
+            
+            if (device->main_dev) {
                 dm_remap_handle_io_error(device, failed_sector, errno_val);
             }
         }
     }
     
+    printk(KERN_CRIT "dm-remap CRASH-DEBUG: END_IO returning DM_ENDIO_DONE\n");
     return DM_ENDIO_DONE;
 }
 
@@ -1897,6 +2189,55 @@ static int dm_remap_message_v4_real(struct dm_target *ti, unsigned argc, char **
     return -EINVAL;
 }
 
+/**
+ * dm_remap_presuspend_v4_real() - Called before device suspend
+ * STRATEGY: Just set shutdown flag. DO NOT free remaps here.
+ * Let destructor handle all cleanup when device-mapper is truly done.
+ */
+static void dm_remap_presuspend_v4_real(struct dm_target *ti)
+{
+    struct dm_remap_device_v4_real *device;
+    
+    printk(KERN_CRIT "\n");
+    printk(KERN_CRIT "========================================================================\n");
+    printk(KERN_CRIT "dm-remap CRASH-DEBUG: *** PRESUSPEND HOOK CALLED *** ti=%p\n", ti);
+    printk(KERN_CRIT "========================================================================\n");
+    printk(KERN_CRIT "\n");
+    
+    if (!ti || !ti->private) {
+        printk(KERN_CRIT "dm-remap CRASH-DEBUG: PRESUSPEND NULL, returning\n");
+        return;
+    }
+    
+    device = ti->private;
+    printk(KERN_CRIT "dm-remap CRASH-DEBUG: PRESUSPEND device=%p, remap_count=%u\n", 
+           device, device->remap_count_active);
+    
+    /* Just set shutdown flag - that's it! */
+    printk(KERN_CRIT "dm-remap CRASH-DEBUG: PRESUSPEND setting shutdown flag\n");
+    atomic_set(&device->shutdown_in_progress, 1);
+    
+    printk(KERN_CRIT "dm-remap CRASH-DEBUG: PRESUSPEND complete (shutdown flag set, NOT freeing remaps yet)\n");
+    printk(KERN_CRIT "\n");
+    printk(KERN_CRIT "========================================================================\n");
+    printk(KERN_CRIT "dm-remap CRASH-DEBUG: *** PRESUSPEND COMPLETE ***\n");
+    printk(KERN_CRIT "========================================================================\n");
+    printk(KERN_CRIT "\n");
+}
+
+/**
+ * dm_remap_postsuspend_v4_real() - Called after device suspend
+ */
+static void dm_remap_postsuspend_v4_real(struct dm_target *ti)
+{
+    printk(KERN_CRIT "\n");
+    printk(KERN_CRIT "========================================================================\n");
+    printk(KERN_CRIT "dm-remap CRASH-DEBUG: *** POSTSUSPEND HOOK CALLED *** ti=%p\n", ti);
+    printk(KERN_CRIT "dm-remap CRASH-DEBUG: *** POSTSUSPEND shutdown flag already set in presuspend ***\n");
+    printk(KERN_CRIT "========================================================================\n");
+    printk(KERN_CRIT "\n");
+}
+
 /* Device mapper target structure */
 static struct target_type dm_remap_target_v4_real = {
     .name = "dm-remap-v4",
@@ -1908,6 +2249,9 @@ static struct target_type dm_remap_target_v4_real = {
     .end_io = dm_remap_end_io_v4_real,
     .status = dm_remap_status_v4_real,
     .message = dm_remap_message_v4_real,
+    /* EXPERIMENT: Disable suspend hooks entirely - test if they cause crashes */
+    /* .presuspend = dm_remap_presuspend_v4_real, */
+    /* .postsuspend = dm_remap_postsuspend_v4_real, */
 };
 
 /**
