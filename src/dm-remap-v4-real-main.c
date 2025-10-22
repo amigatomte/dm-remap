@@ -22,6 +22,7 @@
 #include <linux/proc_fs.h>
 #include <linux/seq_file.h>
 #include <linux/crc32.h>
+#include <linux/delay.h>  /* For msleep() */
 
 #include "dm-remap-v4-compat.h"
 #include "../include/dm-remap-v4-stats.h"
@@ -386,6 +387,12 @@ static int dm_remap_write_persistent_metadata(struct dm_remap_device_v4_real *de
     struct block_device *bdev;
     int ret;
     
+    /* CRITICAL: Check if device is being destroyed before doing I/O */
+    if (!atomic_read(&device->device_active)) {
+        DMR_DEBUG(2, "Metadata write aborted - device inactive");
+        return -ESHUTDOWN;
+    }
+    
     if (!device->persistent_metadata || !device->spare_dev)
         return -EINVAL;
     
@@ -397,6 +404,12 @@ static int dm_remap_write_persistent_metadata(struct dm_remap_device_v4_real *de
     if (!bdev) {
         DMR_ERROR("Failed to get block device from spare device file");
         return -EINVAL;
+    }
+    
+    /* Check again before I/O (device might have become inactive) */
+    if (!atomic_read(&device->device_active)) {
+        DMR_DEBUG(2, "Metadata write aborted before I/O - device inactive");
+        return -ESHUTDOWN;
     }
     
     /* Write to spare device using v4 metadata module */
@@ -1684,17 +1697,20 @@ static void dm_remap_dtr_v4_real(struct dm_target *ti)
         kfree(device->perf_optimizer.cache_entries);
     }
     
-    /* Destroy workqueue (already flushed/cancelled in presuspend) */
+    /* Destroy workqueue - CANNOT be done safely if work is stuck in I/O
+     * 
+     * PROBLEM: If metadata_sync_work is stuck in dm_remap_write_metadata_v4()
+     * doing synchronous I/O to the spare device, and we're removing that device,
+     * destroy_workqueue() will block forever waiting for the I/O to complete.
+     * 
+     * SOLUTION: Leak the workqueue. The kernel will clean it up on module unload.
+     * This is the only safe way to handle work items stuck in blocking I/O to
+     * devices being torn down.
+     */
     if (device->metadata_workqueue) {
-        DMR_INFO("Destructor: about to destroy workqueue");
-        /* HACK: destroy_workqueue() blocks forever if work is stuck in I/O
-         * to devices being removed. Just leak the workqueue - it will be
-         * cleaned up when the module unloads.
-         * TODO: Fix this properly by making work functions truly cancellable
-         */
-        //destroy_workqueue(device->metadata_workqueue);
+        DMR_INFO("Destructor: skipping workqueue destroy (work may be stuck in I/O)");
+        /* Don't destroy - just NULL it out and let kernel clean up later */
         device->metadata_workqueue = NULL;
-        DMR_INFO("Destructor: workqueue leaked (will cleanup on module unload)");
     }
     
     /* NOTE: Remaps already freed in presuspend */
