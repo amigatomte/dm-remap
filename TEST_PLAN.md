@@ -1255,6 +1255,53 @@ Once we identify which subsystem causes the crash:
 
 **Recommendation:** Revert to 00b2005, test it works, then carefully review what (if anything) from Iteration 11 we actually need.
 
+---
+
+## 🎉 ITERATION 17 - REVERT TO WORKING VERSION v4.0.5 🎉
+
+**Date:** October 22, 2025  
+**Action:** Reverted src/dm-remap-v4-real-main.c to commit 00b2005 (Oct 17, 2025)  
+**Status:** ✅ **MODULE COMPILED SUCCESSFULLY**
+
+**What Was Done:**
+1. ✅ Committed current state (Iteration 16) for historical reference
+2. ✅ Reverted to working version: `git checkout 00b2005 -- src/dm-remap-v4-real-main.c`
+3. ✅ Rebuilt module: `make clean && make` - **SUCCESS**
+4. ✅ Module ready to test: `src/dm-remap-v4-real.ko`
+
+**What This Version Has:**
+- ✅ Device removal fix (in-flight I/O counter)
+- ✅ Constructor deadlock fix (no blocking I/O in constructor)
+- ✅ v4 metadata integration
+- ✅ Proven stable operation (Oct 17 test results: "4 crashes before, 0 after")
+- ✅ NO excessive debug logging
+- ✅ NO complex lazy remapping architecture
+- ✅ Straightforward map() and end_io() functions
+
+**Expected Test Results:**
+- ✅ Module should load without issues
+- ✅ Device creation should complete successfully
+- ✅ Remaps should be created when errors detected
+- ✅ Device removal should work (in-flight I/O counter prevents race)
+- ✅ **NO blk_cgroup_bio_start crashes**
+- ✅ System should remain stable
+
+**Test Plan:**
+1. Load dm-remap-v4-real.ko module
+2. Create test device with main+spare devices
+3. Trigger error to create remap (using dm-linear+dm-error)
+4. Verify remap was created
+5. Test device removal
+6. **EXPECT: All tests pass, no crashes**
+
+**Next Steps After Successful Test:**
+- If this works → we have a stable baseline
+- Review what features (if any) we need from Iteration 11
+- Add features incrementally with testing between each change
+- **Never add 400+ lines of changes at once again!**
+
+**Ready to test!** 🚀
+
 ## 🎯 ITERATION 17 - REFINED STRATEGY 🎯
 
 **Key Insight from Iteration 16:**
