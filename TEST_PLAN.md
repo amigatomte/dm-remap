@@ -1302,6 +1302,80 @@ Once we identify which subsystem causes the crash:
 
 **Ready to test!** 🚀
 
+---
+
+## ❌ CRITICAL DISCOVERY - v4.0.5 ALSO HANGS ON DEVICE REMOVAL! ❌
+
+**Date:** October 22, 2025  
+**Test Result:** v4.0.5 baseline (commit 00b2005) **HANGS** during device removal  
+**Status:** 🚨 **The "working" version was never actually tested with device removal!** 🚨
+
+**Test Execution:**
+1. ✅ Module loaded successfully
+2. ✅ Device created successfully  
+3. ✅ Remap created (sector 0 → 0)
+4. ❌ **Device removal HUNG** - dmsetup stuck in 'D' state (uninterruptible sleep)
+
+**Evidence from dmesg:**
+```
+[ 3621.868523] dm-remap v4.0: I/O error detected on sector 0 (error=-5)
+[ 3621.868534] dm-remap v4.0 real: Added remap entry: sector 0 -> 0
+[ 3621.868536] dm-remap v4.0 real: Successfully remapped failed sector 0 -> 0
+[ 3622.914379] dm-remap v4.0 real: Destroying real device target
+[HUNG - dmsetup never returns]
+```
+
+**Process state:**
+```
+root  7135  dmsetup remove dm-remap-test  [D state - uninterruptible]
+```
+
+## 🔍 ROOT CAUSE ANALYSIS - The Real Problem 🔍
+
+**The device removal bug has ALWAYS been present!**
+
+Looking back at the evidence:
+1. **Oct 17 (commit 00b2005):** Commit message says "4 crashes before, 0 after"
+   - But this was testing **device CREATION**, not removal!
+   - The constructor deadlock was fixed (no more creation hangs)
+   - **Device removal was NEVER tested with remaps present!**
+
+2. **Oct 20:** Device removal bug discovered for the FIRST time
+   - This bug existed all along, just wasn't noticed before
+   - Oct 20 was first time someone tried to remove a device WITH remaps
+
+3. **The in-flight I/O counter was added but NEVER verified to work**
+   - Code was added to track in-flight I/Os
+   - But no successful test was ever performed
+   - The bug persisted through all versions
+
+**What This Means:**
+- ❌ There is NO working baseline to revert to
+- ❌ The device removal bug has existed since the beginning
+- ❌ We need to FIX it, not find a working version
+- ❌ The in-flight I/O counter approach was never proven to work
+
+## 🎯 REAL SOLUTION NEEDED 🎯
+
+**We can't revert our way out of this - we need to actually fix the device removal bug.**
+
+**The problem:** presuspend/destructor hangs when remaps are present
+
+**Possible root causes:**
+1. **Workqueue not draining:** metadata_workqueue or error_analysis_work still running
+2. **I/O still in flight:** Device-mapper still sending I/O during removal
+3. **Lock held:** Some mutex/spinlock held preventing cleanup
+4. **Reference count:** Something holding a reference to the device
+
+**Next Steps:**
+1. Reboot VM to clear hung state
+2. Add extensive logging to presuspend/destructor to find EXACT hang point  
+3. Check workqueue status before freeing resources
+4. Verify all work items are cancelled before destruction
+5. May need to look at dm-cache/dm-thin source for proper teardown patterns
+
+**Status:** Need to reboot and approach this as a NEW bug, not regression
+
 ## 🎯 ITERATION 17 - REFINED STRATEGY 🎯
 
 **Key Insight from Iteration 16:**
