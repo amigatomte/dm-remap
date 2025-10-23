@@ -87,3 +87,4 @@ backup_*/
 
 # Development archives (local only)
 archive/
+test-logs/

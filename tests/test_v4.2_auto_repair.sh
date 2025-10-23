@@ -27,8 +27,9 @@ GREEN='\033[0;32m'
 YELLOW='\033[1;33m'
 NC='\033[0m' # No Color
 
-# Capture dmesg output to file for post-mortem analysis
-DMESG_LOG="/tmp/dm-remap-test-dmesg-$(date +%Y%m%d-%H%M%S).log"
+# Capture dmesg output to file for post-mortem analysis (survives reboot)
+DMESG_LOG="/home/christian/kernel_dev/dm-remap/test-logs/dmesg-$(date +%Y%m%d-%H%M%S).log"
+mkdir -p "/home/christian/kernel_dev/dm-remap/test-logs"
 echo "Capturing kernel messages to: ${DMESG_LOG}"
 
 # Function to save dmesg
