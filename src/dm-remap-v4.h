@@ -20,6 +20,9 @@
 #include <linux/mutex.h>
 #include <linux/atomic.h>
 
+/* Forward declarations */
+struct dm_remap_repair_context;
+
 /* v4.0 Constants */
 #define DM_REMAP_METADATA_V4_MAGIC      0x444D5234  /* "DMR4" */
 #define DM_REMAP_METADATA_V4_VERSION    4
@@ -236,6 +239,11 @@ struct dm_remap_device_v4 {
 /* Core v4.0 Metadata Functions */
 int dm_remap_read_metadata_v4(struct block_device *bdev, 
                               struct dm_remap_metadata_v4 *metadata);
+
+/* v4.2: Read metadata with automatic repair scheduling */
+int dm_remap_read_metadata_v4_with_repair(struct block_device *bdev,
+                                          struct dm_remap_metadata_v4 *metadata,
+                                          struct dm_remap_repair_context *repair_ctx);
 
 int dm_remap_write_metadata_v4(struct block_device *bdev,
                                struct dm_remap_metadata_v4 *metadata);

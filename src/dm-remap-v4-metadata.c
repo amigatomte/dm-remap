@@ -273,9 +273,23 @@ static int write_metadata_copy(struct block_device *bdev, sector_t sector,
  * dm_remap_read_metadata_v4() - Read best metadata copy from 5 redundant copies
  * 
  * Pure v4.0 implementation - no format detection needed
+ * v4.2: Optionally schedules automatic repair if corruption detected
  */
 int dm_remap_read_metadata_v4(struct block_device *bdev, 
                               struct dm_remap_metadata_v4 *metadata)
+{
+    return dm_remap_read_metadata_v4_with_repair(bdev, metadata, NULL);
+}
+
+/**
+ * dm_remap_read_metadata_v4_with_repair() - Read metadata with auto-repair
+ * 
+ * Same as dm_remap_read_metadata_v4() but can schedule automatic repair
+ * if corruption is detected and repair_ctx is provided.
+ */
+int dm_remap_read_metadata_v4_with_repair(struct block_device *bdev,
+                                          struct dm_remap_metadata_v4 *metadata,
+                                          struct dm_remap_repair_context *repair_ctx)
 {
     const sector_t copy_sectors[] = DM_REMAP_V4_COPY_SECTORS;
     struct dm_remap_metadata_v4 copies[5];
@@ -318,8 +332,13 @@ int dm_remap_read_metadata_v4(struct block_device *bdev,
         
         /* Schedule repair if we have corrupted copies */
         if (valid_count < 5) {
-            DMR_DEBUG(1, "Metadata repair needed: %d/5 copies valid", valid_count);
-            /* TODO: Schedule background repair */
+            DMR_INFO("Metadata corruption detected: %d/5 copies valid", valid_count);
+            /* v4.2: Schedule automatic background repair if context provided */
+            if (repair_ctx) {
+                dm_remap_schedule_metadata_repair(repair_ctx);
+            } else {
+                DMR_DEBUG(1, "Repair context not provided, skipping auto-repair");
+            }
         }
         
         ret = 0;
