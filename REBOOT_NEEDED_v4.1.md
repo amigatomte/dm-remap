@@ -1,8 +1,8 @@
-# v4.1 Development - Reboot Required #3
+# v4.1 Development - Reboot Required #4
 
-**Date:** October 22, 2025  
+**Date:** October 23, 2025  
 **Branch:** v4.1-async-io  
-**Reason:** cancel_work_sync() deadlock, switched to drain_workqueue() approach
+**Reason:** drain_workqueue() hangs because async I/O wait never completes
 
 ## What happened - THREE iterations of deadlock fixes
 
@@ -19,27 +19,48 @@
 - Presuspend used `cancel_work_sync()` which waits for work
 - But work was queued and NOT running yet
 - `cancel_work_sync()` blocks waiting for work that will never run (device_active=0)
-- **NEW DEADLOCK!**
+- **DEADLOCK #2!**
 
-## Final Fix - drain_workqueue() approach
+### Iteration 4: drain_workqueue() hangs - async I/O wait never completes
+- Presuspend only set cancel flag: `atomic_set(&ctx.write_cancelled, 1)`
+- Work function waiting at: `wait_for_completion_timeout(&ctx.all_copies_done)`
+- Completion NEVER triggered, so work blocks forever
+- `drain_workqueue()` hangs waiting for work that will never exit
+- **DEADLOCK #3!**
 
-Instead of trying to cancel work synchronously, let the destructor handle it:
+## Final Fix - complete_all() approach
 
-### Presuspend (non-blocking)
+The work function waits for async I/O, so presuspend must complete that wait:
+
+### Presuspend (cancellation)
 ```c
 // Set device inactive
 atomic_set(&device->device_active, 0);
 
-// Signal async I/O cancellation (just the flag!)
-atomic_set(&device->async_metadata_ctx.write_cancelled, 1);
+// Cancel async I/O AND complete the wait
+if (atomic_read(&device->metadata_write_in_progress)) {
+    atomic_set(&device->async_metadata_ctx.write_cancelled, 1);
+    complete_all(&device->async_metadata_ctx.all_copies_done);  // ← KEY FIX!
+}
 
-// Cancel work (non-blocking - just marks as cancelled)
+// Cancel work (non-blocking)
 cancel_work(&device->metadata_sync_work);
+```
+
+### Work function (checks after wait)
+```c
+// Wait for async I/O (now unblocked by presuspend)
+ret = dm_remap_wait_metadata_write(&ctx, 5000);
+
+// Check device_active after wait - exit if cancelled
+if (!atomic_read(&device->device_active)) {
+    return;  // Exit cleanly
+}
 ```
 
 ### Destructor (blocking cleanup)
 ```c
-// Drain all pending/running work
+// Drain all pending/running work (now completes!)
 drain_workqueue(device->metadata_workqueue);
 
 // Destroy the workqueue
@@ -47,10 +68,10 @@ destroy_workqueue(device->metadata_workqueue);
 ```
 
 ### Why this works
-1. **Presuspend is non-blocking** - just signals cancellation
-2. **drain_workqueue() is designed for this** - handles queued, running, and completed work
-3. **No circular waits** - destructor waits, but nothing waits on destructor
-4. **Work exits cleanly** - sees device_active=0 and cancelled flag
+1. **Presuspend completes the wait** - work function unblocks immediately
+2. **Work checks device_active** - sees it's 0 and exits cleanly
+3. **No deadlocks** - work completes quickly, drain_workqueue() succeeds
+4. **Safe cancellation** - completion can be called multiple times (complete_all)
 
 ## Commits ready to test
 
@@ -58,6 +79,7 @@ destroy_workqueue(device->metadata_workqueue);
 - `3489c2d` - v4.1: Complete async I/O integration  
 - `f2af120` - v4.1: Fix presuspend to use cancel_work_sync()
 - `f88f116` - v4.1: Fix deadlock - release mutex before waiting
-- `eabb808` - v4.1: Back to cancel_work() + drain_workqueue() ← **LATEST**
+- `eabb808` - v4.1: Back to cancel_work() + drain_workqueue()
+- `fcdcf54` - v4.1: Fix drain_workqueue hang - complete async I/O on cancel ← **LATEST**
 
-**Status:** drain_workqueue approach implemented, ready for testing after reboot ✓
+**Status:** complete_all() approach implemented, ready for testing after reboot #4 ✓
