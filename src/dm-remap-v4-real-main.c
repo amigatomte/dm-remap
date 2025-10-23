@@ -1700,12 +1700,14 @@ static void dm_remap_presuspend_v4_real(struct dm_target *ti)
     atomic_set(&device->device_active, 0);
     
     /* v4.1: Signal cancellation for any in-flight async metadata writes
-     * Just set the cancel flag - DON'T wait here or we'll deadlock!
-     * The work function is already waiting and will see the cancel flag.
+     * Set the cancel flag AND complete the wait so work function can exit.
+     * This is safe because work function checks device_active after wait.
      */
     if (atomic_read(&device->metadata_write_in_progress)) {
-        DMR_INFO("Presuspend: signaling cancellation for in-flight async write");
+        DMR_INFO("Presuspend: cancelling in-flight async write");
         atomic_set(&device->async_metadata_ctx.write_cancelled, 1);
+        /* Complete the wait so work function can exit immediately */
+        complete_all(&device->async_metadata_ctx.all_copies_done);
     }
     
     /* v4.1: Just cancel work (non-blocking)
