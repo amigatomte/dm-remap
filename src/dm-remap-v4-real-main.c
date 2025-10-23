@@ -817,6 +817,11 @@ static void dm_remap_deferred_metadata_read_work(struct work_struct *work)
         DMR_INFO("Deferred metadata read completed successfully");
     }
     
+    /* NOTE: Automatic initial metadata write disabled to avoid potential deadlocks.
+     * Metadata will be written when first remap is created via normal sync path.
+     * TODO: Investigate safe async metadata write from workqueue context.
+     */
+    
     atomic_set(&device->metadata_loaded, 1);
 }
 

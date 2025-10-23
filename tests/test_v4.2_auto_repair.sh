@@ -15,11 +15,27 @@
 # Disable exit on error temporarily for debugging
 # set -e
 
-# Colors for output
+#!/bin/bash
+# dm-remap v4.2 Auto-Repair Test Suite
+# Tests automatic metadata rebuild functionality
+
+#set -e  # Exit on error (disabled for debugging)
+
+# Color codes for output
 RED='\033[0;31m'
 GREEN='\033[0;32m'
 YELLOW='\033[1;33m'
 NC='\033[0m' # No Color
+
+# Capture dmesg output to file for post-mortem analysis
+DMESG_LOG="/tmp/dm-remap-test-dmesg-$(date +%Y%m%d-%H%M%S).log"
+echo "Capturing kernel messages to: ${DMESG_LOG}"
+
+# Function to save dmesg
+save_dmesg() {
+    sudo dmesg > "${DMESG_LOG}" 2>&1
+    echo "Kernel messages saved to ${DMESG_LOG}"
+}
 
 # Test configuration
 TEST_DIR="/tmp/dm-remap-test-v4.2"
@@ -36,6 +52,7 @@ TESTS_FAILED=0
 # Cleanup function
 cleanup() {
     echo -e "${YELLOW}Cleaning up...${NC}"
+    save_dmesg  # Save dmesg before cleanup
     
     # Remove device mapper device
     if dmsetup info ${DM_NAME} &>/dev/null; then
@@ -54,6 +71,8 @@ cleanup() {
     # Unload modules
     rmmod dm-remap-v4-real 2>/dev/null || true
     rmmod dm-remap-v4-stats 2>/dev/null || true
+    
+    echo "Cleanup complete. Dmesg saved to: ${DMESG_LOG}"
 }
 
 # Error handler
@@ -75,6 +94,9 @@ report_test() {
         echo -e "${RED}✗ FAIL${NC}: $test_name"
         ((TESTS_FAILED++))
     fi
+    
+    # Save dmesg after each test
+    save_dmesg
 }
 
 # Check if running as root
