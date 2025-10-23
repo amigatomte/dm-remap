@@ -229,7 +229,7 @@ static void dm_remap_periodic_scrub_work(struct work_struct *work)
 {
     struct dm_remap_repair_context *ctx;
     struct delayed_work *dwork;
-    struct dm_remap_metadata_v4 metadata;
+    struct dm_remap_metadata_v4 *metadata;
     int ret;
     
     dwork = container_of(work, struct delayed_work, work);
@@ -246,10 +246,18 @@ static void dm_remap_periodic_scrub_work(struct work_struct *work)
         return;
     }
     
+    /* Allocate metadata on heap to avoid stack overflow */
+    metadata = kmalloc(sizeof(struct dm_remap_metadata_v4), GFP_KERNEL);
+    if (!metadata) {
+        DMR_ERROR("Failed to allocate memory for periodic scrub");
+        /* Reschedule anyway - memory might be available next time */
+        goto reschedule;
+    }
+    
     DMR_INFO("Starting periodic metadata scrub");
     
     /* Read metadata - this will detect corruption if present */
-    ret = dm_remap_read_metadata_v4(ctx->spare_bdev, &metadata);
+    ret = dm_remap_read_metadata_v4(ctx->spare_bdev, metadata);
     
     if (ret != 0) {
         DMR_WARN("Periodic scrub detected corruption: %d", ret);
@@ -259,9 +267,12 @@ static void dm_remap_periodic_scrub_work(struct work_struct *work)
         DMR_INFO("Periodic scrub: metadata healthy");
     }
     
+    kfree(metadata);
+    
     atomic64_inc(&ctx->scrubs_completed);
     /* TODO: Update global sysfs stats when sysfs is refactored for v4 */
     
+reschedule:
     /* Reschedule next scrub if still enabled */
     if (atomic_read(&ctx->scrub_enabled)) {
         unsigned long delay = msecs_to_jiffies(ctx->scrub_interval_seconds * 1000);

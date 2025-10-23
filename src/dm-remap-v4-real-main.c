@@ -248,6 +248,8 @@ struct dm_remap_device_v4_real {
     struct work_struct metadata_sync_work; /* Metadata sync work item */
     struct work_struct error_analysis_work; /* Deferred error pattern analysis */
     sector_t pending_error_sector; /* Sector pending error analysis */
+    struct delayed_work deferred_metadata_read_work; /* v4.2: Deferred metadata read after construction */
+    atomic_t metadata_loaded; /* v4.2: Flag indicating metadata has been loaded */
     
     /* v4.1 Async metadata I/O */
     struct dm_remap_async_metadata_context async_metadata_ctx; /* Async metadata write context */
@@ -475,8 +477,9 @@ static int dm_remap_read_persistent_metadata(struct dm_remap_device_v4_real *dev
         return 0;  /* Not an error, just no metadata to restore */
     }
     
-    /* Read from spare device using v4 metadata module */
-    ret = dm_remap_read_metadata_v4(bdev, device->persistent_metadata);
+    /* Read from spare device using v4 metadata module with auto-repair */
+    ret = dm_remap_read_metadata_v4_with_repair(bdev, device->persistent_metadata,
+                                                &device->repair_ctx);
     if (ret) {
         DMR_INFO("No valid metadata found, starting fresh: %d", ret);
         return 0;  /* Not an error, device may be new */
@@ -783,6 +786,38 @@ static void dm_remap_error_analysis_work(struct work_struct *work)
     
     /* Now safe to call mutex-taking function */
     dm_remap_analyze_error_pattern(device, failed_sector);
+}
+
+/**
+ * dm_remap_deferred_metadata_read_work() - v4.2: Read metadata after construction
+ * 
+ * This work function safely reads metadata from the spare device after the
+ * dm-target constructor has completed. This avoids constructor deadlocks while
+ * still enabling metadata persistence and auto-repair functionality.
+ */
+static void dm_remap_deferred_metadata_read_work(struct work_struct *work)
+{
+    struct dm_remap_device_v4_real *device = 
+        container_of(to_delayed_work(work), struct dm_remap_device_v4_real, 
+                     deferred_metadata_read_work);
+    int ret;
+    
+    /* Check if already loaded (double-check pattern) */
+    if (atomic_read(&device->metadata_loaded))
+        return;
+    
+    DMR_INFO("Loading persistent metadata (deferred read)...");
+    
+    /* Call the read function which now includes auto-repair */
+    ret = dm_remap_read_persistent_metadata(device);
+    if (ret < 0) {
+        DMR_WARN("Deferred metadata read failed: %d", ret);
+        /* Not fatal - device can continue with empty metadata */
+    } else {
+        DMR_INFO("Deferred metadata read completed successfully");
+    }
+    
+    atomic_set(&device->metadata_loaded, 1);
 }
 
 /**
@@ -1566,6 +1601,8 @@ static int dm_remap_ctr_v4_real(struct dm_target *ti, unsigned int argc, char **
     }
     INIT_WORK(&device->metadata_sync_work, dm_remap_sync_metadata_work);
     INIT_WORK(&device->error_analysis_work, dm_remap_error_analysis_work);
+    INIT_DELAYED_WORK(&device->deferred_metadata_read_work, dm_remap_deferred_metadata_read_work);
+    atomic_set(&device->metadata_loaded, 0);
     
     /* Initialize v4.1 async metadata context */
     dm_remap_init_async_context(&device->async_metadata_ctx);
@@ -1659,10 +1696,11 @@ static int dm_remap_ctr_v4_real(struct dm_target *ti, unsigned int argc, char **
      * 2. Block layer may not be fully initialized
      * 3. Synchronous I/O (submit_bio_wait) can block indefinitely
      * 
-     * For now, we start with empty metadata. In a future version, metadata
-     * reading could be done asynchronously via a workqueue after device creation.
+     * v4.2: Metadata reading is now scheduled via delayed workqueue, running
+     * after constructor completes. This enables metadata persistence and auto-repair.
      */
-    DMR_INFO("Metadata reading deferred (avoiding constructor deadlock)");
+    DMR_INFO("Scheduling deferred metadata read (avoiding constructor deadlock)");
+    schedule_delayed_work(&device->deferred_metadata_read_work, msecs_to_jiffies(100)); /* 100ms delay */
     
     /* Start background health monitoring */
     schedule_delayed_work(&device->health_scan_work, 
@@ -1741,6 +1779,7 @@ static void dm_remap_presuspend_v4_real(struct dm_target *ti)
     cancel_work(&device->metadata_sync_work);
     cancel_work(&device->error_analysis_work);
     cancel_delayed_work(&device->health_scan_work);
+    cancel_delayed_work(&device->deferred_metadata_read_work); /* v4.2 */
     DMR_INFO("Presuspend: work cancellation signaled");
     
     DMR_INFO("Presuspend: freeing %u remap entries", device->remap_count_active);

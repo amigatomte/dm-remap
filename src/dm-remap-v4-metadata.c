@@ -292,7 +292,7 @@ int dm_remap_read_metadata_v4_with_repair(struct block_device *bdev,
                                           struct dm_remap_repair_context *repair_ctx)
 {
     const sector_t copy_sectors[] = DM_REMAP_V4_COPY_SECTORS;
-    struct dm_remap_metadata_v4 copies[5];
+    struct dm_remap_metadata_v4 *copies; /* Dynamic allocation to avoid stack overflow */
     bool valid[5] = {false};
     int best_copy = -1;
     uint64_t best_sequence = 0;
@@ -302,6 +302,13 @@ int dm_remap_read_metadata_v4_with_repair(struct block_device *bdev,
     ktime_t start_time, end_time;
     
     start_time = ktime_get();
+    
+    /* Allocate copies array on heap to avoid 400KB+ stack allocation */
+    copies = kmalloc(5 * sizeof(struct dm_remap_metadata_v4), GFP_KERNEL);
+    if (!copies) {
+        DMR_ERROR("Failed to allocate memory for metadata copies");
+        return -ENOMEM;
+    }
     
     DMR_DEBUG(2, "Reading v4.0 metadata from device");
     
@@ -346,6 +353,8 @@ int dm_remap_read_metadata_v4_with_repair(struct block_device *bdev,
         DMR_DEBUG(0, "No valid metadata copies found on device");
         ret = -ENODATA;
     }
+    
+    kfree(copies);
     
     end_time = ktime_get();
     atomic64_add(ktime_to_ns(ktime_sub(end_time, start_time)), 
@@ -443,32 +452,43 @@ int dm_remap_write_metadata_v4(struct block_device *bdev,
  */
 int dm_remap_repair_metadata_v4(struct block_device *bdev)
 {
-    struct dm_remap_metadata_v4 best_metadata;
+    struct dm_remap_metadata_v4 *best_metadata;
+    struct dm_remap_metadata_v4 *copy;
     const sector_t copy_sectors[] = DM_REMAP_V4_COPY_SECTORS;
     int ret, i, repairs_made = 0;
     
     DMR_DEBUG(1, "Repairing metadata on device");
     
+    /* Allocate on heap to avoid stack overflow */
+    best_metadata = kmalloc(sizeof(struct dm_remap_metadata_v4), GFP_KERNEL);
+    copy = kmalloc(sizeof(struct dm_remap_metadata_v4), GFP_KERNEL);
+    if (!best_metadata || !copy) {
+        DMR_ERROR("Failed to allocate memory for metadata repair");
+        kfree(best_metadata);
+        kfree(copy);
+        return -ENOMEM;
+    }
+    
     /* Find best copy */
-    ret = dm_remap_read_metadata_v4(bdev, &best_metadata);
+    ret = dm_remap_read_metadata_v4(bdev, best_metadata);
     if (ret) {
         DMR_DEBUG(0, "Cannot repair: no valid metadata found");
+        kfree(best_metadata);
+        kfree(copy);
         return ret;
     }
     
     /* Check each copy and repair if needed */
     for (i = 0; i < 5; i++) {
-        struct dm_remap_metadata_v4 copy;
-        
-        ret = read_metadata_copy(bdev, copy_sectors[i], &copy);
-        if (ret != 0 || !validate_metadata_v4(&copy) ||
-            copy.header.sequence_number != best_metadata.header.sequence_number) {
+        ret = read_metadata_copy(bdev, copy_sectors[i], copy);
+        if (ret != 0 || !validate_metadata_v4(copy) ||
+            copy->header.sequence_number != best_metadata->header.sequence_number) {
             
             /* Repair this copy */
-            best_metadata.header.copy_index = i;
-            best_metadata.header.metadata_checksum = calculate_metadata_crc32(&best_metadata);
+            best_metadata->header.copy_index = i;
+            best_metadata->header.metadata_checksum = calculate_metadata_crc32(best_metadata);
             
-            ret = write_metadata_copy(bdev, copy_sectors[i], &best_metadata);
+            ret = write_metadata_copy(bdev, copy_sectors[i], best_metadata);
             if (ret == 0) {
                 repairs_made++;
                 DMR_DEBUG(1, "Repaired metadata copy %d at sector %llu", 
@@ -483,6 +503,9 @@ int dm_remap_repair_metadata_v4(struct block_device *bdev)
         atomic64_inc(&metadata_stats.repairs_performed);
         DMR_DEBUG(1, "Metadata repair completed: %d copies repaired", repairs_made);
     }
+    
+    kfree(best_metadata);
+    kfree(copy);
     
     return repairs_made > 0 ? 0 : -EIO;
 }
