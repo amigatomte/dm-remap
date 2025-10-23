@@ -292,11 +292,35 @@ static ssize_t reset_stats_store(struct kobject *kobj, struct kobj_attribute *at
 }
 
 /**
+ * v4.2: Repair statistics and controls
+ */
+
+/* Global repair statistics (sum across all devices) */
+static atomic64_t global_repairs_completed = ATOMIC64_INIT(0);
+static atomic64_t global_corruptions_detected = ATOMIC64_INIT(0);
+static atomic64_t global_scrubs_completed = ATOMIC64_INIT(0);
+
+static ssize_t repair_stats_show(struct kobject *kobj, struct kobj_attribute *attr, char *buf)
+{
+    return sprintf(buf,
+        "repairs_completed: %llu\n"
+        "corruptions_detected: %llu\n"
+        "scrubs_completed: %llu\n"
+        "active_repairs: %u\n",
+        atomic64_read(&global_repairs_completed),
+        atomic64_read(&global_corruptions_detected),
+        atomic64_read(&global_scrubs_completed),
+        0 /* TODO: track active repairs across devices */
+    );
+}
+
+/**
  * Sysfs attribute definitions
  */
 static struct kobj_attribute global_stats_attr = __ATTR_RO(global_stats);
 static struct kobj_attribute health_stats_attr = __ATTR_RO(health_stats);
 static struct kobj_attribute discovery_stats_attr = __ATTR_RO(discovery_stats);
+static struct kobj_attribute repair_stats_attr = __ATTR_RO(repair_stats);
 static struct kobj_attribute version_info_attr = __ATTR_RO(version_info);
 static struct kobj_attribute device_list_attr = __ATTR_RO(device_list);
 
@@ -316,6 +340,7 @@ static struct attribute *stats_attrs[] = {
     &global_stats_attr.attr,
     &health_stats_attr.attr,
     &discovery_stats_attr.attr,
+    &repair_stats_attr.attr,
     NULL,
 };
 
@@ -438,6 +463,28 @@ fail_stats:
     kobject_put(dm_remap_v4_kobj);
     return ret;
 }
+
+/**
+ * v4.2: Helper functions to update repair statistics
+ */
+
+void dm_remap_sysfs_inc_repairs_completed(void)
+{
+    atomic64_inc(&global_repairs_completed);
+}
+EXPORT_SYMBOL(dm_remap_sysfs_inc_repairs_completed);
+
+void dm_remap_sysfs_inc_corruptions_detected(void)
+{
+    atomic64_inc(&global_corruptions_detected);
+}
+EXPORT_SYMBOL(dm_remap_sysfs_inc_corruptions_detected);
+
+void dm_remap_sysfs_inc_scrubs_completed(void)
+{
+    atomic64_inc(&global_scrubs_completed);
+}
+EXPORT_SYMBOL(dm_remap_sysfs_inc_scrubs_completed);
 
 /**
  * dm_remap_sysfs_v4_cleanup() - Cleanup v4.0 sysfs interface

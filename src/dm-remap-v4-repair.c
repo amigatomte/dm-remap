@@ -130,6 +130,7 @@ void dm_remap_schedule_metadata_repair(struct dm_remap_repair_context *ctx)
     
     /* Increment corruption counter */
     atomic64_inc(&ctx->corruption_detected);
+    /* TODO: Update global sysfs stats when sysfs is refactored for v4 */
     
     /* Check if repair already in progress */
     if (atomic_read(&ctx->repair_in_progress)) {
@@ -187,6 +188,7 @@ static void dm_remap_repair_work(struct work_struct *work)
             DMR_INFO("Metadata repair completed successfully");
             atomic64_inc(&ctx->repairs_completed);
             atomic64_set(&ctx->last_repair_time, ktime_get_real_seconds());
+            /* TODO: Update global sysfs stats when sysfs is refactored for v4 */
             break;
         }
         
@@ -258,6 +260,7 @@ static void dm_remap_periodic_scrub_work(struct work_struct *work)
     }
     
     atomic64_inc(&ctx->scrubs_completed);
+    /* TODO: Update global sysfs stats when sysfs is refactored for v4 */
     
     /* Reschedule next scrub if still enabled */
     if (atomic_read(&ctx->scrub_enabled)) {

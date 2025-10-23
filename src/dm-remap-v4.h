@@ -10,43 +10,35 @@
  * 
  * This header defines the pure v4.0 data structures and APIs.
  */
-
 #ifndef DM_REMAP_V4_H
 #define DM_REMAP_V4_H
-
 #include <linux/types.h>
 #include <linux/blkdev.h>
 #include <linux/workqueue.h>
 #include <linux/mutex.h>
 #include <linux/atomic.h>
-
 /* Forward declarations */
 struct dm_remap_repair_context;
-
 /* v4.0 Constants */
 #define DM_REMAP_METADATA_V4_MAGIC      0x444D5234  /* "DMR4" */
 #define DM_REMAP_METADATA_V4_VERSION    4
 #define DM_REMAP_V4_MAX_REMAPS          2048
 #define DM_REMAP_V4_REDUNDANT_COPIES    5
 #define DM_REMAP_V4_COPY_SECTORS        {0, 1024, 2048, 4096, 8192}
-
 /* Health scoring constants */
 #define DM_REMAP_HEALTH_PERFECT         100
 #define DM_REMAP_HEALTH_GOOD            80
 #define DM_REMAP_HEALTH_WARNING         60
 #define DM_REMAP_HEALTH_CRITICAL        40
 #define DM_REMAP_HEALTH_FAILING         20
-
 /* Debug logging macro */
 #define DMR_DEBUG(level, fmt, args...) \
     do { \
         if (dm_remap_debug >= level) \
             printk(KERN_INFO "dm-remap-v4: " fmt "\n", ##args); \
     } while (0)
-
 /* External debug level variable */
 extern int dm_remap_debug;
-
 /**
  * Pure v4.0 Metadata Structure - No Legacy Baggage
  * 
@@ -124,7 +116,6 @@ struct dm_remap_metadata_v4 {
         uint8_t expansion_data[2048];   /* Reserved for v4.1, v4.2, etc. */
     } future_expansion __attribute__((packed));
 } __attribute__((packed));
-
 /**
  * Background Health Scanner Structure
  */
@@ -169,7 +160,6 @@ struct dm_remap_background_scanner {
     struct mutex scan_mutex;            /* Protects scanner state */
     atomic_t scan_active;               /* Atomic scan activity flag */
 };
-
 /**
  * Device Fingerprint Structure for Identification
  */
@@ -202,7 +192,6 @@ struct dm_remap_device_fingerprint {
     /* Overall fingerprint */
     uint8_t composite_hash[32];         /* SHA-256 of all above data */
 };
-
 /**
  * Main dm-remap v4.0 Device Structure
  */
@@ -235,70 +224,50 @@ struct dm_remap_device_v4 {
     atomic_t device_active;
     struct list_head device_list;
 };
-
 /* Core v4.0 Metadata Functions */
 int dm_remap_read_metadata_v4(struct block_device *bdev, 
                               struct dm_remap_metadata_v4 *metadata);
-
 /* v4.2: Read metadata with automatic repair scheduling */
 int dm_remap_read_metadata_v4_with_repair(struct block_device *bdev,
                                           struct dm_remap_metadata_v4 *metadata,
                                           struct dm_remap_repair_context *repair_ctx);
-
 int dm_remap_write_metadata_v4(struct block_device *bdev,
                                struct dm_remap_metadata_v4 *metadata);
-
 int dm_remap_repair_metadata_v4(struct block_device *bdev);
-
 void dm_remap_init_metadata_v4(struct dm_remap_metadata_v4 *metadata,
                                const char *main_device_uuid,
                                const char *spare_device_uuid,
                                uint64_t main_device_sectors,
                                uint64_t spare_device_sectors);
-
 /* Background Health Scanner Functions */
 int dm_remap_scanner_init(struct dm_remap_background_scanner *scanner,
                          struct dm_remap_device_v4 *device);
-
 int dm_remap_scanner_start(struct dm_remap_background_scanner *scanner);
-
 void dm_remap_scanner_stop(struct dm_remap_background_scanner *scanner);
-
 void dm_remap_scanner_cleanup(struct dm_remap_background_scanner *scanner);
-
 /* Device Discovery Functions */
 int dm_remap_generate_fingerprint(struct block_device *bdev,
                                  struct dm_remap_device_fingerprint *fingerprint);
-
 int dm_remap_validate_fingerprint(struct block_device *bdev,
                                  const struct dm_remap_device_fingerprint *fingerprint);
-
 int dm_remap_discover_devices_v4(void);
-
 /* Device Management Functions */
 struct dm_remap_device_v4 *dm_remap_create_device_v4(struct block_device *main_dev,
                                                      struct block_device *spare_dev);
-
 void dm_remap_destroy_device_v4(struct dm_remap_device_v4 *device);
-
 int dm_remap_add_remap_v4(struct dm_remap_device_v4 *device,
                          uint64_t original_sector, uint64_t spare_sector,
                          uint16_t reason);
-
 /* Module Initialization Functions */
 int dm_remap_metadata_v4_init(void);
 void dm_remap_metadata_v4_cleanup(void);
-
 int dm_remap_health_v4_init(void);
 void dm_remap_health_v4_cleanup(void);
-
 int dm_remap_discovery_v4_init(void);
 void dm_remap_discovery_v4_cleanup(void);
-
 /* ========================================================================
  * v4.1 Async Metadata I/O API
  * ======================================================================== */
-
 /**
  * struct dm_remap_async_metadata_context - Async metadata write context
  * 
@@ -319,7 +288,6 @@ struct dm_remap_async_metadata_context {
 	struct bio *bios[5];            /* Bio pointers for cleanup */
 	struct page *pages[5];          /* Page pointers for cleanup */
 };
-
 /**
  * dm_remap_write_metadata_v4_async - Write metadata asynchronously
  * @bdev: Block device to write metadata to (spare device)
@@ -334,7 +302,6 @@ struct dm_remap_async_metadata_context {
 int dm_remap_write_metadata_v4_async(struct block_device *bdev,
                                      struct dm_remap_metadata_v4 *metadata,
                                      struct dm_remap_async_metadata_context *context);
-
 /**
  * dm_remap_cancel_metadata_write - Cancel in-flight async metadata write
  * @context: Async context for the write to cancel
@@ -345,7 +312,6 @@ int dm_remap_write_metadata_v4_async(struct block_device *bdev,
  * Returns: 0 on successful cancellation, -ETIMEDOUT if timeout occurs
  */
 int dm_remap_cancel_metadata_write(struct dm_remap_async_metadata_context *context);
-
 /**
  * dm_remap_wait_metadata_write - Wait for async metadata write completion
  * @context: Async context to wait on
@@ -357,7 +323,6 @@ int dm_remap_cancel_metadata_write(struct dm_remap_async_metadata_context *conte
  */
 int dm_remap_wait_metadata_write(struct dm_remap_async_metadata_context *context,
                                  unsigned int timeout_ms);
-
 /**
  * dm_remap_init_async_context - Initialize async metadata context
  * @context: Context to initialize
@@ -365,7 +330,6 @@ int dm_remap_wait_metadata_write(struct dm_remap_async_metadata_context *context
  * Must be called before using context with async write functions.
  */
 void dm_remap_init_async_context(struct dm_remap_async_metadata_context *context);
-
 /**
  * dm_remap_cleanup_async_context - Clean up async metadata context
  * @context: Context to clean up
@@ -373,7 +337,6 @@ void dm_remap_init_async_context(struct dm_remap_async_metadata_context *context
  * Frees any remaining resources. Safe to call even if write was cancelled.
  */
 void dm_remap_cleanup_async_context(struct dm_remap_async_metadata_context *context);
-
 /**
  * struct dm_remap_repair_context - Metadata repair tracking context
  * 
@@ -405,7 +368,6 @@ struct dm_remap_repair_context {
 	struct block_device *spare_bdev;  /* Spare device for metadata repair */
 	struct workqueue_struct *repair_wq;  /* Repair workqueue */
 };
-
 /**
  * dm_remap_schedule_metadata_repair - Schedule metadata repair
  * @ctx: Repair context
@@ -414,7 +376,6 @@ struct dm_remap_repair_context {
  * from any context including I/O completion.
  */
 void dm_remap_schedule_metadata_repair(struct dm_remap_repair_context *ctx);
-
 /**
  * dm_remap_init_repair_context - Initialize repair context
  * @context: Repair context to initialize
@@ -426,7 +387,12 @@ void dm_remap_schedule_metadata_repair(struct dm_remap_repair_context *ctx);
 void dm_remap_init_repair_context(struct dm_remap_repair_context *context,
                                   struct block_device *spare_bdev,
                                   struct workqueue_struct *repair_wq);
-
+/**
+ * dm_remap_cleanup_repair_context - Clean up repair context
+ * @context: Repair context to clean up
+ * 
+ * Stops all repair work and cleans up resources.
+ */
 /**
  * dm_remap_cleanup_repair_context - Clean up repair context
  * @context: Repair context to clean up
