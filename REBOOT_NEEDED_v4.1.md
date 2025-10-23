@@ -82,4 +82,31 @@ destroy_workqueue(device->metadata_workqueue);
 - `eabb808` - v4.1: Back to cancel_work() + drain_workqueue()
 - `fcdcf54` - v4.1: Fix drain_workqueue hang - complete async I/O on cancel ← **LATEST**
 
-**Status:** complete_all() approach implemented, ready for testing after reboot #4 ✓
+**Status:** ✅ **FIXED AND TESTED!** Device removal completes in 0.029s with no hangs!
+
+## Test Results - SUCCESS! ✅
+
+**Test Date:** October 23, 2025  
+**Kernel:** 6.14.0-34-generic  
+**Result:** Device removal completed in **0.029 seconds** with no hangs!
+
+### Kernel Log Output
+```
+[ 1467.334570] dm-remap v4.0 real: Presuspend: stopping all background work
+[ 1467.334576] dm-remap v4.0 real: Presuspend: cancelling work items (non-blocking)
+[ 1467.334578] dm-remap v4.0 real: Presuspend: work cancellation signaled
+[ 1467.334581] dm-remap v4.0 real: Presuspend: complete
+[ 1467.334841] dm-remap v4.0 real: Destroying real device target...
+[ 1467.334849] dm-remap v4.0 real: Destructor: draining and destroying workqueue
+[ 1467.335091] dm-remap v4.0 real: Destructor: workqueue destroyed successfully
+[ 1467.335100] dm-remap v4.0 real: Real device target destroyed
+```
+
+### What was fixed
+- **Presuspend** sets cancellation flag AND calls `complete_all()` to unblock waiting work
+- **Work function** wakes up immediately, sees `device_active=0`, exits cleanly
+- **Destructor** successfully drains and destroys workqueue (no hang!)
+- **No deadlocks, no timeouts, no workqueue leaks!**
+
+### Ready for v4.1 Release
+All async metadata I/O functionality is working correctly with clean device removal.
