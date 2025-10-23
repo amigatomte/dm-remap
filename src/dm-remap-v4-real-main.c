@@ -253,6 +253,10 @@ struct dm_remap_device_v4_real {
     struct dm_remap_async_metadata_context async_metadata_ctx; /* Async metadata write context */
     atomic_t metadata_write_in_progress; /* Flag for in-flight async writes */
     
+    /* v4.2 Automatic metadata repair */
+    struct workqueue_struct *repair_wq; /* Dedicated workqueue for repair operations */
+    struct dm_remap_repair_context repair_ctx; /* Automatic repair context */
+    
     /* Statistics - Enhanced */
     atomic64_t read_count;
     atomic64_t write_count;
@@ -1567,6 +1571,25 @@ static int dm_remap_ctr_v4_real(struct dm_target *ti, unsigned int argc, char **
     dm_remap_init_async_context(&device->async_metadata_ctx);
     atomic_set(&device->metadata_write_in_progress, 0);
     
+    /* Initialize v4.2 repair workqueue and context */
+    device->repair_wq = alloc_workqueue("dm_remap_repair", WQ_MEM_RECLAIM | WQ_UNBOUND, 0);
+    if (!device->repair_wq) {
+        DMR_ERROR("Failed to create repair workqueue");
+        dm_remap_cleanup_async_context(&device->async_metadata_ctx);
+        destroy_workqueue(device->metadata_workqueue);
+        mutex_destroy(&device->metadata_mutex);
+        kfree(device);
+        if (real_device_mode) {
+            dm_remap_close_bdev_real(main_dev);
+            dm_remap_close_bdev_real(spare_dev);
+        }
+        ti->error = "Failed to create repair workqueue";
+        return -ENOMEM;
+    }
+    dm_remap_init_repair_context(&device->repair_ctx, 
+                                 file_bdev(device->spare_dev),
+                                 device->repair_wq);
+    
     /* Initialize statistics */
     atomic64_set(&device->read_count, 0);
     atomic64_set(&device->write_count, 0);  
@@ -1779,6 +1802,16 @@ static void dm_remap_dtr_v4_real(struct dm_target *ti)
         destroy_workqueue(device->metadata_workqueue);
         device->metadata_workqueue = NULL;
         DMR_INFO("Destructor: workqueue destroyed successfully");
+    }
+    
+    /* v4.2: Destroy repair workqueue and cleanup context */
+    if (device->repair_wq) {
+        DMR_INFO("Destructor: cleaning up repair subsystem");
+        dm_remap_cleanup_repair_context(&device->repair_ctx);
+        drain_workqueue(device->repair_wq);
+        destroy_workqueue(device->repair_wq);
+        device->repair_wq = NULL;
+        DMR_INFO("Destructor: repair subsystem cleaned up");
     }
     
     /* NOTE: Remaps already freed in presuspend */

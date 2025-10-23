@@ -366,4 +366,65 @@ void dm_remap_init_async_context(struct dm_remap_async_metadata_context *context
  */
 void dm_remap_cleanup_async_context(struct dm_remap_async_metadata_context *context);
 
+/**
+ * struct dm_remap_repair_context - Metadata repair tracking context
+ * 
+ * Manages background metadata repair operations including automatic
+ * repair scheduling and periodic scrubbing.
+ */
+struct dm_remap_repair_context {
+	/* Work items */
+	struct work_struct repair_work;           /* One-shot repair work */
+	struct delayed_work periodic_scrub_work;  /* Periodic scrubbing */
+	
+	/* State flags */
+	atomic_t repair_in_progress;    /* 1 if repair is currently running */
+	atomic_t repairs_pending;       /* Number of repairs queued */
+	atomic_t scrub_enabled;         /* 1 if periodic scrubbing is enabled */
+	
+	/* Statistics */
+	atomic64_t last_repair_time;    /* Timestamp of last repair */
+	atomic64_t repairs_completed;   /* Total repairs completed */
+	atomic64_t scrubs_completed;    /* Total scrubs completed */
+	atomic64_t corruption_detected; /* Total corruptions detected */
+	
+	/* Configuration */
+	unsigned int scrub_interval_seconds;  /* How often to scrub (default: 3600) */
+	unsigned int repair_retry_limit;      /* Max repair attempts (default: 3) */
+	atomic_t repair_failures;             /* Consecutive repair failures */
+	
+	/* References */
+	struct block_device *spare_bdev;  /* Spare device for metadata repair */
+	struct workqueue_struct *repair_wq;  /* Repair workqueue */
+};
+
+/**
+ * dm_remap_schedule_metadata_repair - Schedule metadata repair
+ * @ctx: Repair context
+ * 
+ * Schedules an asynchronous metadata repair operation. Safe to call
+ * from any context including I/O completion.
+ */
+void dm_remap_schedule_metadata_repair(struct dm_remap_repair_context *ctx);
+
+/**
+ * dm_remap_init_repair_context - Initialize repair context
+ * @context: Repair context to initialize
+ * @spare_bdev: Spare block device with metadata
+ * @repair_wq: Workqueue for repair operations
+ * 
+ * Initializes repair context and starts periodic scrubbing if enabled.
+ */
+void dm_remap_init_repair_context(struct dm_remap_repair_context *context,
+                                  struct block_device *spare_bdev,
+                                  struct workqueue_struct *repair_wq);
+
+/**
+ * dm_remap_cleanup_repair_context - Clean up repair context
+ * @context: Repair context to clean up
+ * 
+ * Stops all repair work and cleans up resources.
+ */
+void dm_remap_cleanup_repair_context(struct dm_remap_repair_context *context);
+
 #endif /* DM_REMAP_V4_H */
