@@ -1969,7 +1969,7 @@ static void dm_remap_status_v4_real(struct dm_target *ti, status_type_t type,
         break;
         
     case STATUSTYPE_TABLE:
-        DMEMIT("dm-remap-v4 %s %s", device->main_path, device->spare_path);
+        DMEMIT("%s %s", device->main_path, device->spare_path);
         break;
         
     case STATUSTYPE_IMA:

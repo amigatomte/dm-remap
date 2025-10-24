@@ -1,0 +1,447 @@
+#!/bin/bash
+#
+# dm-remap-scan - Scan block devices and reassemble dm-remap setups
+#
+# This tool scans all block devices for dm-remap v4 metadata and automatically
+# creates dm-remap devices based on the discovered main/spare device pairs.
+#
+# Usage:
+#   dm-remap-scan [OPTIONS]
+#
+# Options:
+#   --scan-only      Only scan and display found devices, don't create
+#   --verbose        Show detailed information
+#   --device PATH    Scan specific device only
+#   --help           Show this help message
+#
+
+# Don't use errexit - we handle errors explicitly
+set -o pipefail
+
+# Configuration
+MAGIC_BYTES="34524d44"  # "DMR4" in little-endian hex (0x444D5234)
+METADATA_SECTOR=0
+SECTOR_SIZE=512
+
+# Colors for output
+RED='\033[0;31m'
+GREEN='\033[0;32m'
+YELLOW='\033[1;33m'
+BLUE='\033[0;34m'
+NC='\033[0m' # No Color
+
+# Flags
+SCAN_ONLY=0
+VERBOSE=0
+SPECIFIC_DEVICE=""
+
+# Parse arguments
+while [[ $# -gt 0 ]]; do
+    case $1 in
+        --scan-only)
+            SCAN_ONLY=1
+            shift
+            ;;
+        --verbose)
+            VERBOSE=1
+            shift
+            ;;
+        --device)
+            SPECIFIC_DEVICE="$2"
+            shift 2
+            ;;
+        --help)
+            grep '^#' "$0" | grep -v '#!/bin/bash' | sed 's/^# //' | sed 's/^#//'
+            exit 0
+            ;;
+        *)
+            echo "Unknown option: $1"
+            echo "Use --help for usage information"
+            exit 1
+            ;;
+    esac
+done
+
+# Check for root
+if [ "$EUID" -ne 0 ]; then
+    echo -e "${RED}Error: This script must be run as root${NC}"
+    exit 1
+fi
+
+# Check for required tools
+for cmd in dd xxd dmsetup; do
+    if ! command -v "$cmd" &> /dev/null; then
+        echo -e "${RED}Error: Required command '$cmd' not found${NC}"
+        exit 1
+    fi
+done
+
+verbose() {
+    if [ "$VERBOSE" -eq 1 ]; then
+        echo -e "${BLUE}[DEBUG]${NC} $*"
+    fi
+}
+
+info() {
+    echo -e "${GREEN}[INFO]${NC} $*"
+}
+
+warn() {
+    echo -e "${YELLOW}[WARN]${NC} $*"
+}
+
+error() {
+    echo -e "${RED}[ERROR]${NC} $*"
+}
+
+#
+# read_metadata_field - Extract field from metadata
+#
+# $1 = device path
+# $2 = offset in bytes
+# $3 = length in bytes
+# $4 = format (hex, string, uint32, uint64)
+#
+read_metadata_field() {
+    local device="$1"
+    local offset="$2"
+    local length="$3"
+    local format="$4"
+    
+    local data
+    data=$(dd if="$device" bs=1 skip="$offset" count="$length" 2>/dev/null | xxd -p | tr -d '\n')
+    
+    case "$format" in
+        hex)
+            echo "$data"
+            ;;
+        string)
+            # Convert hex to ASCII, stop at null byte
+            echo "$data" | xxd -r -p | tr -d '\0'
+            ;;
+        uint32)
+            # Little-endian uint32
+            echo "$((16#${data:6:2}${data:4:2}${data:2:2}${data:0:2}))"
+            ;;
+        uint64)
+            # Little-endian uint64
+            echo "$((16#${data:14:2}${data:12:2}${data:10:2}${data:8:2}${data:6:2}${data:4:2}${data:2:2}${data:0:2}))"
+            ;;
+        *)
+            echo "$data"
+            ;;
+    esac
+}
+
+#
+# check_device_for_metadata - Check if device has dm-remap metadata
+#
+# $1 = device path
+# Returns: 0 if metadata found, 1 otherwise
+#
+check_device_for_metadata() {
+    local device="$1"
+    
+    # Read first 4 bytes (magic)
+    local magic
+    magic=$(dd if="$device" bs=4 count=1 2>/dev/null | xxd -p)
+    
+    if [ "$magic" = "$MAGIC_BYTES" ]; then
+        verbose "Found dm-remap v4 metadata on $device"
+        return 0
+    fi
+    
+    return 1
+}
+
+#
+# parse_metadata - Extract metadata from device
+#
+# $1 = device path
+# Prints JSON-like structure with metadata
+#
+parse_metadata() {
+    local device="$1"
+    
+    # Header offsets
+    local OFFSET_MAGIC=0
+    local OFFSET_VERSION=4
+    local OFFSET_SEQUENCE=8
+    local OFFSET_TIMESTAMP=16
+    
+    # Device config offsets (after 40-byte header)
+    local OFFSET_MAIN_UUID=40
+    local OFFSET_SPARE_UUID=77
+    local OFFSET_MAIN_SECTORS=114
+    local OFFSET_SPARE_SECTORS=122
+    local OFFSET_SECTOR_SIZE=130
+    
+    # Device path offsets (new fields)
+    local OFFSET_MAIN_PATH=144
+    local OFFSET_SPARE_PATH=272
+    
+    # Read fields
+    local magic version sequence timestamp
+    local main_uuid spare_uuid main_sectors spare_sectors sector_size
+    local main_path spare_path
+    
+    magic=$(read_metadata_field "$device" $OFFSET_MAGIC 4 hex)
+    version=$(read_metadata_field "$device" $OFFSET_VERSION 4 uint32)
+    sequence=$(read_metadata_field "$device" $OFFSET_SEQUENCE 8 uint64)
+    timestamp=$(read_metadata_field "$device" $OFFSET_TIMESTAMP 8 uint64)
+    
+    main_uuid=$(read_metadata_field "$device" $OFFSET_MAIN_UUID 37 string)
+    spare_uuid=$(read_metadata_field "$device" $OFFSET_SPARE_UUID 37 string)
+    main_sectors=$(read_metadata_field "$device" $OFFSET_MAIN_SECTORS 8 uint64)
+    spare_sectors=$(read_metadata_field "$device" $OFFSET_SPARE_SECTORS 8 uint64)
+    sector_size=$(read_metadata_field "$device" $OFFSET_SECTOR_SIZE 4 uint32)
+    
+    main_path=$(read_metadata_field "$device" $OFFSET_MAIN_PATH 128 string)
+    spare_path=$(read_metadata_field "$device" $OFFSET_SPARE_PATH 128 string)
+    
+    # Output in parseable format
+    echo "DEVICE=$device"
+    echo "MAGIC=$magic"
+    echo "VERSION=$version"
+    echo "SEQUENCE=$sequence"
+    echo "TIMESTAMP=$timestamp"
+    echo "MAIN_UUID=$main_uuid"
+    echo "SPARE_UUID=$spare_uuid"
+    echo "MAIN_SECTORS=$main_sectors"
+    echo "SPARE_SECTORS=$spare_sectors"
+    echo "SECTOR_SIZE=$sector_size"
+    echo "MAIN_PATH=$main_path"
+    echo "SPARE_PATH=$spare_path"
+}
+
+#
+# get_device_uuid - Get UUID of a block device
+#
+# $1 = device path
+#
+get_device_uuid() {
+    local device="$1"
+    blkid -s UUID -o value "$device" 2>/dev/null || echo ""
+}
+
+#
+# scan_devices - Scan all block devices for dm-remap metadata
+#
+scan_devices() {
+    local devices=()
+    
+    if [ -n "$SPECIFIC_DEVICE" ]; then
+        devices=("$SPECIFIC_DEVICE")
+    else
+        # Get all block devices (excluding loop devices used by snap, etc.)
+        while IFS= read -r dev; do
+            # Skip if device is already a dm device
+            if [[ "$dev" =~ ^/dev/dm- ]]; then
+                continue
+            fi
+            # Skip if device is mounted as root or boot
+            if mount | grep -q "^$dev "; then
+                mount_point=$(mount | grep "^$dev " | awk '{print $3}')
+                if [[ "$mount_point" =~ ^/(|boot|boot/efi)$ ]]; then
+                    verbose "Skipping $dev (mounted as $mount_point)"
+                    continue
+                fi
+            fi
+            devices+=("$dev")
+        done < <(lsblk -npd -o NAME | grep -E '^/dev/(sd|nvme|vd|loop)')
+    fi
+    
+    info "Scanning ${#devices[@]} device(s) for dm-remap metadata..."
+    
+    declare -A metadata_by_uuid
+    local found_count=0
+    
+    for dev in "${devices[@]}"; do
+        verbose "Checking $dev..."
+        
+        if ! [ -b "$dev" ]; then
+            verbose "Skipping $dev (not a block device)"
+            continue
+        fi
+        
+        if check_device_for_metadata "$dev"; then
+            ((found_count++))
+            
+            # Parse metadata
+            local metadata
+            if ! metadata=$(parse_metadata "$dev"); then
+                warn "Failed to parse metadata from $dev"
+                continue
+            fi
+            
+            # Get actual device UUID (use device path if no UUID)
+            local actual_uuid
+            actual_uuid=$(get_device_uuid "$dev")
+            [ -z "$actual_uuid" ] && actual_uuid="$dev"
+            
+            # Store metadata indexed by actual UUID or device path
+            metadata_by_uuid["$actual_uuid"]="$metadata"
+            
+            # Display found device
+            echo ""
+            echo -e "${GREEN}━━━ Found dm-remap metadata on $dev ━━━${NC}"
+            echo "$metadata" | while IFS='=' read -r key value; do
+                if [ "$key" != "DEVICE" ]; then
+                    printf "  %-15s: %s\n" "$key" "$value"
+                fi
+            done
+            echo -e "  ${BLUE}ACTUAL_UUID${NC}     : $actual_uuid"
+        fi
+    done
+    
+    echo ""
+    info "Scan complete: Found $found_count device(s) with dm-remap metadata"
+    
+    if [ "$found_count" -eq 0 ]; then
+        warn "No dm-remap devices found"
+        return 1
+    fi
+    
+    # Try to match pairs
+    if [ "$SCAN_ONLY" -eq 0 ]; then
+        echo ""
+        info "Analyzing device pairs for reassembly..."
+        reassemble_pairs metadata_by_uuid
+    fi
+}
+
+#
+# reassemble_pairs - Match and create dm-remap device pairs
+#
+# $1 = associative array name containing metadata
+#
+# Note: Our simplified metadata stores device paths, not just UUIDs.
+# We find metadata on spare devices and extract the main/spare paths from it.
+#
+reassemble_pairs() {
+    local -n metadata_map=$1
+    
+    declare -A processed
+    local pair_count=0
+    
+    for uuid in "${!metadata_map[@]}"; do
+        # Skip if already processed
+        if [ "${processed[$uuid]}" = "1" ]; then
+            continue
+        fi
+        
+        # Parse metadata line by line
+        local main_path="" spare_path="" main_uuid="" spare_uuid="" device=""
+        while IFS='=' read -r key value; do
+            case "$key" in
+                DEVICE) device="$value" ;;
+                MAIN_UUID) main_uuid="$value" ;;
+                SPARE_UUID) spare_uuid="$value" ;;
+                MAIN_PATH) main_path="$value" ;;
+                SPARE_PATH) spare_path="$value" ;;
+            esac
+        done <<< "${metadata_map[$uuid]}"
+        
+        # Trim whitespace from paths (they're padded in metadata)
+        main_path=$(echo "$main_path" | xargs)
+        spare_path=$(echo "$spare_path" | xargs)
+        
+        # Check if we have valid paths
+        if [ -z "$main_path" ] || [ -z "$spare_path" ]; then
+            warn "Found metadata on $device but missing device paths"
+            warn "  main_path='$main_path', spare_path='$spare_path'"
+            continue
+        fi
+        
+        # Verify both devices exist
+        if [ ! -b "$main_path" ]; then
+            warn "Main device $main_path not found (from metadata on $device)"
+            continue
+        fi
+        
+        if [ ! -b "$spare_path" ]; then
+            warn "Spare device $spare_path not found (from metadata on $device)"
+            continue
+        fi
+        
+        # Found complete pair!
+        ((pair_count++))
+        
+        echo ""
+        echo -e "${GREEN}━━━ Found complete pair #$pair_count ━━━${NC}"
+        echo "  Main device : $main_path"
+        echo "  Spare device: $spare_path"
+        echo "  Metadata on : $device"
+        
+        # Create dm-remap device
+        create_dm_device "$main_path" "$spare_path" "$pair_count"
+        
+        # Mark as processed
+        processed["$uuid"]=1
+    done
+    
+    echo ""
+    if [ "$pair_count" -eq 0 ]; then
+        warn "No complete device pairs found for reassembly"
+        return 1
+    else
+        info "Successfully reassembled $pair_count device pair(s)"
+    fi
+}
+
+#
+# create_dm_device - Create dm-remap device from main/spare pair
+#
+# $1 = main device path
+# $2 = spare device path
+# $3 = pair number
+#
+create_dm_device() {
+    local main_dev="$1"
+    local spare_dev="$2"
+    local pair_num="$3"
+    
+    local dm_name="dm-remap-auto-$pair_num"
+    
+    # Get main device size in sectors
+    local main_sectors
+    main_sectors=$(blockdev --getsz "$main_dev")
+    
+    # Check if dm-remap module is loaded
+    if ! lsmod | grep -q "^dm_remap_v4_real"; then
+        info "Loading dm-remap modules..."
+        # Try both insmod (local) and modprobe (installed)
+        if [ -f "/home/christian/kernel_dev/dm-remap/src/dm-remap-v4-stats.ko" ]; then
+            insmod /home/christian/kernel_dev/dm-remap/src/dm-remap-v4-stats.ko 2>/dev/null || true
+            insmod /home/christian/kernel_dev/dm-remap/src/dm-remap-v4-real.ko 2>/dev/null || true
+        else
+            modprobe dm-remap-v4-stats 2>/dev/null || true
+            modprobe dm-remap-v4-real 2>/dev/null || true
+        fi
+        sleep 1
+    fi
+    
+    # Create dm device
+    info "Creating dm-remap device: $dm_name"
+    echo "0 $main_sectors dm-remap-v4 $main_dev $spare_dev" | dmsetup create "$dm_name"
+    
+    if [ $? -eq 0 ]; then
+        info "✓ Created /dev/mapper/$dm_name"
+        
+        # Show device info
+        dmsetup status "$dm_name"
+    else
+        error "Failed to create dm-remap device"
+        return 1
+    fi
+}
+
+# Main execution
+echo -e "${BLUE}═══════════════════════════════════════════${NC}"
+echo -e "${BLUE}  dm-remap v4.2 Device Scanner & Assembler${NC}"
+echo -e "${BLUE}═══════════════════════════════════════════${NC}"
+echo ""
+
+scan_devices
+
+exit 0

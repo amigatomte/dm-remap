@@ -1875,3 +1875,635 @@
 [  688.557739] dm-remap v4.0 real: Unloading dm-remap v4.0 Real Device Support
 [  688.557869] dm-remap v4.0 real: dm-remap v4.0 Real Device Support unloaded
 [  688.576897] dm-remap-stats: Statistics export removed
+[  941.003381] workqueue: e1000_watchdog [e1000] hogged CPU for >10000us 4 times, consider switching to WQ_UNBOUND
+[ 1344.708094] loop17: detected capacity change from 0 to 204800
+[ 1344.710425] loop18: detected capacity change from 0 to 102400
+[ 1344.714710] dm_remap_v4_real: Unknown symbol dm_remap_stats_inc_errors (err -2)
+[ 1344.714740] dm_remap_v4_real: Unknown symbol dm_remap_stats_inc_writes (err -2)
+[ 1344.714811] dm_remap_v4_real: Unknown symbol dm_remap_stats_inc_reads (err -2)
+[ 1344.714848] dm_remap_v4_real: Unknown symbol dm_remap_stats_inc_remaps (err -2)
+[ 1371.167811] loop17: detected capacity change from 0 to 204800
+[ 1371.170374] loop18: detected capacity change from 0 to 102400
+[ 1371.177578] dm-remap-stats: Statistics export initialized
+[ 1371.177583] dm-remap-stats: Available at /sys/kernel/dm_remap/
+[ 1371.177584] dm-remap-stats: Prometheus-style: cat /sys/kernel/dm_remap/all_stats
+[ 1371.182888] dm-remap v4.0 real: Loading dm-remap v4.0 with Real Device Support
+[ 1371.183095] dm-remap v4.0 real: dm-remap v4.0 Real Device Support loaded successfully
+[ 1371.183099] dm-remap v4.0 real: Mode: Real Device, Background scanning: enabled
+[ 1371.186666] dm-remap v4.0 real: Creating real device target: main=/dev/loop17, spare=/dev/loop18
+[ 1371.186680] dm-remap v4.0 real: Optimized spare sizing calculation:
+[ 1371.186681] dm-remap v4.0 real:   Main device: 204800 sectors (100 MB)
+[ 1371.186683] dm-remap v4.0 real:   Expected bad sectors (2%): 4096 sectors (2 MB)
+[ 1371.186684] dm-remap v4.0 real:   Metadata overhead: 522 sectors (261 KB)
+[ 1371.186685] dm-remap v4.0 real:   Minimum spare (with 20% safety margin): 5541 sectors (2 MB)
+[ 1371.186687] dm-remap v4.0 real: Consider RAID1 mirroring: 50 MB spare for 100 MB main (50%)
+[ 1371.186688] dm-remap v4.0 real: Enhanced device compatibility validated:
+[ 1371.186689] dm-remap v4.0 real:   Main: 204800 sectors, 104857600 bytes (512/512 sector size)
+[ 1371.186691] dm-remap v4.0 real:   Spare: 102400 sectors, 52428800 bytes (512/512 sector size)
+[ 1371.186692] dm-remap v4.0 real:   Overhead available: 18446744073709449216 sectors (90071992547359% of main size)
+[ 1371.186713] dm-remap v4.0 real: Real devices opened with enhanced detection:
+[ 1371.186720] dm-remap v4.0 real:   Main: loop17 (204800 sectors, 512 byte sectors)
+[ 1371.186722] dm-remap v4.0 real:   Spare: loop18 (102400 sectors, 512 byte sectors)
+[ 1371.187484] dm-remap v4.0: Repair context initialized (scrub interval: 3600 sec)
+[ 1371.187526] dm-remap-v4: Initialized v4.0 metadata: main=, spare=
+[ 1371.187528] dm-remap v4.0 real: Initialized persistent v4 metadata
+[ 1371.187529] dm-remap v4.0 real: Scheduling deferred metadata read (avoiding constructor deadlock)
+[ 1371.187532] dm-remap v4.0 real: Real device target created successfully (real device mode)
+[ 1371.290733] dm-remap v4.0 real: Loading persistent metadata (deferred read)...
+[ 1371.291456] dm-remap-v4: No valid metadata copies found on device
+[ 1371.291487] dm-remap v4.0 real: No valid metadata found, starting fresh: -61
+[ 1371.291489] dm-remap v4.0 real: Deferred metadata read completed successfully
+[ 1374.222450] dm-remap v4.0 real: Presuspend: stopping all background work
+[ 1374.222455] dm-remap v4.0 real: Presuspend: cancelling work items (non-blocking)
+[ 1374.222457] dm-remap v4.0 real: Presuspend: work cancellation signaled
+[ 1374.222458] dm-remap v4.0 real: Presuspend: freeing 0 remap entries
+[ 1374.222459] dm-remap v4.0 real: Presuspend: complete
+[ 1374.222895] dm-remap v4.0 real: Destroying real device target: main=/dev/loop17, spare=/dev/loop18
+[ 1374.222902] dm-remap v4.0 real: Destructor: draining and destroying workqueue
+[ 1374.223080] dm-remap v4.0 real: Destructor: workqueue destroyed successfully
+[ 1374.223082] dm-remap v4.0 real: Destructor: cleaning up repair subsystem
+[ 1374.223083] dm-remap v4.0: Cleaning up repair context (completed: 0, scrubs: 0)
+[ 1374.223086] dm-remap v4.0: Repair context cleaned up
+[ 1374.223262] dm-remap v4.0 real: Destructor: repair subsystem cleaned up
+[ 1374.223267] dm-remap v4.0 real: Real device target destroyed
+[ 1874.173341] loop17: detected capacity change from 0 to 204800
+[ 1874.176242] loop18: detected capacity change from 0 to 102400
+[ 1874.178184] dm-remap v4.0 real: Unloading dm-remap v4.0 Real Device Support
+[ 1874.178351] dm-remap v4.0 real: dm-remap v4.0 Real Device Support unloaded
+[ 1874.211416] dm-remap-stats: Statistics export removed
+[ 1874.253118] dm-remap-stats: Statistics export initialized
+[ 1874.253124] dm-remap-stats: Available at /sys/kernel/dm_remap/
+[ 1874.253125] dm-remap-stats: Prometheus-style: cat /sys/kernel/dm_remap/all_stats
+[ 1874.259626] dm-remap v4.0 real: Loading dm-remap v4.0 with Real Device Support
+[ 1874.259872] dm-remap v4.0 real: dm-remap v4.0 Real Device Support loaded successfully
+[ 1874.259878] dm-remap v4.0 real: Mode: Real Device, Background scanning: enabled
+[ 1874.264527] dm-remap v4.0 real: Creating real device target: main=/dev/loop17, spare=/dev/loop18
+[ 1874.264545] dm-remap v4.0 real: Optimized spare sizing calculation:
+[ 1874.264546] dm-remap v4.0 real:   Main device: 204800 sectors (100 MB)
+[ 1874.264548] dm-remap v4.0 real:   Expected bad sectors (2%): 4096 sectors (2 MB)
+[ 1874.264550] dm-remap v4.0 real:   Metadata overhead: 522 sectors (261 KB)
+[ 1874.264551] dm-remap v4.0 real:   Minimum spare (with 20% safety margin): 5541 sectors (2 MB)
+[ 1874.264552] dm-remap v4.0 real: Consider RAID1 mirroring: 50 MB spare for 100 MB main (50%)
+[ 1874.264554] dm-remap v4.0 real: Enhanced device compatibility validated:
+[ 1874.264555] dm-remap v4.0 real:   Main: 204800 sectors, 104857600 bytes (512/512 sector size)
+[ 1874.264557] dm-remap v4.0 real:   Spare: 102400 sectors, 52428800 bytes (512/512 sector size)
+[ 1874.264558] dm-remap v4.0 real:   Overhead available: 18446744073709449216 sectors (90071992547359% of main size)
+[ 1874.264563] dm-remap v4.0 real: Real devices opened with enhanced detection:
+[ 1874.264564] dm-remap v4.0 real:   Main: loop17 (204800 sectors, 512 byte sectors)
+[ 1874.264565] dm-remap v4.0 real:   Spare: loop18 (102400 sectors, 512 byte sectors)
+[ 1874.264958] dm-remap v4.0: Repair context initialized (scrub interval: 3600 sec)
+[ 1874.264969] dm-remap-v4: Initialized v4.0 metadata: main=, spare=
+[ 1874.264971] dm-remap v4.0 real: Initialized persistent v4 metadata
+[ 1874.264987] dm-remap v4.0 real: Scheduling deferred metadata read (avoiding constructor deadlock)
+[ 1874.264990] dm-remap v4.0 real: Real device target created successfully (real device mode)
+[ 1874.348283] dm-remap v4.0 real: Presuspend: stopping all background work
+[ 1874.348297] dm-remap v4.0 real: Presuspend: cancelling work items (non-blocking)
+[ 1874.348299] dm-remap v4.0 real: Presuspend: work cancellation signaled
+[ 1874.348300] dm-remap v4.0 real: Presuspend: freeing 0 remap entries
+[ 1874.348301] dm-remap v4.0 real: Presuspend: complete
+[ 1874.348691] dm-remap v4.0 real: Destroying real device target: main=/dev/loop17, spare=/dev/loop18
+[ 1874.348697] dm-remap v4.0 real: Destructor: draining and destroying workqueue
+[ 1874.348798] dm-remap v4.0 real: Destructor: workqueue destroyed successfully
+[ 1874.348802] dm-remap v4.0 real: Destructor: cleaning up repair subsystem
+[ 1874.348803] dm-remap v4.0: Cleaning up repair context (completed: 0, scrubs: 0)
+[ 1874.348806] dm-remap v4.0: Repair context cleaned up
+[ 1874.348918] dm-remap v4.0 real: Destructor: repair subsystem cleaned up
+[ 1874.348923] dm-remap v4.0 real: Real device target destroyed
+[ 2005.468926] loop17: detected capacity change from 0 to 204800
+[ 2005.471468] loop18: detected capacity change from 0 to 102400
+[ 2005.473400] dm-remap v4.0 real: Unloading dm-remap v4.0 Real Device Support
+[ 2005.473720] dm-remap v4.0 real: dm-remap v4.0 Real Device Support unloaded
+[ 2005.510913] dm-remap-stats: Statistics export removed
+[ 2005.546197] dm-remap-stats: Statistics export initialized
+[ 2005.546203] dm-remap-stats: Available at /sys/kernel/dm_remap/
+[ 2005.546204] dm-remap-stats: Prometheus-style: cat /sys/kernel/dm_remap/all_stats
+[ 2005.551033] dm-remap v4.0 real: Loading dm-remap v4.0 with Real Device Support
+[ 2005.551267] dm-remap v4.0 real: dm-remap v4.0 Real Device Support loaded successfully
+[ 2005.551275] dm-remap v4.0 real: Mode: Real Device, Background scanning: enabled
+[ 2005.555730] dm-remap v4.0 real: Creating real device target: main=/dev/loop17, spare=/dev/loop18
+[ 2005.555745] dm-remap v4.0 real: Optimized spare sizing calculation:
+[ 2005.555747] dm-remap v4.0 real:   Main device: 204800 sectors (100 MB)
+[ 2005.555748] dm-remap v4.0 real:   Expected bad sectors (2%): 4096 sectors (2 MB)
+[ 2005.555750] dm-remap v4.0 real:   Metadata overhead: 522 sectors (261 KB)
+[ 2005.555751] dm-remap v4.0 real:   Minimum spare (with 20% safety margin): 5541 sectors (2 MB)
+[ 2005.555752] dm-remap v4.0 real: Consider RAID1 mirroring: 50 MB spare for 100 MB main (50%)
+[ 2005.555754] dm-remap v4.0 real: Enhanced device compatibility validated:
+[ 2005.555755] dm-remap v4.0 real:   Main: 204800 sectors, 104857600 bytes (512/512 sector size)
+[ 2005.555757] dm-remap v4.0 real:   Spare: 102400 sectors, 52428800 bytes (512/512 sector size)
+[ 2005.555758] dm-remap v4.0 real:   Overhead available: 18446744073709449216 sectors (90071992547359% of main size)
+[ 2005.555763] dm-remap v4.0 real: Real devices opened with enhanced detection:
+[ 2005.555764] dm-remap v4.0 real:   Main: loop17 (204800 sectors, 512 byte sectors)
+[ 2005.555765] dm-remap v4.0 real:   Spare: loop18 (102400 sectors, 512 byte sectors)
+[ 2005.556315] dm-remap v4.0: Repair context initialized (scrub interval: 3600 sec)
+[ 2005.556328] dm-remap-v4: Initialized v4.0 metadata: main=, spare=
+[ 2005.556330] dm-remap v4.0 real: Initialized persistent v4 metadata
+[ 2005.556331] dm-remap v4.0 real: Scheduling deferred metadata read (avoiding constructor deadlock)
+[ 2005.556333] dm-remap v4.0 real: Real device target created successfully (real device mode)
+[ 2005.637166] dm-remap v4.0 real: Presuspend: stopping all background work
+[ 2005.637172] dm-remap v4.0 real: Presuspend: cancelling work items (non-blocking)
+[ 2005.637174] dm-remap v4.0 real: Presuspend: work cancellation signaled
+[ 2005.637182] dm-remap v4.0 real: Presuspend: freeing 0 remap entries
+[ 2005.637189] dm-remap v4.0 real: Presuspend: complete
+[ 2005.637633] dm-remap v4.0 real: Destroying real device target: main=/dev/loop17, spare=/dev/loop18
+[ 2005.637653] dm-remap v4.0 real: Destructor: draining and destroying workqueue
+[ 2005.637758] dm-remap v4.0 real: Destructor: workqueue destroyed successfully
+[ 2005.637761] dm-remap v4.0 real: Destructor: cleaning up repair subsystem
+[ 2005.637762] dm-remap v4.0: Cleaning up repair context (completed: 0, scrubs: 0)
+[ 2005.637765] dm-remap v4.0: Repair context cleaned up
+[ 2005.637874] dm-remap v4.0 real: Destructor: repair subsystem cleaned up
+[ 2005.637878] dm-remap v4.0 real: Real device target destroyed
+[ 2020.102321] loop17: detected capacity change from 0 to 204800
+[ 2020.104555] loop18: detected capacity change from 0 to 102400
+[ 2020.106359] dm-remap v4.0 real: Unloading dm-remap v4.0 Real Device Support
+[ 2020.106496] dm-remap v4.0 real: dm-remap v4.0 Real Device Support unloaded
+[ 2020.134806] dm-remap-stats: Statistics export removed
+[ 2020.160027] dm-remap-stats: Statistics export initialized
+[ 2020.160033] dm-remap-stats: Available at /sys/kernel/dm_remap/
+[ 2020.160034] dm-remap-stats: Prometheus-style: cat /sys/kernel/dm_remap/all_stats
+[ 2020.167070] dm-remap v4.0 real: Loading dm-remap v4.0 with Real Device Support
+[ 2020.167290] dm-remap v4.0 real: dm-remap v4.0 Real Device Support loaded successfully
+[ 2020.167294] dm-remap v4.0 real: Mode: Real Device, Background scanning: enabled
+[ 2020.171603] dm-remap v4.0 real: Creating real device target: main=/dev/loop17, spare=/dev/loop18
+[ 2020.171629] dm-remap v4.0 real: Optimized spare sizing calculation:
+[ 2020.171631] dm-remap v4.0 real:   Main device: 204800 sectors (100 MB)
+[ 2020.171633] dm-remap v4.0 real:   Expected bad sectors (2%): 4096 sectors (2 MB)
+[ 2020.171634] dm-remap v4.0 real:   Metadata overhead: 522 sectors (261 KB)
+[ 2020.171636] dm-remap v4.0 real:   Minimum spare (with 20% safety margin): 5541 sectors (2 MB)
+[ 2020.171637] dm-remap v4.0 real: Consider RAID1 mirroring: 50 MB spare for 100 MB main (50%)
+[ 2020.171639] dm-remap v4.0 real: Enhanced device compatibility validated:
+[ 2020.171640] dm-remap v4.0 real:   Main: 204800 sectors, 104857600 bytes (512/512 sector size)
+[ 2020.171642] dm-remap v4.0 real:   Spare: 102400 sectors, 52428800 bytes (512/512 sector size)
+[ 2020.171644] dm-remap v4.0 real:   Overhead available: 18446744073709449216 sectors (90071992547359% of main size)
+[ 2020.171649] dm-remap v4.0 real: Real devices opened with enhanced detection:
+[ 2020.171650] dm-remap v4.0 real:   Main: loop17 (204800 sectors, 512 byte sectors)
+[ 2020.171652] dm-remap v4.0 real:   Spare: loop18 (102400 sectors, 512 byte sectors)
+[ 2020.172270] dm-remap v4.0: Repair context initialized (scrub interval: 3600 sec)
+[ 2020.172284] dm-remap-v4: Initialized v4.0 metadata: main=, spare=
+[ 2020.172285] dm-remap v4.0 real: Initialized persistent v4 metadata
+[ 2020.172286] dm-remap v4.0 real: Scheduling deferred metadata read (avoiding constructor deadlock)
+[ 2020.172288] dm-remap v4.0 real: Real device target created successfully (real device mode)
+[ 2020.251869] dm-remap v4.0 real: Presuspend: stopping all background work
+[ 2020.251875] dm-remap v4.0 real: Presuspend: cancelling work items (non-blocking)
+[ 2020.251877] dm-remap v4.0 real: Presuspend: work cancellation signaled
+[ 2020.251878] dm-remap v4.0 real: Presuspend: freeing 0 remap entries
+[ 2020.251879] dm-remap v4.0 real: Presuspend: complete
+[ 2020.252160] dm-remap v4.0 real: Destroying real device target: main=/dev/loop17, spare=/dev/loop18
+[ 2020.252166] dm-remap v4.0 real: Destructor: draining and destroying workqueue
+[ 2020.252343] dm-remap v4.0 real: Destructor: workqueue destroyed successfully
+[ 2020.252348] dm-remap v4.0 real: Destructor: cleaning up repair subsystem
+[ 2020.252377] dm-remap v4.0: Cleaning up repair context (completed: 0, scrubs: 0)
+[ 2020.252379] dm-remap v4.0: Repair context cleaned up
+[ 2020.252516] dm-remap v4.0 real: Destructor: repair subsystem cleaned up
+[ 2020.252523] dm-remap v4.0 real: Real device target destroyed
+[ 2023.510640] perf: interrupt took too long (2542 > 2500), lowering kernel.perf_event_max_sample_rate to 78000
+[ 3336.911689] perf: interrupt took too long (3386 > 3177), lowering kernel.perf_event_max_sample_rate to 59000
+[ 5425.639491] perf: interrupt took too long (4534 > 4232), lowering kernel.perf_event_max_sample_rate to 44000
+[ 7291.319309] perf: interrupt took too long (5744 > 5667), lowering kernel.perf_event_max_sample_rate to 34000
+[ 7443.753052] loop17: detected capacity change from 0 to 204800
+[ 7443.770158] loop18: detected capacity change from 0 to 204800
+[ 7466.116179] dm-remap v4.0 real: Creating real device target: main=/dev/loop17, spare=/dev/loop18
+[ 7466.116195] dm-remap v4.0 real: Optimized spare sizing calculation:
+[ 7466.116197] dm-remap v4.0 real:   Main device: 204800 sectors (100 MB)
+[ 7466.116199] dm-remap v4.0 real:   Expected bad sectors (2%): 4096 sectors (2 MB)
+[ 7466.116201] dm-remap v4.0 real:   Metadata overhead: 522 sectors (261 KB)
+[ 7466.116202] dm-remap v4.0 real:   Minimum spare (with 20% safety margin): 5541 sectors (2 MB)
+[ 7466.116204] dm-remap v4.0 real: Consider RAID1 mirroring: 100 MB spare for 100 MB main (100%)
+[ 7466.116206] dm-remap v4.0 real: Enhanced device compatibility validated:
+[ 7466.116207] dm-remap v4.0 real:   Main: 204800 sectors, 104857600 bytes (512/512 sector size)
+[ 7466.116209] dm-remap v4.0 real:   Spare: 204800 sectors, 104857600 bytes (512/512 sector size)
+[ 7466.116210] dm-remap v4.0 real:   Overhead available: 0 sectors (0% of main size)
+[ 7466.116216] dm-remap v4.0 real: Real devices opened with enhanced detection:
+[ 7466.116217] dm-remap v4.0 real:   Main: loop17 (204800 sectors, 512 byte sectors)
+[ 7466.116219] dm-remap v4.0 real:   Spare: loop18 (204800 sectors, 512 byte sectors)
+[ 7466.116452] dm-remap v4.0: Repair context initialized (scrub interval: 3600 sec)
+[ 7466.116466] dm-remap-v4: Initialized v4.0 metadata: main=, spare=
+[ 7466.116468] dm-remap v4.0 real: Initialized persistent v4 metadata
+[ 7466.116469] dm-remap v4.0 real: Scheduling deferred metadata read (avoiding constructor deadlock)
+[ 7466.116471] dm-remap v4.0 real: Real device target created successfully (real device mode)
+[ 7466.222730] dm-remap v4.0 real: Loading persistent metadata (deferred read)...
+[ 7466.223152] dm-remap-v4: No valid metadata copies found on device
+[ 7466.223159] dm-remap v4.0 real: No valid metadata found, starting fresh: -61
+[ 7466.223161] dm-remap v4.0 real: Deferred metadata read completed successfully
+[ 8804.497222] dm-remap v4.0 real: Presuspend: stopping all background work
+[ 8804.497228] dm-remap v4.0 real: Presuspend: cancelling work items (non-blocking)
+[ 8804.497230] dm-remap v4.0 real: Presuspend: work cancellation signaled
+[ 8804.497232] dm-remap v4.0 real: Presuspend: freeing 0 remap entries
+[ 8804.497233] dm-remap v4.0 real: Presuspend: complete
+[ 8804.497657] dm-remap v4.0 real: Destroying real device target: main=/dev/loop17, spare=/dev/loop18
+[ 8804.497664] dm-remap v4.0 real: Destructor: draining and destroying workqueue
+[ 8804.497770] dm-remap v4.0 real: Destructor: workqueue destroyed successfully
+[ 8804.497771] dm-remap v4.0 real: Destructor: cleaning up repair subsystem
+[ 8804.497772] dm-remap v4.0: Cleaning up repair context (completed: 0, scrubs: 0)
+[ 8804.497827] dm-remap v4.0: Repair context cleaned up
+[ 8804.498003] dm-remap v4.0 real: Destructor: repair subsystem cleaned up
+[ 8804.498036] dm-remap v4.0 real: Real device target destroyed
+[ 8808.232563] loop17: detected capacity change from 0 to 204800
+[ 8808.235188] loop18: detected capacity change from 0 to 102400
+[ 8808.237026] dm-remap v4.0 real: Unloading dm-remap v4.0 Real Device Support
+[ 8808.237158] dm-remap v4.0 real: dm-remap v4.0 Real Device Support unloaded
+[ 8808.273378] dm-remap-stats: Statistics export removed
+[ 8808.315389] dm-remap-stats: Statistics export initialized
+[ 8808.315396] dm-remap-stats: Available at /sys/kernel/dm_remap/
+[ 8808.315397] dm-remap-stats: Prometheus-style: cat /sys/kernel/dm_remap/all_stats
+[ 8808.322233] dm-remap v4.0 real: Loading dm-remap v4.0 with Real Device Support
+[ 8808.322555] dm-remap v4.0 real: dm-remap v4.0 Real Device Support loaded successfully
+[ 8808.322562] dm-remap v4.0 real: Mode: Real Device, Background scanning: enabled
+[ 8808.327281] dm-remap v4.0 real: Creating real device target: main=/dev/loop17, spare=/dev/loop18
+[ 8808.327301] dm-remap v4.0 real: Optimized spare sizing calculation:
+[ 8808.327302] dm-remap v4.0 real:   Main device: 204800 sectors (100 MB)
+[ 8808.327304] dm-remap v4.0 real:   Expected bad sectors (2%): 4096 sectors (2 MB)
+[ 8808.327306] dm-remap v4.0 real:   Metadata overhead: 522 sectors (261 KB)
+[ 8808.327307] dm-remap v4.0 real:   Minimum spare (with 20% safety margin): 5541 sectors (2 MB)
+[ 8808.327309] dm-remap v4.0 real: Consider RAID1 mirroring: 50 MB spare for 100 MB main (50%)
+[ 8808.327310] dm-remap v4.0 real: Enhanced device compatibility validated:
+[ 8808.327311] dm-remap v4.0 real:   Main: 204800 sectors, 104857600 bytes (512/512 sector size)
+[ 8808.327313] dm-remap v4.0 real:   Spare: 102400 sectors, 52428800 bytes (512/512 sector size)
+[ 8808.327315] dm-remap v4.0 real:   Overhead available: 18446744073709449216 sectors (90071992547359% of main size)
+[ 8808.327354] dm-remap v4.0 real: Real devices opened with enhanced detection:
+[ 8808.327355] dm-remap v4.0 real:   Main: loop17 (204800 sectors, 512 byte sectors)
+[ 8808.327356] dm-remap v4.0 real:   Spare: loop18 (102400 sectors, 512 byte sectors)
+[ 8808.327705] dm-remap v4.0: Repair context initialized (scrub interval: 3600 sec)
+[ 8808.327719] dm-remap-v4: Initialized v4.0 metadata: main=, spare=
+[ 8808.327720] dm-remap v4.0 real: Initialized persistent v4 metadata
+[ 8808.327721] dm-remap v4.0 real: Scheduling deferred metadata read (avoiding constructor deadlock)
+[ 8808.327723] dm-remap v4.0 real: Real device target created successfully (real device mode)
+[ 8808.429797] dm-remap v4.0 real: Loading persistent metadata (deferred read)...
+[ 8808.430161] dm-remap-v4: No valid metadata copies found on device
+[ 8808.430167] dm-remap v4.0 real: No valid metadata found, starting fresh: -61
+[ 8808.430169] dm-remap v4.0 real: Deferred metadata read completed successfully
+[ 8808.502671] dm-remap v4.0 real: Presuspend: stopping all background work
+[ 8808.502678] dm-remap v4.0 real: Presuspend: cancelling work items (non-blocking)
+[ 8808.502680] dm-remap v4.0 real: Presuspend: work cancellation signaled
+[ 8808.502681] dm-remap v4.0 real: Presuspend: freeing 0 remap entries
+[ 8808.502682] dm-remap v4.0 real: Presuspend: complete
+[ 8808.503258] dm-remap v4.0 real: Destroying real device target: main=/dev/loop17, spare=/dev/loop18
+[ 8808.503261] dm-remap v4.0 real: Destructor: draining and destroying workqueue
+[ 8808.503334] dm-remap v4.0 real: Destructor: workqueue destroyed successfully
+[ 8808.503336] dm-remap v4.0 real: Destructor: cleaning up repair subsystem
+[ 8808.503337] dm-remap v4.0: Cleaning up repair context (completed: 0, scrubs: 0)
+[ 8808.503340] dm-remap v4.0: Repair context cleaned up
+[ 8808.503465] dm-remap v4.0 real: Destructor: repair subsystem cleaned up
+[ 8808.503470] dm-remap v4.0 real: Real device target destroyed
+[ 8922.502321] loop17: detected capacity change from 0 to 204800
+[ 8922.504547] loop18: detected capacity change from 0 to 102400
+[ 8922.506148] dm-remap v4.0 real: Unloading dm-remap v4.0 Real Device Support
+[ 8922.506274] dm-remap v4.0 real: dm-remap v4.0 Real Device Support unloaded
+[ 8922.535260] dm-remap-stats: Statistics export removed
+[ 8922.564987] dm-remap-stats: Statistics export initialized
+[ 8922.564992] dm-remap-stats: Available at /sys/kernel/dm_remap/
+[ 8922.564994] dm-remap-stats: Prometheus-style: cat /sys/kernel/dm_remap/all_stats
+[ 8922.570957] dm-remap v4.0 real: Loading dm-remap v4.0 with Real Device Support
+[ 8922.571169] dm-remap v4.0 real: dm-remap v4.0 Real Device Support loaded successfully
+[ 8922.571172] dm-remap v4.0 real: Mode: Real Device, Background scanning: enabled
+[ 8922.575003] dm-remap v4.0 real: Creating real device target: main=/dev/loop17, spare=/dev/loop18
+[ 8922.575022] dm-remap v4.0 real: Optimized spare sizing calculation:
+[ 8922.575024] dm-remap v4.0 real:   Main device: 204800 sectors (100 MB)
+[ 8922.575025] dm-remap v4.0 real:   Expected bad sectors (2%): 4096 sectors (2 MB)
+[ 8922.575027] dm-remap v4.0 real:   Metadata overhead: 522 sectors (261 KB)
+[ 8922.575057] dm-remap v4.0 real:   Minimum spare (with 20% safety margin): 5541 sectors (2 MB)
+[ 8922.575059] dm-remap v4.0 real: Consider RAID1 mirroring: 50 MB spare for 100 MB main (50%)
+[ 8922.575061] dm-remap v4.0 real: Enhanced device compatibility validated:
+[ 8922.575062] dm-remap v4.0 real:   Main: 204800 sectors, 104857600 bytes (512/512 sector size)
+[ 8922.575063] dm-remap v4.0 real:   Spare: 102400 sectors, 52428800 bytes (512/512 sector size)
+[ 8922.575065] dm-remap v4.0 real:   Overhead available: 18446744073709449216 sectors (90071992547359% of main size)
+[ 8922.575068] dm-remap v4.0 real: Real devices opened with enhanced detection:
+[ 8922.575069] dm-remap v4.0 real:   Main: loop17 (204800 sectors, 512 byte sectors)
+[ 8922.575070] dm-remap v4.0 real:   Spare: loop18 (102400 sectors, 512 byte sectors)
+[ 8922.575581] dm-remap v4.0: Repair context initialized (scrub interval: 3600 sec)
+[ 8922.575663] dm-remap-v4: Initialized v4.0 metadata: main=, spare=
+[ 8922.575665] dm-remap v4.0 real: Initialized persistent v4 metadata
+[ 8922.575666] dm-remap v4.0 real: Scheduling deferred metadata read (avoiding constructor deadlock)
+[ 8922.575688] dm-remap v4.0 real: Real device target created successfully (real device mode)
+[ 8922.681548] dm-remap v4.0 real: Loading persistent metadata (deferred read)...
+[ 8922.681698] dm-remap-v4: No valid metadata copies found on device
+[ 8922.681707] dm-remap v4.0 real: No valid metadata found, starting fresh: -61
+[ 8922.681709] dm-remap v4.0 real: Deferred metadata read completed successfully
+[ 8922.733511] dm-remap v4.0 real: Presuspend: stopping all background work
+[ 8922.733517] dm-remap v4.0 real: Presuspend: cancelling work items (non-blocking)
+[ 8922.733520] dm-remap v4.0 real: Presuspend: work cancellation signaled
+[ 8922.733521] dm-remap v4.0 real: Presuspend: freeing 0 remap entries
+[ 8922.733522] dm-remap v4.0 real: Presuspend: complete
+[ 8922.733743] dm-remap v4.0 real: Destroying real device target: main=/dev/loop17, spare=/dev/loop18
+[ 8922.733747] dm-remap v4.0 real: Destructor: draining and destroying workqueue
+[ 8922.733875] dm-remap v4.0 real: Destructor: workqueue destroyed successfully
+[ 8922.733876] dm-remap v4.0 real: Destructor: cleaning up repair subsystem
+[ 8922.733878] dm-remap v4.0: Cleaning up repair context (completed: 0, scrubs: 0)
+[ 8922.733880] dm-remap v4.0: Repair context cleaned up
+[ 8922.734053] dm-remap v4.0 real: Destructor: repair subsystem cleaned up
+[ 8922.734090] dm-remap v4.0 real: Real device target destroyed
+[ 9192.995730] loop20: detected capacity change from 0 to 102400
+[ 9193.004607] loop21: detected capacity change from 0 to 102400
+[ 9193.017943] dm-remap v4.0 real: Creating real device target: main=/dev/loop20, spare=/dev/loop21
+[ 9193.017959] dm-remap v4.0 real: Optimized spare sizing calculation:
+[ 9193.017961] dm-remap v4.0 real:   Main device: 102400 sectors (50 MB)
+[ 9193.017962] dm-remap v4.0 real:   Expected bad sectors (2%): 2048 sectors (1 MB)
+[ 9193.017964] dm-remap v4.0 real:   Metadata overhead: 266 sectors (133 KB)
+[ 9193.017966] dm-remap v4.0 real:   Minimum spare (with 20% safety margin): 2776 sectors (1 MB)
+[ 9193.017967] dm-remap v4.0 real: Consider RAID1 mirroring: 50 MB spare for 50 MB main (100%)
+[ 9193.017969] dm-remap v4.0 real: Enhanced device compatibility validated:
+[ 9193.017970] dm-remap v4.0 real:   Main: 102400 sectors, 52428800 bytes (512/512 sector size)
+[ 9193.017971] dm-remap v4.0 real:   Spare: 102400 sectors, 52428800 bytes (512/512 sector size)
+[ 9193.017973] dm-remap v4.0 real:   Overhead available: 0 sectors (0% of main size)
+[ 9193.017996] dm-remap v4.0 real: Real devices opened with enhanced detection:
+[ 9193.017998] dm-remap v4.0 real:   Main: loop20 (102400 sectors, 512 byte sectors)
+[ 9193.017999] dm-remap v4.0 real:   Spare: loop21 (102400 sectors, 512 byte sectors)
+[ 9193.018545] dm-remap v4.0: Repair context initialized (scrub interval: 3600 sec)
+[ 9193.018563] dm-remap-v4: Initialized v4.0 metadata: main=, spare=
+[ 9193.018565] dm-remap v4.0 real: Initialized persistent v4 metadata
+[ 9193.018582] dm-remap v4.0 real: Scheduling deferred metadata read (avoiding constructor deadlock)
+[ 9193.018584] dm-remap v4.0 real: Real device target created successfully (real device mode)
+[ 9193.123120] dm-remap v4.0 real: Loading persistent metadata (deferred read)...
+[ 9193.123529] dm-remap-v4: No valid metadata copies found on device
+[ 9193.123539] dm-remap v4.0 real: No valid metadata found, starting fresh: -61
+[ 9193.123541] dm-remap v4.0 real: Deferred metadata read completed successfully
+[ 9263.480158] dm-remap v4.0 real: Presuspend: stopping all background work
+[ 9263.480165] dm-remap v4.0 real: Presuspend: cancelling work items (non-blocking)
+[ 9263.480167] dm-remap v4.0 real: Presuspend: work cancellation signaled
+[ 9263.480168] dm-remap v4.0 real: Presuspend: freeing 0 remap entries
+[ 9263.480170] dm-remap v4.0 real: Presuspend: complete
+[ 9263.480702] dm-remap v4.0 real: Destroying real device target: main=/dev/loop20, spare=/dev/loop21
+[ 9263.480706] dm-remap v4.0 real: Destructor: draining and destroying workqueue
+[ 9263.480805] dm-remap v4.0 real: Destructor: workqueue destroyed successfully
+[ 9263.480811] dm-remap v4.0 real: Destructor: cleaning up repair subsystem
+[ 9263.480812] dm-remap v4.0: Cleaning up repair context (completed: 0, scrubs: 0)
+[ 9263.480815] dm-remap v4.0: Repair context cleaned up
+[ 9263.480909] dm-remap v4.0 real: Destructor: repair subsystem cleaned up
+[ 9263.480914] dm-remap v4.0 real: Real device target destroyed
+[ 9263.544687] dm-remap v4.0 real: Unloading dm-remap v4.0 Real Device Support
+[ 9263.544820] dm-remap v4.0 real: dm-remap v4.0 Real Device Support unloaded
+[ 9263.573888] dm-remap-stats: Statistics export removed
+[ 9267.651823] loop17: detected capacity change from 0 to 204800
+[ 9267.654196] loop18: detected capacity change from 0 to 102400
+[ 9267.661314] dm-remap-stats: Statistics export initialized
+[ 9267.661319] dm-remap-stats: Available at /sys/kernel/dm_remap/
+[ 9267.661320] dm-remap-stats: Prometheus-style: cat /sys/kernel/dm_remap/all_stats
+[ 9267.666567] dm-remap v4.0 real: Loading dm-remap v4.0 with Real Device Support
+[ 9267.666924] dm-remap v4.0 real: dm-remap v4.0 Real Device Support loaded successfully
+[ 9267.666927] dm-remap v4.0 real: Mode: Real Device, Background scanning: enabled
+[ 9267.670894] dm-remap v4.0 real: Creating real device target: main=/dev/loop17, spare=/dev/loop18
+[ 9267.670909] dm-remap v4.0 real: Optimized spare sizing calculation:
+[ 9267.670910] dm-remap v4.0 real:   Main device: 204800 sectors (100 MB)
+[ 9267.670912] dm-remap v4.0 real:   Expected bad sectors (2%): 4096 sectors (2 MB)
+[ 9267.670914] dm-remap v4.0 real:   Metadata overhead: 522 sectors (261 KB)
+[ 9267.670915] dm-remap v4.0 real:   Minimum spare (with 20% safety margin): 5541 sectors (2 MB)
+[ 9267.670916] dm-remap v4.0 real: Consider RAID1 mirroring: 50 MB spare for 100 MB main (50%)
+[ 9267.670918] dm-remap v4.0 real: Enhanced device compatibility validated:
+[ 9267.670919] dm-remap v4.0 real:   Main: 204800 sectors, 104857600 bytes (512/512 sector size)
+[ 9267.670920] dm-remap v4.0 real:   Spare: 102400 sectors, 52428800 bytes (512/512 sector size)
+[ 9267.670922] dm-remap v4.0 real:   Overhead available: 18446744073709449216 sectors (90071992547359% of main size)
+[ 9267.670925] dm-remap v4.0 real: Real devices opened with enhanced detection:
+[ 9267.670926] dm-remap v4.0 real:   Main: loop17 (204800 sectors, 512 byte sectors)
+[ 9267.670927] dm-remap v4.0 real:   Spare: loop18 (102400 sectors, 512 byte sectors)
+[ 9267.671182] dm-remap v4.0: Repair context initialized (scrub interval: 3600 sec)
+[ 9267.671193] dm-remap-v4: Initialized v4.0 metadata: main=, spare=
+[ 9267.671195] dm-remap v4.0 real: Initialized persistent v4 metadata
+[ 9267.671196] dm-remap v4.0 real: Scheduling deferred metadata read (avoiding constructor deadlock)
+[ 9267.671197] dm-remap v4.0 real: Real device target created successfully (real device mode)
+[ 9267.772893] dm-remap v4.0 real: Loading persistent metadata (deferred read)...
+[ 9267.773718] dm-remap-v4: No valid metadata copies found on device
+[ 9267.773785] dm-remap v4.0 real: No valid metadata found, starting fresh: -61
+[ 9267.773787] dm-remap v4.0 real: Deferred metadata read completed successfully
+[ 9267.842043] dm-remap v4.0 real: Presuspend: stopping all background work
+[ 9267.842049] dm-remap v4.0 real: Presuspend: cancelling work items (non-blocking)
+[ 9267.842051] dm-remap v4.0 real: Presuspend: work cancellation signaled
+[ 9267.842052] dm-remap v4.0 real: Presuspend: freeing 0 remap entries
+[ 9267.842053] dm-remap v4.0 real: Presuspend: complete
+[ 9267.842273] dm-remap v4.0 real: Destroying real device target: main=/dev/loop17, spare=/dev/loop18
+[ 9267.842278] dm-remap v4.0 real: Destructor: draining and destroying workqueue
+[ 9267.842409] dm-remap v4.0 real: Destructor: workqueue destroyed successfully
+[ 9267.842411] dm-remap v4.0 real: Destructor: cleaning up repair subsystem
+[ 9267.842413] dm-remap v4.0: Cleaning up repair context (completed: 0, scrubs: 0)
+[ 9267.842416] dm-remap v4.0: Repair context cleaned up
+[ 9267.842629] dm-remap v4.0 real: Destructor: repair subsystem cleaned up
+[ 9267.842635] dm-remap v4.0 real: Real device target destroyed
+[ 9429.167535] loop17: detected capacity change from 0 to 204800
+[ 9429.169977] loop18: detected capacity change from 0 to 102400
+[ 9429.171898] dm-remap v4.0 real: Unloading dm-remap v4.0 Real Device Support
+[ 9429.172035] dm-remap v4.0 real: dm-remap v4.0 Real Device Support unloaded
+[ 9429.203624] dm-remap-stats: Statistics export removed
+[ 9429.243079] dm-remap-stats: Statistics export initialized
+[ 9429.243087] dm-remap-stats: Available at /sys/kernel/dm_remap/
+[ 9429.243098] dm-remap-stats: Prometheus-style: cat /sys/kernel/dm_remap/all_stats
+[ 9429.249107] dm-remap v4.0 real: Loading dm-remap v4.0 with Real Device Support
+[ 9429.249302] dm-remap v4.0 real: dm-remap v4.0 Real Device Support loaded successfully
+[ 9429.249306] dm-remap v4.0 real: Mode: Real Device, Background scanning: enabled
+[ 9429.252859] dm-remap v4.0 real: Creating real device target: main=/dev/loop17, spare=/dev/loop18
+[ 9429.252874] dm-remap v4.0 real: Optimized spare sizing calculation:
+[ 9429.252875] dm-remap v4.0 real:   Main device: 204800 sectors (100 MB)
+[ 9429.252877] dm-remap v4.0 real:   Expected bad sectors (2%): 4096 sectors (2 MB)
+[ 9429.252878] dm-remap v4.0 real:   Metadata overhead: 522 sectors (261 KB)
+[ 9429.252880] dm-remap v4.0 real:   Minimum spare (with 20% safety margin): 5541 sectors (2 MB)
+[ 9429.252881] dm-remap v4.0 real: Consider RAID1 mirroring: 50 MB spare for 100 MB main (50%)
+[ 9429.252883] dm-remap v4.0 real: Enhanced device compatibility validated:
+[ 9429.252884] dm-remap v4.0 real:   Main: 204800 sectors, 104857600 bytes (512/512 sector size)
+[ 9429.252885] dm-remap v4.0 real:   Spare: 102400 sectors, 52428800 bytes (512/512 sector size)
+[ 9429.252887] dm-remap v4.0 real:   Overhead available: 18446744073709449216 sectors (90071992547359% of main size)
+[ 9429.252890] dm-remap v4.0 real: Real devices opened with enhanced detection:
+[ 9429.252891] dm-remap v4.0 real:   Main: loop17 (204800 sectors, 512 byte sectors)
+[ 9429.252892] dm-remap v4.0 real:   Spare: loop18 (102400 sectors, 512 byte sectors)
+[ 9429.253252] dm-remap v4.0: Repair context initialized (scrub interval: 3600 sec)
+[ 9429.253262] dm-remap-v4: Initialized v4.0 metadata: main=, spare=
+[ 9429.253264] dm-remap v4.0 real: Initialized persistent v4 metadata
+[ 9429.253264] dm-remap v4.0 real: Scheduling deferred metadata read (avoiding constructor deadlock)
+[ 9429.253266] dm-remap v4.0 real: Real device target created successfully (real device mode)
+[ 9429.354443] dm-remap v4.0 real: Loading persistent metadata (deferred read)...
+[ 9429.354861] dm-remap-v4: No valid metadata copies found on device
+[ 9429.354872] dm-remap v4.0 real: No valid metadata found, starting fresh: -61
+[ 9429.354874] dm-remap v4.0 real: Deferred metadata read completed successfully
+[ 9429.430087] dm-remap v4.0 real: Presuspend: stopping all background work
+[ 9429.430093] dm-remap v4.0 real: Presuspend: cancelling work items (non-blocking)
+[ 9429.430095] dm-remap v4.0 real: Presuspend: work cancellation signaled
+[ 9429.430117] dm-remap v4.0 real: Presuspend: freeing 0 remap entries
+[ 9429.430119] dm-remap v4.0 real: Presuspend: complete
+[ 9429.430378] dm-remap v4.0 real: Destroying real device target: main=/dev/loop17, spare=/dev/loop18
+[ 9429.430383] dm-remap v4.0 real: Destructor: draining and destroying workqueue
+[ 9429.430533] dm-remap v4.0 real: Destructor: workqueue destroyed successfully
+[ 9429.430535] dm-remap v4.0 real: Destructor: cleaning up repair subsystem
+[ 9429.430536] dm-remap v4.0: Cleaning up repair context (completed: 0, scrubs: 0)
+[ 9429.430538] dm-remap v4.0: Repair context cleaned up
+[ 9429.430680] dm-remap v4.0 real: Destructor: repair subsystem cleaned up
+[ 9429.430685] dm-remap v4.0 real: Real device target destroyed
+[ 9445.373775] loop17: detected capacity change from 0 to 204800
+[ 9445.376101] loop18: detected capacity change from 0 to 102400
+[ 9445.377778] dm-remap v4.0 real: Unloading dm-remap v4.0 Real Device Support
+[ 9445.377908] dm-remap v4.0 real: dm-remap v4.0 Real Device Support unloaded
+[ 9445.399805] dm-remap-stats: Statistics export removed
+[ 9445.430100] dm-remap-stats: Statistics export initialized
+[ 9445.430106] dm-remap-stats: Available at /sys/kernel/dm_remap/
+[ 9445.430115] dm-remap-stats: Prometheus-style: cat /sys/kernel/dm_remap/all_stats
+[ 9445.435637] dm-remap v4.0 real: Loading dm-remap v4.0 with Real Device Support
+[ 9445.435847] dm-remap v4.0 real: dm-remap v4.0 Real Device Support loaded successfully
+[ 9445.435850] dm-remap v4.0 real: Mode: Real Device, Background scanning: enabled
+[ 9445.441277] dm-remap v4.0 real: Creating real device target: main=/dev/loop17, spare=/dev/loop18
+[ 9445.441303] dm-remap v4.0 real: Optimized spare sizing calculation:
+[ 9445.441304] dm-remap v4.0 real:   Main device: 204800 sectors (100 MB)
+[ 9445.441306] dm-remap v4.0 real:   Expected bad sectors (2%): 4096 sectors (2 MB)
+[ 9445.441308] dm-remap v4.0 real:   Metadata overhead: 522 sectors (261 KB)
+[ 9445.441309] dm-remap v4.0 real:   Minimum spare (with 20% safety margin): 5541 sectors (2 MB)
+[ 9445.441311] dm-remap v4.0 real: Consider RAID1 mirroring: 50 MB spare for 100 MB main (50%)
+[ 9445.441313] dm-remap v4.0 real: Enhanced device compatibility validated:
+[ 9445.441314] dm-remap v4.0 real:   Main: 204800 sectors, 104857600 bytes (512/512 sector size)
+[ 9445.441315] dm-remap v4.0 real:   Spare: 102400 sectors, 52428800 bytes (512/512 sector size)
+[ 9445.441355] dm-remap v4.0 real:   Overhead available: 18446744073709449216 sectors (90071992547359% of main size)
+[ 9445.441361] dm-remap v4.0 real: Real devices opened with enhanced detection:
+[ 9445.441363] dm-remap v4.0 real:   Main: loop17 (204800 sectors, 512 byte sectors)
+[ 9445.441364] dm-remap v4.0 real:   Spare: loop18 (102400 sectors, 512 byte sectors)
+[ 9445.441617] dm-remap v4.0: Repair context initialized (scrub interval: 3600 sec)
+[ 9445.441629] dm-remap-v4: Initialized v4.0 metadata: main=, spare=
+[ 9445.441630] dm-remap v4.0 real: Initialized persistent v4 metadata
+[ 9445.441632] dm-remap v4.0 real: Scheduling deferred metadata read (avoiding constructor deadlock)
+[ 9445.441634] dm-remap v4.0 real: Real device target created successfully (real device mode)
+[ 9445.546121] dm-remap v4.0 real: Loading persistent metadata (deferred read)...
+[ 9445.546539] dm-remap-v4: No valid metadata copies found on device
+[ 9445.546545] dm-remap v4.0 real: No valid metadata found, starting fresh: -61
+[ 9445.546547] dm-remap v4.0 real: Deferred metadata read completed successfully
+[ 9445.613797] dm-remap v4.0 real: Presuspend: stopping all background work
+[ 9445.613803] dm-remap v4.0 real: Presuspend: cancelling work items (non-blocking)
+[ 9445.613805] dm-remap v4.0 real: Presuspend: work cancellation signaled
+[ 9445.613806] dm-remap v4.0 real: Presuspend: freeing 0 remap entries
+[ 9445.613807] dm-remap v4.0 real: Presuspend: complete
+[ 9445.614037] dm-remap v4.0 real: Destroying real device target: main=/dev/loop17, spare=/dev/loop18
+[ 9445.614041] dm-remap v4.0 real: Destructor: draining and destroying workqueue
+[ 9445.614274] dm-remap v4.0 real: Destructor: workqueue destroyed successfully
+[ 9445.614300] dm-remap v4.0 real: Destructor: cleaning up repair subsystem
+[ 9445.614301] dm-remap v4.0: Cleaning up repair context (completed: 0, scrubs: 0)
+[ 9445.614304] dm-remap v4.0: Repair context cleaned up
+[ 9445.614469] dm-remap v4.0 real: Destructor: repair subsystem cleaned up
+[ 9445.614475] dm-remap v4.0 real: Real device target destroyed
+[ 9597.954524] dm-remap v4.0 real: Unloading dm-remap v4.0 Real Device Support
+[ 9597.954772] dm-remap v4.0 real: dm-remap v4.0 Real Device Support unloaded
+[ 9597.988917] dm-remap-stats: Statistics export removed
+[ 9598.025399] dm-remap-stats: Statistics export initialized
+[ 9598.025404] dm-remap-stats: Available at /sys/kernel/dm_remap/
+[ 9598.025405] dm-remap-stats: Prometheus-style: cat /sys/kernel/dm_remap/all_stats
+[ 9598.039435] dm-remap v4.0 real: Loading dm-remap v4.0 with Real Device Support
+[ 9598.039965] dm-remap v4.0 real: dm-remap v4.0 Real Device Support loaded successfully
+[ 9598.039970] dm-remap v4.0 real: Mode: Real Device, Background scanning: enabled
+[ 9598.050121] device-mapper: table: 252:0: zero-length target
+[ 9598.050156] device-mapper: ioctl: error adding target to table
+[ 9608.920674] loop17: detected capacity change from 0 to 204800
+[ 9608.922934] loop18: detected capacity change from 0 to 102400
+[ 9608.924693] dm-remap v4.0 real: Unloading dm-remap v4.0 Real Device Support
+[ 9608.924839] dm-remap v4.0 real: dm-remap v4.0 Real Device Support unloaded
+[ 9608.949053] dm-remap-stats: Statistics export removed
+[ 9608.982272] dm-remap-stats: Statistics export initialized
+[ 9608.982278] dm-remap-stats: Available at /sys/kernel/dm_remap/
+[ 9608.982279] dm-remap-stats: Prometheus-style: cat /sys/kernel/dm_remap/all_stats
+[ 9608.987920] dm-remap v4.0 real: Loading dm-remap v4.0 with Real Device Support
+[ 9608.988244] dm-remap v4.0 real: dm-remap v4.0 Real Device Support loaded successfully
+[ 9608.988252] dm-remap v4.0 real: Mode: Real Device, Background scanning: enabled
+[ 9608.992822] dm-remap v4.0 real: Creating real device target: main=/dev/loop17, spare=/dev/loop18
+[ 9608.992840] dm-remap v4.0 real: Optimized spare sizing calculation:
+[ 9608.992841] dm-remap v4.0 real:   Main device: 204800 sectors (100 MB)
+[ 9608.992843] dm-remap v4.0 real:   Expected bad sectors (2%): 4096 sectors (2 MB)
+[ 9608.992845] dm-remap v4.0 real:   Metadata overhead: 522 sectors (261 KB)
+[ 9608.992846] dm-remap v4.0 real:   Minimum spare (with 20% safety margin): 5541 sectors (2 MB)
+[ 9608.992847] dm-remap v4.0 real: Consider RAID1 mirroring: 50 MB spare for 100 MB main (50%)
+[ 9608.992849] dm-remap v4.0 real: Enhanced device compatibility validated:
+[ 9608.992850] dm-remap v4.0 real:   Main: 204800 sectors, 104857600 bytes (512/512 sector size)
+[ 9608.992852] dm-remap v4.0 real:   Spare: 102400 sectors, 52428800 bytes (512/512 sector size)
+[ 9608.992853] dm-remap v4.0 real:   Overhead available: 18446744073709449216 sectors (90071992547359% of main size)
+[ 9608.992858] dm-remap v4.0 real: Real devices opened with enhanced detection:
+[ 9608.992859] dm-remap v4.0 real:   Main: loop17 (204800 sectors, 512 byte sectors)
+[ 9608.992860] dm-remap v4.0 real:   Spare: loop18 (102400 sectors, 512 byte sectors)
+[ 9608.993292] dm-remap v4.0: Repair context initialized (scrub interval: 3600 sec)
+[ 9608.993315] dm-remap-v4: Initialized v4.0 metadata: main=, spare=
+[ 9608.993318] dm-remap v4.0 real: Initialized persistent v4 metadata
+[ 9608.993320] dm-remap v4.0 real: Scheduling deferred metadata read (avoiding constructor deadlock)
+[ 9608.993324] dm-remap v4.0 real: Real device target created successfully (real device mode)
+[ 9609.095260] dm-remap v4.0 real: Loading persistent metadata (deferred read)...
+[ 9609.096030] dm-remap-v4: No valid metadata copies found on device
+[ 9609.096047] dm-remap v4.0 real: No valid metadata found, starting fresh: -61
+[ 9609.096051] dm-remap v4.0 real: Deferred metadata read completed successfully
+[ 9609.173511] dm-remap v4.0 real: Presuspend: stopping all background work
+[ 9609.173518] dm-remap v4.0 real: Presuspend: cancelling work items (non-blocking)
+[ 9609.173555] dm-remap v4.0 real: Presuspend: work cancellation signaled
+[ 9609.173556] dm-remap v4.0 real: Presuspend: freeing 0 remap entries
+[ 9609.173558] dm-remap v4.0 real: Presuspend: complete
+[ 9609.173781] dm-remap v4.0 real: Destroying real device target: main=/dev/loop17, spare=/dev/loop18
+[ 9609.173786] dm-remap v4.0 real: Destructor: draining and destroying workqueue
+[ 9609.173926] dm-remap v4.0 real: Destructor: workqueue destroyed successfully
+[ 9609.173951] dm-remap v4.0 real: Destructor: cleaning up repair subsystem
+[ 9609.173952] dm-remap v4.0: Cleaning up repair context (completed: 0, scrubs: 0)
+[ 9609.173955] dm-remap v4.0: Repair context cleaned up
+[ 9609.174069] dm-remap v4.0 real: Destructor: repair subsystem cleaned up
+[ 9609.174075] dm-remap v4.0 real: Real device target destroyed
+[ 9629.642340] loop17: detected capacity change from 0 to 204800
+[ 9629.644578] loop18: detected capacity change from 0 to 102400
+[ 9629.646818] dm-remap v4.0 real: Unloading dm-remap v4.0 Real Device Support
+[ 9629.647002] dm-remap v4.0 real: dm-remap v4.0 Real Device Support unloaded
+[ 9629.679743] dm-remap-stats: Statistics export removed
+[ 9629.718541] dm-remap-stats: Statistics export initialized
+[ 9629.718545] dm-remap-stats: Available at /sys/kernel/dm_remap/
+[ 9629.718547] dm-remap-stats: Prometheus-style: cat /sys/kernel/dm_remap/all_stats
+[ 9629.723142] dm-remap v4.0 real: Loading dm-remap v4.0 with Real Device Support
+[ 9629.723351] dm-remap v4.0 real: dm-remap v4.0 Real Device Support loaded successfully
+[ 9629.723355] dm-remap v4.0 real: Mode: Real Device, Background scanning: enabled
+[ 9629.727088] dm-remap v4.0 real: Creating real device target: main=/dev/loop17, spare=/dev/loop18
+[ 9629.727105] dm-remap v4.0 real: Optimized spare sizing calculation:
+[ 9629.727106] dm-remap v4.0 real:   Main device: 204800 sectors (100 MB)
+[ 9629.727108] dm-remap v4.0 real:   Expected bad sectors (2%): 4096 sectors (2 MB)
+[ 9629.727109] dm-remap v4.0 real:   Metadata overhead: 522 sectors (261 KB)
+[ 9629.727111] dm-remap v4.0 real:   Minimum spare (with 20% safety margin): 5541 sectors (2 MB)
+[ 9629.727112] dm-remap v4.0 real: Consider RAID1 mirroring: 50 MB spare for 100 MB main (50%)
+[ 9629.727114] dm-remap v4.0 real: Enhanced device compatibility validated:
+[ 9629.727115] dm-remap v4.0 real:   Main: 204800 sectors, 104857600 bytes (512/512 sector size)
+[ 9629.727116] dm-remap v4.0 real:   Spare: 102400 sectors, 52428800 bytes (512/512 sector size)
+[ 9629.727118] dm-remap v4.0 real:   Overhead available: 18446744073709449216 sectors (90071992547359% of main size)
+[ 9629.727121] dm-remap v4.0 real: Real devices opened with enhanced detection:
+[ 9629.727122] dm-remap v4.0 real:   Main: loop17 (204800 sectors, 512 byte sectors)
+[ 9629.727123] dm-remap v4.0 real:   Spare: loop18 (102400 sectors, 512 byte sectors)
+[ 9629.727646] dm-remap v4.0: Repair context initialized (scrub interval: 3600 sec)
+[ 9629.727660] dm-remap-v4: Initialized v4.0 metadata: main=, spare=
+[ 9629.727661] dm-remap v4.0 real: Initialized persistent v4 metadata
+[ 9629.727662] dm-remap v4.0 real: Scheduling deferred metadata read (avoiding constructor deadlock)
+[ 9629.727664] dm-remap v4.0 real: Real device target created successfully (real device mode)
+[ 9629.832056] dm-remap v4.0 real: Loading persistent metadata (deferred read)...
+[ 9629.832332] dm-remap-v4: No valid metadata copies found on device
+[ 9629.832337] dm-remap v4.0 real: No valid metadata found, starting fresh: -61
+[ 9629.832340] dm-remap v4.0 real: Deferred metadata read completed successfully
+[ 9629.901243] dm-remap v4.0 real: Presuspend: stopping all background work
+[ 9629.901248] dm-remap v4.0 real: Presuspend: cancelling work items (non-blocking)
+[ 9629.901250] dm-remap v4.0 real: Presuspend: work cancellation signaled
+[ 9629.901251] dm-remap v4.0 real: Presuspend: freeing 0 remap entries
+[ 9629.901253] dm-remap v4.0 real: Presuspend: complete
+[ 9629.901454] dm-remap v4.0 real: Destroying real device target: main=/dev/loop17, spare=/dev/loop18
+[ 9629.901458] dm-remap v4.0 real: Destructor: draining and destroying workqueue
+[ 9629.901681] dm-remap v4.0 real: Destructor: workqueue destroyed successfully
+[ 9629.901684] dm-remap v4.0 real: Destructor: cleaning up repair subsystem
+[ 9629.901686] dm-remap v4.0: Cleaning up repair context (completed: 0, scrubs: 0)
+[ 9629.901688] dm-remap v4.0: Repair context cleaned up
+[ 9629.901812] dm-remap v4.0 real: Destructor: repair subsystem cleaned up
+[ 9629.901818] dm-remap v4.0 real: Real device target destroyed
+[ 9630.193642] dm-remap v4.0 real: Creating real device target: main=/dev/loop17, spare=/dev/loop18
+[ 9630.193658] dm-remap v4.0 real: Optimized spare sizing calculation:
+[ 9630.193659] dm-remap v4.0 real:   Main device: 204800 sectors (100 MB)
+[ 9630.193661] dm-remap v4.0 real:   Expected bad sectors (2%): 4096 sectors (2 MB)
+[ 9630.193663] dm-remap v4.0 real:   Metadata overhead: 522 sectors (261 KB)
+[ 9630.193664] dm-remap v4.0 real:   Minimum spare (with 20% safety margin): 5541 sectors (2 MB)
+[ 9630.193665] dm-remap v4.0 real: Consider RAID1 mirroring: 50 MB spare for 100 MB main (50%)
+[ 9630.193667] dm-remap v4.0 real: Enhanced device compatibility validated:
+[ 9630.193668] dm-remap v4.0 real:   Main: 204800 sectors, 104857600 bytes (512/512 sector size)
+[ 9630.193670] dm-remap v4.0 real:   Spare: 102400 sectors, 52428800 bytes (512/512 sector size)
+[ 9630.193671] dm-remap v4.0 real:   Overhead available: 18446744073709449216 sectors (90071992547359% of main size)
+[ 9630.193674] dm-remap v4.0 real: Real devices opened with enhanced detection:
+[ 9630.193675] dm-remap v4.0 real:   Main: loop17 (204800 sectors, 512 byte sectors)
+[ 9630.193676] dm-remap v4.0 real:   Spare: loop18 (102400 sectors, 512 byte sectors)
+[ 9630.194042] dm-remap v4.0: Repair context initialized (scrub interval: 3600 sec)
+[ 9630.194052] dm-remap-v4: Initialized v4.0 metadata: main=, spare=
+[ 9630.194054] dm-remap v4.0 real: Initialized persistent v4 metadata
+[ 9630.194055] dm-remap v4.0 real: Scheduling deferred metadata read (avoiding constructor deadlock)
+[ 9630.194057] dm-remap v4.0 real: Real device target created successfully (real device mode)
+[ 9630.223041] dm-remap v4.0 real: Presuspend: stopping all background work
+[ 9630.223047] dm-remap v4.0 real: Presuspend: cancelling work items (non-blocking)
+[ 9630.223049] dm-remap v4.0 real: Presuspend: work cancellation signaled
+[ 9630.223050] dm-remap v4.0 real: Presuspend: freeing 0 remap entries
+[ 9630.223051] dm-remap v4.0 real: Presuspend: complete
+[ 9630.223310] dm-remap v4.0 real: Destroying real device target: main=/dev/loop17, spare=/dev/loop18
+[ 9630.223316] dm-remap v4.0 real: Destructor: draining and destroying workqueue
+[ 9630.223429] dm-remap v4.0 real: Destructor: workqueue destroyed successfully
+[ 9630.223430] dm-remap v4.0 real: Destructor: cleaning up repair subsystem
+[ 9630.223431] dm-remap v4.0: Cleaning up repair context (completed: 0, scrubs: 0)
+[ 9630.223434] dm-remap v4.0: Repair context cleaned up
+[ 9630.223560] dm-remap v4.0 real: Destructor: repair subsystem cleaned up
+[ 9630.223564] dm-remap v4.0 real: Real device target destroyed
