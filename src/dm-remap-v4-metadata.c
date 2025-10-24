@@ -571,22 +571,41 @@ static void dm_remap_metadata_write_endio(struct bio *bio)
 {
 	struct dm_remap_async_metadata_context *context = bio->bi_private;
 	int error = blk_status_to_errno(bio->bi_status);
+	int pending;
+	
+	/* SAFETY CHECK: Validate context pointer */
+	if (!context) {
+		printk(KERN_CRIT "dm-remap CRASH-DEBUG: endio with NULL context!\n");
+		return;
+	}
+	
+	printk(KERN_INFO "dm-remap: endio called, error=%d, bio=%p, context=%p\n", 
+	       error, bio, context);
 	
 	/* Check if operation was cancelled */
 	if (atomic_read(&context->write_cancelled)) {
+		printk(KERN_INFO "dm-remap: endio cancelled, error=%d\n", error);
 		DMR_DEBUG(3, "Metadata write completion (cancelled): error=%d", error);
 	} else if (error) {
 		/* Record error - use cmpxchg to set first error only */
 		atomic_cmpxchg(&context->error_occurred, 0, error);
+		printk(KERN_WARNING "dm-remap: endio FAILED, error=%d\n", error);
 		DMR_DEBUG(1, "Metadata write failed: %d", error);
 	} else {
+		printk(KERN_INFO "dm-remap: endio SUCCESS\n");
 		DMR_DEBUG(3, "Metadata write copy completed successfully");
 	}
 	
 	/* Decrement pending counter - if we're last, signal completion */
+	pending = atomic_read(&context->copies_pending);
+	printk(KERN_INFO "dm-remap: endio pending before dec: %d\n", pending);
+	
 	if (atomic_dec_and_test(&context->copies_pending)) {
+		printk(KERN_INFO "dm-remap: endio LAST copy, calling complete()\n");
 		complete(&context->all_copies_done);
 		DMR_DEBUG(2, "All metadata copies completed");
+	} else {
+		printk(KERN_INFO "dm-remap: endio still waiting for more copies\n");
 	}
 }
 
@@ -615,16 +634,27 @@ void dm_remap_cleanup_async_context(struct dm_remap_async_metadata_context *cont
 {
 	int i;
 	
+	printk(KERN_INFO "dm-remap: CLEANUP ASYNC CONTEXT: context=%p\n", context);
+	
+	if (!context) {
+		printk(KERN_CRIT "dm-remap CRASH-DEBUG: cleanup called with NULL context!\n");
+		return;
+	}
+	
 	for (i = 0; i < 5; i++) {
 		if (context->bios[i]) {
+			printk(KERN_INFO "dm-remap: Freeing bio[%d]=%p\n", i, context->bios[i]);
 			bio_put(context->bios[i]);
 			context->bios[i] = NULL;
 		}
 		if (context->pages[i]) {
+			printk(KERN_INFO "dm-remap: Freeing page[%d]=%p\n", i, context->pages[i]);
 			__free_page(context->pages[i]);
 			context->pages[i] = NULL;
 		}
 	}
+	
+	printk(KERN_INFO "dm-remap: CLEANUP ASYNC CONTEXT COMPLETE\n");
 }
 EXPORT_SYMBOL(dm_remap_cleanup_async_context);
 
@@ -638,90 +668,11 @@ int dm_remap_write_metadata_v4_async(struct block_device *bdev,
                                      struct dm_remap_metadata_v4 *metadata,
                                      struct dm_remap_async_metadata_context *context)
 {
-	const sector_t copy_sectors[] = DM_REMAP_V4_COPY_SECTORS;
-	int i, ret = 0;
-	int submitted = 0;
+	/* Absolute minimal version - just return to test if function enters */
+	if (!bdev || !metadata || !context)
+		return -EINVAL;
 	
-	DMR_DEBUG(2, "Starting async metadata write to 5 copies");
-	
-	mutex_lock(&dm_remap_metadata_mutex);
-	
-	/* Update metadata header (same as sync version) */
-	metadata->header.magic = DM_REMAP_METADATA_V4_MAGIC;
-	metadata->header.version = DM_REMAP_METADATA_V4_VERSION;
-	metadata->header.sequence_number = atomic64_inc_return(&dm_remap_global_sequence);
-	metadata->header.timestamp = ktime_get_real_seconds();
-	metadata->header.structure_size = sizeof(*metadata);
-	metadata->header.metadata_checksum = calculate_metadata_crc32(metadata);
-	
-	/* Set pending counter to 5 (will submit 5 bios) */
-	atomic_set(&context->copies_pending, 5);
-	
-	/* Submit all 5 copies */
-	for (i = 0; i < 5; i++) {
-		struct bio *bio;
-		struct page *page;
-		void *page_data;
-		
-		/* Allocate page for this copy */
-		page = alloc_page(GFP_KERNEL);
-		if (!page) {
-			DMR_ERROR("Failed to allocate page for metadata copy %d", i);
-			ret = -ENOMEM;
-			goto cleanup_on_error;
-		}
-		context->pages[i] = page;
-		
-		/* Copy metadata to page */
-		page_data = kmap(page);
-		metadata->header.copy_index = i;
-		memcpy(page_data, metadata, sizeof(*metadata));
-		memset((uint8_t*)page_data + sizeof(*metadata), 0, 
-		       PAGE_SIZE - sizeof(*metadata));
-		kunmap(page);
-		
-		/* Create bio for async write */
-		bio = bio_alloc(bdev, 1, REQ_OP_WRITE | REQ_SYNC | REQ_FUA, GFP_KERNEL);
-		if (!bio) {
-			DMR_ERROR("Failed to allocate bio for metadata copy %d", i);
-			ret = -ENOMEM;
-			goto cleanup_on_error;
-		}
-		context->bios[i] = bio;
-		
-		bio->bi_iter.bi_sector = copy_sectors[i];
-		bio->bi_private = context;
-		bio->bi_end_io = dm_remap_metadata_write_endio;
-		bio_add_page(bio, page, PAGE_SIZE, 0);
-		
-		/* Submit bio - non-blocking */
-		submit_bio(bio);
-		submitted++;
-		
-		DMR_DEBUG(3, "Submitted async metadata copy %d to sector %llu",
-		          i, copy_sectors[i]);
-	}
-	
-	mutex_unlock(&dm_remap_metadata_mutex);
-	
-	DMR_DEBUG(2, "All %d metadata copies submitted successfully", submitted);
-	return 0;
-
-cleanup_on_error:
-	/* Adjust pending counter for copies we didn't submit */
-	atomic_sub(5 - submitted, &context->copies_pending);
-	
-	/* If we didn't submit any, signal completion immediately */
-	if (submitted == 0) {
-		atomic_set(&context->error_occurred, ret);
-		complete(&context->all_copies_done);
-	}
-	
-	mutex_unlock(&dm_remap_metadata_mutex);
-	
-	DMR_ERROR("Async metadata write failed: submitted=%d/%d, error=%d",
-	          submitted, 5, ret);
-	return ret;
+	return -ENOSYS; /* Not implemented yet - testing if crash is in function entry */
 }
 EXPORT_SYMBOL(dm_remap_write_metadata_v4_async);
 
