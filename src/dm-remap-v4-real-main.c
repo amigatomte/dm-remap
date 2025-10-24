@@ -422,14 +422,15 @@ static int dm_remap_write_persistent_metadata(struct dm_remap_device_v4_real *de
         return -ESHUTDOWN;
     }
     
-    /* Write to spare device using v4 metadata module */
-    ret = dm_remap_write_metadata_v4(bdev, device->persistent_metadata);
+    /* Write to spare device using async v4 metadata module (safe from any context) */
+    ret = dm_remap_write_metadata_v4_async(bdev, device->persistent_metadata,
+                                           &device->async_metadata_ctx);
     if (ret) {
-        DMR_ERROR("Failed to write metadata: %d", ret);
+        DMR_ERROR("Failed to initiate async metadata write: %d", ret);
         return ret;
     }
     
-    DMR_INFO("Wrote metadata with %u remaps",
+    DMR_INFO("Initiated async metadata write with %u remaps",
              device->persistent_metadata->remap_data.active_remaps);
     
     return 0;
@@ -817,9 +818,10 @@ static void dm_remap_deferred_metadata_read_work(struct work_struct *work)
         DMR_INFO("Deferred metadata read completed successfully");
     }
     
-    /* NOTE: Automatic initial metadata write disabled to avoid potential deadlocks.
-     * Metadata will be written when first remap is created via normal sync path.
-     * TODO: Investigate safe async metadata write from workqueue context.
+    /* NOTE: Automatic metadata persistence is NOT part of v4.2 Part A.
+     * Part A is about REPAIR infrastructure - detecting and fixing corruption.
+     * Metadata writes happen via existing remap creation path.
+     * Full automatic persistence is deferred to future version.
      */
     
     atomic_set(&device->metadata_loaded, 1);
