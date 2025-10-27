@@ -23,6 +23,7 @@
 #include <linux/ktime.h>
 #include <linux/completion.h>
 #include <linux/jiffies.h>
+#include <linux/dm-bufio.h>  /* Kernel standard for DM metadata I/O */
 
 #include "dm-remap-v4.h"
 
@@ -131,53 +132,58 @@ static bool validate_metadata_v4(const struct dm_remap_metadata_v4 *metadata)
 }
 
 /**
- * read_metadata_copy() - Read single metadata copy from specific sector
+ * read_metadata_copy_bufio() - Read single metadata copy using dm-bufio
+ * 
+ * Uses dm-bufio to safely read metadata without manual page allocation.
+ */
+static int read_metadata_copy_bufio(struct dm_bufio_client *client, sector_t block,
+                                   struct dm_remap_metadata_v4 *metadata)
+{
+    struct dm_buffer *buffer;
+    void *data;
+    
+    printk(KERN_INFO "dm-remap BUFIO-DEBUG: read_metadata_copy block=%llu client=%p\n",
+           (unsigned long long)block, client);
+    
+    if (!client) {
+        printk(KERN_ERR "dm-remap BUFIO-DEBUG: NULL bufio client!\n");
+        return -EINVAL;
+    }
+    
+    printk(KERN_INFO "dm-remap BUFIO-DEBUG: About to call dm_bufio_read...\n");
+    
+    /* Read buffer from dm-bufio */
+    data = dm_bufio_read(client, block, &buffer);
+    if (IS_ERR(data)) {
+        int ret = PTR_ERR(data);
+        printk(KERN_ERR "dm-remap BUFIO-DEBUG: dm_bufio_read failed: %d\n", ret);
+        return ret;
+    }
+    
+    /* Copy metadata from buffer */
+    memcpy(metadata, data, sizeof(*metadata));
+    
+    /* Release buffer */
+    dm_bufio_release(buffer);
+    
+    DMR_DEBUG(3, "Read metadata copy from block %llu: magic=0x%08x, seq=%llu",
+              block, metadata->header.magic, metadata->header.sequence_number);
+    
+    return 0;
+}
+
+/**
+ * read_metadata_copy() - DEPRECATED: Old bio-based read (DO NOT USE)
+ * 
+ * This function crashes when called from device mapper contexts.
+ * Use read_metadata_copy_bufio() instead with a dm_bufio_client.
  */
 static int read_metadata_copy(struct block_device *bdev, sector_t sector,
                              struct dm_remap_metadata_v4 *metadata)
 {
-    struct bio *bio;
-    struct page *page;
-    void *page_data;
-    int ret;
-    
-    /* Allocate page for reading */
-    page = alloc_page(GFP_KERNEL);
-    if (!page) {
-        return -ENOMEM;
-    }
-    
-    /* Create bio for reading metadata */
-    bio = bio_alloc(bdev, 1, REQ_OP_READ | REQ_SYNC, GFP_KERNEL);
-    if (!bio) {
-        __free_page(page);
-        return -ENOMEM;
-    }
-    
-    bio->bi_iter.bi_sector = sector;
-    
-    /* Add pages to cover entire metadata structure */
-    bio_add_page(bio, page, PAGE_SIZE, 0);
-    
-    /* Submit bio and wait for completion */
-    ret = submit_bio_wait(bio);
-    
-    if (ret == 0) {
-        /* Copy metadata from page */
-        page_data = kmap(page);
-        memcpy(metadata, page_data, sizeof(*metadata));
-        kunmap(page);
-        
-        DMR_DEBUG(3, "Read metadata copy from sector %llu: magic=0x%08x, seq=%llu",
-                  sector, metadata->header.magic, metadata->header.sequence_number);
-    } else {
-        DMR_DEBUG(2, "Failed to read metadata from sector %llu: %d", sector, ret);
-    }
-    
-    bio_put(bio);
-    __free_page(page);
-    
-    return ret;
+    printk(KERN_ERR "dm-remap ERROR: read_metadata_copy() called - this function is deprecated and crashes!\n");
+    printk(KERN_ERR "dm-remap ERROR: Use read_metadata_copy_bufio() instead\n");
+    return -ENOSYS;
 }
 
 /**
@@ -270,22 +276,112 @@ static int write_metadata_copy(struct block_device *bdev, sector_t sector,
 }
 
 /**
- * dm_remap_read_metadata_v4() - Read best metadata copy from 5 redundant copies
+ * dm_remap_read_metadata_v4_bufio_with_repair() - Read metadata using dm-bufio with auto-repair
  * 
- * Pure v4.0 implementation - no format detection needed
- * v4.2: Optionally schedules automatic repair if corruption detected
+ * Uses dm-bufio to safely read metadata from any context without manual page allocation.
+ */
+int dm_remap_read_metadata_v4_bufio_with_repair(struct dm_bufio_client *client,
+                                                struct dm_remap_metadata_v4 *metadata,
+                                                struct dm_remap_repair_context *repair_ctx)
+{
+    struct dm_remap_metadata_v4 *copies;
+    bool valid[5] = {false};
+    int best_copy = -1;
+    uint64_t best_sequence = 0;
+    uint64_t best_timestamp = 0;
+    int valid_count = 0;
+    int i, ret;
+    ktime_t start_time, end_time;
+    
+    printk(KERN_INFO "dm-remap BUFIO-DEBUG: read_metadata_v4_bufio ENTRY\n");
+    
+    start_time = ktime_get();
+    
+    /* Allocate copies array on heap */
+    copies = kmalloc(5 * sizeof(struct dm_remap_metadata_v4), GFP_KERNEL);
+    if (!copies) {
+        DMR_ERROR("Failed to allocate memory for metadata copies");
+        return -ENOMEM;
+    }
+    
+    DMR_DEBUG(2, "Reading v4.0 metadata using dm-bufio");
+    
+    /* Read all 5 copies using dm-bufio */
+    for (i = 0; i < 5; i++) {
+        ret = read_metadata_copy_bufio(client, i, &copies[i]);
+        if (ret == 0 && validate_metadata_v4(&copies[i])) {
+            valid[i] = true;
+            valid_count++;
+            
+            /* Track best copy (highest sequence number, then timestamp) */
+            if (copies[i].header.sequence_number > best_sequence ||
+                (copies[i].header.sequence_number == best_sequence &&
+                 copies[i].header.timestamp > best_timestamp)) {
+                best_copy = i;
+                best_sequence = copies[i].header.sequence_number;
+                best_timestamp = copies[i].header.timestamp;
+            }
+        }
+    }
+    
+    if (best_copy >= 0) {
+        /* Copy best metadata to output */
+        memcpy(metadata, &copies[best_copy], sizeof(*metadata));
+        
+        DMR_DEBUG(1, "Selected metadata copy %d: seq=%llu, valid_copies=%d/5",
+                  best_copy, best_sequence, valid_count);
+        
+        /* Schedule repair if we have corrupted copies */
+        if (valid_count < 5) {
+            DMR_INFO("Metadata corruption detected: %d/5 copies valid", valid_count);
+            if (repair_ctx) {
+                dm_remap_schedule_metadata_repair(repair_ctx);
+            }
+        }
+        
+        ret = 0;
+    } else {
+        DMR_DEBUG(0, "No valid metadata copies found");
+        ret = -ENODATA;
+    }
+    
+    kfree(copies);
+    
+    end_time = ktime_get();
+    atomic64_add(ktime_to_ns(ktime_sub(end_time, start_time)), 
+                 &metadata_stats.total_read_time_ns);
+    atomic64_inc(&metadata_stats.reads_completed);
+    
+    printk(KERN_INFO "dm-remap BUFIO-DEBUG: read_metadata_v4_bufio EXIT ret=%d\n", ret);
+    return ret;
+}
+EXPORT_SYMBOL(dm_remap_read_metadata_v4_bufio_with_repair);
+
+/**
+ * dm_remap_read_metadata_v4_bufio() - Read metadata using dm-bufio
+ */
+int dm_remap_read_metadata_v4_bufio(struct dm_bufio_client *client,
+                                   struct dm_remap_metadata_v4 *metadata)
+{
+    return dm_remap_read_metadata_v4_bufio_with_repair(client, metadata, NULL);
+}
+EXPORT_SYMBOL(dm_remap_read_metadata_v4_bufio);
+
+/**
+ * dm_remap_read_metadata_v4() - DEPRECATED: Old bio-based read
+ * 
+ * This function crashes when called from device mapper contexts.
+ * Use dm_remap_read_metadata_v4_bufio() instead.
  */
 int dm_remap_read_metadata_v4(struct block_device *bdev, 
                               struct dm_remap_metadata_v4 *metadata)
 {
-    return dm_remap_read_metadata_v4_with_repair(bdev, metadata, NULL);
+    printk(KERN_ERR "dm-remap ERROR: dm_remap_read_metadata_v4() deprecated - use bufio version\n");
+    return -ENOSYS;
 }
 
 /**
- * dm_remap_read_metadata_v4_with_repair() - Read metadata with auto-repair
- * 
- * Same as dm_remap_read_metadata_v4() but can schedule automatic repair
- * if corruption is detected and repair_ctx is provided.
+ * dm_remap_read_metadata_v4_with_repair() - DEPRECATED
  */
 int dm_remap_read_metadata_v4_with_repair(struct block_device *bdev,
                                           struct dm_remap_metadata_v4 *metadata,
@@ -659,20 +755,104 @@ void dm_remap_cleanup_async_context(struct dm_remap_async_metadata_context *cont
 EXPORT_SYMBOL(dm_remap_cleanup_async_context);
 
 /**
- * dm_remap_write_metadata_v4_async - Write metadata asynchronously
+ * dm_remap_write_metadata_v4_async - Write metadata asynchronously using dm-bufio
  * 
- * Non-blocking version that submits all 5 copies without waiting.
- * Caller must wait on context->all_copies_done or call cancel function.
+ * Uses dm-bufio library (kernel standard for DM metadata I/O) to safely write
+ * metadata from any context. dm-bufio handles all page allocation, bio submission,
+ * and I/O internally with proper locking and context safety.
+ * 
+ * This replaces manual page allocation (alloc_page/kmap) which crashes from
+ * device mapper contexts.
+ * 
+ * @bufio_client: dm-bufio client created at device initialization
+ * @metadata: Metadata structure to write
+ * @context: Async context for completion tracking (can be NULL for fire-and-forget)
  */
-int dm_remap_write_metadata_v4_async(struct block_device *bdev,
+int dm_remap_write_metadata_v4_async(struct dm_bufio_client *bufio_client,
                                      struct dm_remap_metadata_v4 *metadata,
                                      struct dm_remap_async_metadata_context *context)
 {
-	/* Absolute minimal version - just return to test if function enters */
-	if (!bdev || !metadata || !context)
-		return -EINVAL;
+	int i;
+	int ret = 0;
 	
-	return -ENOSYS; /* Not implemented yet - testing if crash is in function entry */
+	printk(KERN_INFO "dm-remap BUFIO-DEBUG: write_metadata_async ENTRY\n");
+	
+	if (!bufio_client || !metadata) {
+		printk(KERN_ERR "dm-remap BUFIO-DEBUG: NULL parameters (client=%p, metadata=%p)\n",
+		       bufio_client, metadata);
+		return -EINVAL;
+	}
+	
+	printk(KERN_INFO "dm-remap BUFIO-DEBUG: Acquiring metadata mutex\n");
+	mutex_lock(&dm_remap_metadata_mutex);
+	printk(KERN_INFO "dm-remap BUFIO-DEBUG: Metadata mutex acquired\n");
+	
+	/* Update metadata header */
+	metadata->header.magic = DM_REMAP_METADATA_V4_MAGIC;
+	metadata->header.version = DM_REMAP_METADATA_V4_VERSION;
+	metadata->header.sequence_number = atomic64_inc_return(&dm_remap_global_sequence);
+	metadata->header.timestamp = ktime_get_real_seconds();
+	metadata->header.structure_size = sizeof(*metadata);
+	metadata->header.metadata_checksum = calculate_metadata_crc32(metadata);
+	
+	printk(KERN_INFO "dm-remap BUFIO-DEBUG: Header updated, writing 5 copies\n");
+	
+	/* Write 5 redundant copies using dm-bufio */
+	for (i = 0; i < 5; i++) {
+		struct dm_buffer *buffer;
+		void *data;
+		sector_t block = i;  /* Blocks 0-4 for 5 copies */
+		
+		printk(KERN_INFO "dm-remap BUFIO-DEBUG: Copy %d - calling dm_bufio_new(block=%llu)\n",
+		       i, (unsigned long long)block);
+		
+		/* Get buffer from dm-bufio (handles page allocation internally) */
+		data = dm_bufio_new(bufio_client, block, &buffer);
+		
+		printk(KERN_INFO "dm-remap BUFIO-DEBUG: Copy %d - dm_bufio_new returned data=%p\n",
+		       i, data);
+		
+		if (IS_ERR(data)) {
+			ret = PTR_ERR(data);
+			printk(KERN_ERR "dm-remap BUFIO-DEBUG: Copy %d - dm_bufio_new failed: %d\n", i, ret);
+			DMR_ERROR("dm-bufio: Failed to allocate buffer for copy %d: %d", i, ret);
+			break;
+		}
+		
+		printk(KERN_INFO "dm-remap BUFIO-DEBUG: Copy %d - calling memcpy\n", i);
+		/* Copy metadata to buffer */
+		memcpy(data, metadata, sizeof(*metadata));
+		
+		printk(KERN_INFO "dm-remap BUFIO-DEBUG: Copy %d - calling dm_bufio_mark_buffer_dirty\n", i);
+		/* Mark buffer dirty and release (dm-bufio handles writeback) */
+		dm_bufio_mark_buffer_dirty(buffer);
+		
+		printk(KERN_INFO "dm-remap BUFIO-DEBUG: Copy %d - calling dm_bufio_release\n", i);
+		dm_bufio_release(buffer);
+		
+		printk(KERN_INFO "dm-remap BUFIO-DEBUG: Copy %d - complete\n", i);
+		DMR_DEBUG(3, "Wrote metadata copy %d using dm-bufio", i);
+	}
+	
+	printk(KERN_INFO "dm-remap BUFIO-DEBUG: Releasing metadata mutex\n");
+	mutex_unlock(&dm_remap_metadata_mutex);
+	printk(KERN_INFO "dm-remap BUFIO-DEBUG: Metadata mutex released\n");
+	
+	if (ret) {
+		printk(KERN_ERR "dm-remap BUFIO-DEBUG: Failed with error %d\n", ret);
+		DMR_ERROR("Failed to write metadata: %d", ret);
+		return ret;
+	}
+	
+	/* Signal completion if context provided */
+	if (context) {
+		atomic_set(&context->copies_pending, 0);
+		complete(&context->all_copies_done);
+	}
+	
+	printk(KERN_INFO "dm-remap BUFIO-DEBUG: write_metadata_async EXIT SUCCESS\n");
+	DMR_INFO("Metadata written successfully (5 copies) using dm-bufio");
+	return 0;
 }
 EXPORT_SYMBOL(dm_remap_write_metadata_v4_async);
 

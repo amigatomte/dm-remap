@@ -19,10 +19,13 @@
 #include <linux/atomic.h>
 #include <linux/ktime.h>
 #include <linux/workqueue.h>
+#include <linux/kthread.h>
+#include <linux/wait.h>
 #include <linux/proc_fs.h>
 #include <linux/seq_file.h>
 #include <linux/crc32.h>
 #include <linux/delay.h>  /* For msleep() */
+#include <linux/dm-bufio.h>  /* Proper kernel API for metadata I/O */
 
 #include "dm-remap-v4-compat.h"
 #include "../include/dm-remap-v4-stats.h"
@@ -33,7 +36,7 @@ MODULE_DESCRIPTION("Device Mapper Remapping Target v4.0 - Real Device Integratio
 MODULE_AUTHOR("dm-remap Development Team");  
 MODULE_LICENSE("GPL");
 MODULE_VERSION("4.0.0-real");
-MODULE_SOFTDEP("pre: dm-remap-v4-metadata");
+MODULE_SOFTDEP("pre: dm-bufio dm-remap-v4-metadata");
 
 /* Module parameters */
 int dm_remap_debug = 1;
@@ -239,6 +242,7 @@ struct dm_remap_device_v4_real {
     
     /* Persistent v4 metadata (shared module) */
     struct dm_remap_metadata_v4 *persistent_metadata;  /* For disk I/O */
+    struct dm_bufio_client *metadata_bufio_client;  /* dm-bufio client for metadata I/O */
     
     /* Sector remapping - Phase 1.3 */
     struct list_head remap_list; /* List of active remaps */  
@@ -260,9 +264,11 @@ struct dm_remap_device_v4_real {
     sector_t pending_remap_sector; /* Sector needing write-ahead remap */
     int pending_remap_error; /* Error code that triggered remap */
     
-    /* v4.1 Async metadata I/O */
-    struct dm_remap_async_metadata_context async_metadata_ctx; /* Async metadata write context */
-    atomic_t metadata_write_in_progress; /* Flag for in-flight async writes */
+    /* v4.2.2 Kernel thread for metadata writes */
+    struct task_struct *metadata_thread;        /* Dedicated kernel thread for metadata I/O */
+    wait_queue_head_t metadata_wait_queue;      /* Wait queue for metadata thread */
+    atomic_t metadata_write_requested;          /* Flag: metadata write requested */
+    atomic_t metadata_thread_should_stop;       /* Flag: thread should exit */
     
     /* v4.2 Automatic metadata repair */
     struct workqueue_struct *repair_wq; /* Dedicated workqueue for repair operations */
@@ -440,15 +446,7 @@ static int dm_remap_write_persistent_metadata(struct dm_remap_device_v4_real *de
         return -ESHUTDOWN;
     }
     
-    /* Write to spare device using async v4 metadata module (safe from any context) */
-    ret = dm_remap_write_metadata_v4_async(bdev, device->persistent_metadata,
-                                           &device->async_metadata_ctx);
-    if (ret) {
-        DMR_ERROR("Failed to initiate async metadata write: %d", ret);
-        return ret;
-    }
-    
-    DMR_INFO("Initiated async metadata write with %u remaps",
+    DMR_INFO("Metadata write with %u remaps",
              device->persistent_metadata->remap_data.active_remaps);
     
     return 0;
@@ -482,23 +480,18 @@ static int dm_remap_init_persistent_metadata(struct dm_remap_device_v4_real *dev
  */
 static int dm_remap_read_persistent_metadata(struct dm_remap_device_v4_real *device)
 {
-    struct block_device *bdev;
     struct dm_remap_entry_v4 *entry;
     int ret, i;
     
-    if (!device->persistent_metadata || !device->spare_dev)
+    if (!device->persistent_metadata || !device->metadata_bufio_client)
         return -EINVAL;
     
-    /* Get block device from file */
-    bdev = file_bdev(device->spare_dev);
-    if (!bdev) {
-        DMR_INFO("No block device available, skipping metadata read");
-        return 0;  /* Not an error, just no metadata to restore */
-    }
+    DMR_INFO("Reading persistent metadata using dm-bufio...");
     
-    /* Read from spare device using v4 metadata module with auto-repair */
-    ret = dm_remap_read_metadata_v4_with_repair(bdev, device->persistent_metadata,
-                                                &device->repair_ctx);
+    /* Read from spare device using dm-bufio (safe from any context) */
+    ret = dm_remap_read_metadata_v4_bufio_with_repair(device->metadata_bufio_client,
+                                                      device->persistent_metadata,
+                                                      &device->repair_ctx);
     if (ret) {
         DMR_INFO("No valid metadata found, starting fresh: %d", ret);
         return -ENODATA;  /* Return error code so caller knows no metadata was found */
@@ -536,6 +529,10 @@ static int dm_remap_read_persistent_metadata(struct dm_remap_device_v4_real *dev
     }
     
     DMR_INFO("Restored %u remap entries from persistent metadata", i);
+    
+    /* Update global sysfs stats counter */
+    dm_remap_stats_set_active_mappings(device->remap_count_active);
+    
     return 0;
 }
 
@@ -578,6 +575,7 @@ static int dm_remap_add_remap_entry(struct dm_remap_device_v4_real *device,
     
     /* Update statistics */
     dm_remap_stats_inc_remaps();  /* Update stats module */
+    dm_remap_stats_set_active_mappings(device->remap_count_active);  /* Update active count */
     
     DMR_INFO("Added remap entry: sector %llu -> %llu",
              (unsigned long long)original_sector,
@@ -607,7 +605,7 @@ static void dm_remap_writeahead_remap_work(struct work_struct *work)
     struct dm_remap_device_v4_real *device =
         container_of(work, struct dm_remap_device_v4_real, writeahead_remap_work);
     sector_t failed_sector, spare_sector;
-    int result;
+    int result, ret;
     
     /* Get pending remap info (set by bio completion) */
     spin_lock(&device->remap_lock);
@@ -665,24 +663,25 @@ static void dm_remap_writeahead_remap_work(struct work_struct *work)
     /* Sync to persistent metadata */
     dm_remap_sync_persistent_metadata(device);
     
+    /* Write metadata using dm-bufio (immediate, safe from any context) */
+    if (device->metadata_bufio_client) {
+        ret = dm_remap_write_metadata_v4_async(device->metadata_bufio_client,
+                                              device->persistent_metadata,
+                                              NULL);  /* NULL = fire-and-forget */
+        if (ret) {
+            DMR_ERROR("dm-bufio metadata write failed: %d", ret);
+        } else {
+            device->metadata_dirty = false;
+            DMR_INFO("Metadata persisted via dm-bufio (seq: %llu, remap: %llu -> %llu)",
+                     (unsigned long long)device->persistent_metadata->header.sequence_number,
+                     (unsigned long long)failed_sector,
+                     (unsigned long long)spare_sector);
+        }
+    }
+    
     mutex_unlock(&device->metadata_mutex);
     
-    /* DECISION v4.2.1: Fire-and-forget metadata write
-     * 
-     * We CANNOT wait for completion from workqueue (causes deadlock).
-     * The async function crashes for unknown reasons.
-     * 
-     * SOLUTION: Immediately activate remap WITHOUT waiting.
-     * The 5-copy redundant metadata provides crash safety:
-     * - If crash happens during write: remap may be lost
-     * - But sector is already failed, so data was lost anyway
-     * - Next boot will detect failed sector and remap again
-     * - At least one metadata copy will likely succeed
-     * 
-     * This is acceptable trade-off: better than deadlock/crash.
-     */
-    
-    /* Activate remap immediately (don't wait for metadata) */
+    /* Activate remap - metadata already persisted via dm-bufio */
     struct dm_remap_entry_v4 *entry = dm_remap_find_remap_entry(device, failed_sector);
     if (entry) {
         entry->flags &= ~DM_REMAP_FLAG_PENDING;
@@ -751,14 +750,105 @@ static void dm_remap_handle_io_error(struct dm_remap_device_v4_real *device,
 }
 
 /**
- * dm_remap_sync_metadata_work() - Background metadata synchronization (v4.1 async)
+ * dm_remap_metadata_thread() - Kernel thread for metadata writes (v4.2.2)
+ * 
+ * This dedicated kernel thread handles all metadata write operations.
+ * Running in process context allows safe page allocation and synchronous I/O.
+ * 
+ * Why kernel thread instead of workqueue:
+ * - Workqueue context doesn't support kmap() operations
+ * - Need full process context for page operations
+ * - Can safely do synchronous I/O without deadlock
+ */
+static int dm_remap_metadata_thread(void *data)
+{
+    struct dm_remap_device_v4_real *device = data;
+    struct block_device *bdev;
+    int ret;
+    
+    DMR_INFO("Metadata write thread started");
+    
+    while (!kthread_should_stop()) {
+        /* Wait for metadata write request or stop signal */
+        wait_event_interruptible(device->metadata_wait_queue,
+                                 atomic_read(&device->metadata_write_requested) ||
+                                 kthread_should_stop());
+        
+        if (kthread_should_stop())
+            break;
+        
+        /* Clear the request flag */
+        if (!atomic_cmpxchg(&device->metadata_write_requested, 1, 0))
+            continue;
+        
+        /* Check if device is still active */
+        if (!atomic_read(&device->device_active)) {
+            DMR_DEBUG(2, "Metadata write skipped - device inactive");
+            continue;
+        }
+        
+        /* Perform metadata write in safe thread context */
+        mutex_lock(&device->metadata_mutex);
+        
+        if (!device->metadata_dirty || !device->persistent_metadata || !device->spare_dev) {
+            mutex_unlock(&device->metadata_mutex);
+            continue;
+        }
+        
+        /* Update metadata */
+        device->metadata.last_update = ktime_to_ns(ktime_get_real());
+        device->metadata.sequence_number++;
+        device->metadata.metadata_crc = 0;
+        device->metadata.metadata_crc = dm_remap_calculate_crc32(&device->metadata,
+                                                                 sizeof(device->metadata));
+        
+        /* Sync to persistent metadata */
+        dm_remap_sync_persistent_metadata(device);
+        
+        /* Write metadata using dm-bufio (safe, no page allocation) */
+        if (device->metadata_bufio_client) {
+            ret = dm_remap_write_metadata_v4_async(device->metadata_bufio_client,
+                                                  device->persistent_metadata,
+                                                  NULL);  /* NULL = fire-and-forget */
+            
+            if (ret) {
+                DMR_ERROR("Metadata write via dm-bufio failed: %d", ret);
+            } else {
+                device->metadata_dirty = false;
+                DMR_DEBUG(2, "Metadata written via dm-bufio (seq: %llu, %u remaps)",
+                     device->metadata.sequence_number,
+                     device->persistent_metadata->remap_data.active_remaps);
+            }
+        }
+        
+        mutex_unlock(&device->metadata_mutex);
+    }
+    
+    DMR_INFO("Metadata write thread stopped");
+    return 0;
+}
+
+/**
+ * dm_remap_request_metadata_write() - Request metadata write from thread
+ * 
+ * Called from any context to request metadata write.
+ * Thread-safe, non-blocking.
+ */
+static void dm_remap_request_metadata_write(struct dm_remap_device_v4_real *device)
+{
+    atomic_set(&device->metadata_write_requested, 1);
+    wake_up(&device->metadata_wait_queue);
+}
+
+/**
+ * dm_remap_sync_metadata_work() - Background metadata synchronization (v4.2.2)
+ * 
+ * Now just requests the kernel thread to write metadata instead of doing it directly.
  */
 static void dm_remap_sync_metadata_work(struct work_struct *work)
 {
     struct dm_remap_device_v4_real *device = 
         container_of(work, struct dm_remap_device_v4_real, metadata_sync_work);
-    struct block_device *bdev;
-    int ret;
     
     /* CRITICAL: Check if device is being destroyed BEFORE doing ANY work */
     if (!atomic_read(&device->device_active)) {
@@ -770,75 +860,8 @@ static void dm_remap_sync_metadata_work(struct work_struct *work)
         return;
     }
     
-    DMR_DEBUG(2, "Syncing metadata to spare device (sequence: %llu)",
-              device->metadata.sequence_number + 1);
-    
-    /* Check again before taking mutex (device might have become inactive) */
-    if (!atomic_read(&device->device_active)) {
-        DMR_DEBUG(2, "Metadata sync aborted - device became inactive");
-        return;
-    }
-    
-    mutex_lock(&device->metadata_mutex);
-    
-    /* CRITICAL: Check AGAIN after taking mutex, before doing I/O */
-    if (!atomic_read(&device->device_active)) {
-        DMR_DEBUG(2, "Metadata sync aborted after mutex - device inactive");
-        mutex_unlock(&device->metadata_mutex);
-        return;
-    }
-    
-    /* Update metadata before writing */
-    device->metadata.last_update = ktime_to_ns(ktime_get_real());
-    device->metadata.sequence_number++;
-    
-    /* Calculate CRC (excluding the CRC field itself) */
-    device->metadata.metadata_crc = 0;
-    device->metadata.metadata_crc = dm_remap_calculate_crc32(&device->metadata,
-                                                            sizeof(device->metadata));
-    
-    /* Write persistent metadata to spare device ASYNCHRONOUSLY */
-    if (device->persistent_metadata && device->spare_dev) {
-        /* Sync current state to persistent metadata */
-        dm_remap_sync_persistent_metadata(device);
-        
-        /* Get block device from file */
-        bdev = file_bdev(device->spare_dev);
-        if (!bdev) {
-            DMR_ERROR("Failed to get block device from spare device file");
-            mutex_unlock(&device->metadata_mutex);
-            return;
-        }
-        
-        /* Check one more time before I/O */
-        if (!atomic_read(&device->device_active)) {
-            DMR_DEBUG(2, "Metadata sync aborted before I/O - device inactive");
-            mutex_unlock(&device->metadata_mutex);
-            return;
-        }
-        
-        /* WORKAROUND: Use synchronous write
-         * The async function crashes the kernel. Using sync here is safe
-         * because we're in a dedicated workqueue, not the I/O path. */
-        ret = dm_remap_write_metadata_v4(bdev, device->persistent_metadata);
-        if (ret) {
-            DMR_ERROR("Failed to write metadata: %d", ret);
-            mutex_unlock(&device->metadata_mutex);
-            return;
-        }
-        
-        DMR_DEBUG(2, "Metadata sync completed with %u remaps",
-                  device->persistent_metadata->remap_data.active_remaps);
-    }
-    
-    /* Mark as clean */
-    device->metadata_dirty = false;
-    
-    mutex_unlock(&device->metadata_mutex);
-    
-    DMR_DEBUG(2, "Metadata sync completed (CRC: 0x%08x, %u remaps)",
-              device->metadata.metadata_crc,
-              device->persistent_metadata ? device->persistent_metadata->remap_data.active_remaps : 0);
+    DMR_DEBUG(2, "Requesting metadata write via kernel thread");
+    dm_remap_request_metadata_write(device);
 }
 
 /**
@@ -898,39 +921,10 @@ static void dm_remap_deferred_metadata_read_work(struct work_struct *work)
         
         printk(KERN_INFO "dm-remap: INITIAL METADATA WRITE PATH (no valid metadata found)\n");
         
-        if (device->spare_dev && device->persistent_metadata) {
-            printk(KERN_INFO "dm-remap: spare_dev=%p, persistent_metadata=%p\n",
-                   device->spare_dev, device->persistent_metadata);
-            
-            bdev = file_bdev(device->spare_dev);
-            if (bdev) {
-                printk(KERN_INFO "dm-remap: bdev=%p, syncing to persistent_metadata\n", bdev);
-                
-                dm_remap_sync_persistent_metadata(device);
-                printk(KERN_INFO "dm-remap: Sync complete\n");
-                
-                /* TEST: Try calling minimal async function */
-                dm_remap_init_async_context(&device->async_metadata_ctx);
-                
-                ret = dm_remap_write_metadata_v4_async(bdev, device->persistent_metadata,
-                                                       &device->async_metadata_ctx);
-                
-                printk(KERN_INFO "dm-remap: Async function returned: %d\n", ret);
-                
-                if (ret == -ENOSYS) {
-                    DMR_INFO("Async function entered successfully (not implemented)");
-                } else if (ret) {
-                    DMR_WARN("Async function failed: %d", ret);
-                }
-                /* Don't wait - completion callback will clean up */
-                printk(KERN_INFO "dm-remap: Initial metadata write complete (not waiting)\n");
-            } else {
-                printk(KERN_ERR "dm-remap: file_bdev() returned NULL!\n");
-            }
-        } else {
-            printk(KERN_ERR "dm-remap: spare_dev=%p, persistent_metadata=%p (one is NULL)\n",
-                   device->spare_dev, device->persistent_metadata);
-        }
+        /* Mark metadata as dirty and request write via kernel thread */
+        device->metadata_dirty = true;
+        dm_remap_request_metadata_write(device);
+        DMR_INFO("Initial metadata write requested via kernel thread");
     } else {
         DMR_INFO("Deferred metadata read completed successfully");
     }
@@ -1725,15 +1719,34 @@ static int dm_remap_ctr_v4_real(struct dm_target *ti, unsigned int argc, char **
     INIT_DELAYED_WORK(&device->deferred_metadata_read_work, dm_remap_deferred_metadata_read_work);
     atomic_set(&device->metadata_loaded, 0);
     
-    /* Initialize v4.1 async metadata context */
-    dm_remap_init_async_context(&device->async_metadata_ctx);
-    atomic_set(&device->metadata_write_in_progress, 0);
+    /* Initialize v4.2.2 kernel thread for metadata writes */
+    init_waitqueue_head(&device->metadata_wait_queue);
+    atomic_set(&device->metadata_write_requested, 0);
+    atomic_set(&device->metadata_thread_should_stop, 0);
+    
+    /* Create metadata write kernel thread */
+    device->metadata_thread = kthread_create(dm_remap_metadata_thread, device,
+                                            "dm_remap_meta");
+    if (IS_ERR(device->metadata_thread)) {
+        DMR_ERROR("Failed to create metadata write thread");
+        destroy_workqueue(device->metadata_workqueue);
+        mutex_destroy(&device->metadata_mutex);
+        kfree(device);
+        if (real_device_mode) {
+            dm_remap_close_bdev_real(main_dev);
+            dm_remap_close_bdev_real(spare_dev);
+        }
+        ti->error = "Failed to create metadata write thread";
+        return PTR_ERR(device->metadata_thread);
+    }
+    wake_up_process(device->metadata_thread);
+    DMR_INFO("Metadata write kernel thread started");
     
     /* Initialize v4.2 repair workqueue and context */
     device->repair_wq = alloc_workqueue("dm_remap_repair", WQ_MEM_RECLAIM | WQ_UNBOUND, 0);
     if (!device->repair_wq) {
         DMR_ERROR("Failed to create repair workqueue");
-        dm_remap_cleanup_async_context(&device->async_metadata_ctx);
+        kthread_stop(device->metadata_thread);
         destroy_workqueue(device->metadata_workqueue);
         mutex_destroy(&device->metadata_mutex);
         kfree(device);
@@ -1811,6 +1824,28 @@ static int dm_remap_ctr_v4_real(struct dm_target *ti, unsigned int argc, char **
         goto error_cleanup;
     }
     
+    /* Create dm-bufio client for metadata I/O (kernel standard approach) */
+    if (real_device_mode && device->spare_dev) {
+        device->metadata_bufio_client = dm_bufio_client_create(
+            file_bdev(device->spare_dev),
+            131072,  /* Block size = 128KB (metadata is ~90KB with 2048 remaps) */
+            1,       /* 1 reserved buffer */
+            0,       /* No aux buffer */
+            NULL,    /* No alloc callback */
+            NULL,    /* No write callback */
+            0        /* Default flags (allow sleep) */
+        );
+        
+        if (IS_ERR(device->metadata_bufio_client)) {
+            ret = PTR_ERR(device->metadata_bufio_client);
+            DMR_ERROR("Failed to create dm-bufio client: %d", ret);
+            device->metadata_bufio_client = NULL;
+            goto error_cleanup;
+        }
+        
+        DMR_INFO("dm-bufio client created for metadata I/O (block_size=131072 bytes)");
+    }
+    
     /* NOTE: Metadata reading is deferred to avoid blocking I/O during construction.
      * Reading metadata during dm target construction can cause deadlocks because:
      * 1. Device-mapper may be holding locks
@@ -1881,15 +1916,11 @@ static void dm_remap_presuspend_v4_real(struct dm_target *ti)
     /* CRITICAL: Mark device inactive FIRST so running work items will exit */
     atomic_set(&device->device_active, 0);
     
-    /* v4.1: Signal cancellation for any in-flight async metadata writes
-     * Set the cancel flag AND complete the wait so work function can exit.
-     * This is safe because work function checks device_active after wait.
-     */
-    if (atomic_read(&device->metadata_write_in_progress)) {
-        DMR_INFO("Presuspend: cancelling in-flight async write");
-        atomic_set(&device->async_metadata_ctx.write_cancelled, 1);
-        /* Complete the wait so work function can exit immediately */
-        complete_all(&device->async_metadata_ctx.all_copies_done);
+    /* v4.2.2: Stop metadata write kernel thread */
+    if (device->metadata_thread) {
+        DMR_INFO("Presuspend: stopping metadata write thread");
+        kthread_stop(device->metadata_thread);
+        DMR_INFO("Presuspend: metadata thread stopped");
     }
     
     /* v4.1: Just cancel work (non-blocking)
@@ -1975,6 +2006,13 @@ static void dm_remap_dtr_v4_real(struct dm_target *ti)
     }
     
     /* NOTE: Remaps already freed in presuspend */
+    
+    /* Destroy dm-bufio client */
+    if (device->metadata_bufio_client) {
+        dm_bufio_client_destroy(device->metadata_bufio_client);
+        device->metadata_bufio_client = NULL;
+        DMR_INFO("dm-bufio client destroyed");
+    }
     
     /* Free persistent metadata */
     if (device->persistent_metadata) {
@@ -2237,6 +2275,57 @@ static int dm_remap_message_v4_real(struct dm_target *ti, unsigned argc, char **
                  hits, misses, hit_rate,
                  (unsigned long long)atomic64_read(&device->perf_optimizer.fast_path_hits),
                  device->perf_optimizer.cache_size);
+        return 0;
+    }
+    
+    /* Test command - manually trigger a remap for testing */
+    if (!strcasecmp(argv[0], "test_remap")) {
+        sector_t test_sector = 1000;  /* Test sector */
+        sector_t spare_sector;
+        int ret;
+        
+        /* Find available spare sector */
+        spin_lock(&device->remap_lock);
+        if (device->next_spare_sector >= device->spare_sector_count) {
+            spin_unlock(&device->remap_lock);
+            scnprintf(result, maxlen, "No spare sectors available");
+            return -ENOSPC;
+        }
+        spare_sector = device->next_spare_sector++;
+        spin_unlock(&device->remap_lock);
+        
+        /* Create remap entry */
+        ret = dm_remap_add_remap_entry(device, test_sector, spare_sector);
+        if (ret != 0) {
+            spin_lock(&device->remap_lock);
+            device->next_spare_sector--;
+            spin_unlock(&device->remap_lock);
+            scnprintf(result, maxlen, "Failed to create remap: %d", ret);
+            return ret;
+        }
+        
+        /* Trigger metadata write */
+        mutex_lock(&device->metadata_mutex);
+        device->metadata.last_update = ktime_to_ns(ktime_get_real());
+        device->metadata.sequence_number++;
+        dm_remap_sync_persistent_metadata(device);
+        
+        if (device->metadata_bufio_client) {
+            ret = dm_remap_write_metadata_v4_async(device->metadata_bufio_client,
+                                                  device->persistent_metadata,
+                                                  NULL);
+            if (ret) {
+                mutex_unlock(&device->metadata_mutex);
+                scnprintf(result, maxlen, "Metadata write failed: %d", ret);
+                return ret;
+            }
+            device->metadata_dirty = false;
+        }
+        mutex_unlock(&device->metadata_mutex);
+        
+        scnprintf(result, maxlen, "Test remap created: %llu -> %llu",
+                 (unsigned long long)test_sector,
+                 (unsigned long long)spare_sector);
         return 0;
     }
     

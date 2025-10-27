@@ -19,6 +19,7 @@
 #include <linux/atomic.h>
 /* Forward declarations */
 struct dm_remap_repair_context;
+struct dm_bufio_client;  /* dm-bufio client for metadata I/O */
 /* v4.0 Constants */
 #define DM_REMAP_METADATA_V4_MAGIC      0x444D5234  /* "DMR4" */
 #define DM_REMAP_METADATA_V4_VERSION    4
@@ -225,8 +226,18 @@ struct dm_remap_device_v4 {
     struct list_head device_list;
 };
 /* Core v4.0 Metadata Functions */
+
+/* DEPRECATED - DO NOT USE (crashes in DM context) */
 int dm_remap_read_metadata_v4(struct block_device *bdev, 
                               struct dm_remap_metadata_v4 *metadata);
+
+/* NEW dm-bufio based functions (safe from any context) */
+int dm_remap_read_metadata_v4_bufio(struct dm_bufio_client *client,
+                                   struct dm_remap_metadata_v4 *metadata);
+int dm_remap_read_metadata_v4_bufio_with_repair(struct dm_bufio_client *client,
+                                                struct dm_remap_metadata_v4 *metadata,
+                                                struct dm_remap_repair_context *repair_ctx);
+
 /* v4.2: Read metadata with automatic repair scheduling */
 int dm_remap_read_metadata_v4_with_repair(struct block_device *bdev,
                                           struct dm_remap_metadata_v4 *metadata,
@@ -289,17 +300,17 @@ struct dm_remap_async_metadata_context {
 	struct page *pages[5];          /* Page pointers for cleanup */
 };
 /**
- * dm_remap_write_metadata_v4_async - Write metadata asynchronously
- * @bdev: Block device to write metadata to (spare device)
+ * dm_remap_write_metadata_v4_async - Write metadata asynchronously using dm-bufio
+ * @bufio_client: dm-bufio client for the spare device
  * @metadata: Metadata structure to write
- * @context: Async context for tracking completion/cancellation
+ * @context: Async context for tracking completion (can be NULL for fire-and-forget)
  * 
- * Submits metadata writes to all 5 redundant locations without blocking.
- * Caller must wait on context->all_copies_done or call cancel function.
+ * Uses dm-bufio library to safely write metadata from any context.
+ * Writes 5 redundant copies to blocks 0-4 on the spare device.
  * 
- * Returns: 0 on successful submission, negative error if submission fails
+ * Returns: 0 on success, negative error code on failure
  */
-int dm_remap_write_metadata_v4_async(struct block_device *bdev,
+int dm_remap_write_metadata_v4_async(struct dm_bufio_client *bufio_client,
                                      struct dm_remap_metadata_v4 *metadata,
                                      struct dm_remap_async_metadata_context *context);
 /**
