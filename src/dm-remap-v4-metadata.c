@@ -142,21 +142,14 @@ static int read_metadata_copy_bufio(struct dm_bufio_client *client, sector_t blo
     struct dm_buffer *buffer;
     void *data;
     
-    printk(KERN_INFO "dm-remap BUFIO-DEBUG: read_metadata_copy block=%llu client=%p\n",
-           (unsigned long long)block, client);
-    
     if (!client) {
-        printk(KERN_ERR "dm-remap BUFIO-DEBUG: NULL bufio client!\n");
         return -EINVAL;
     }
-    
-    printk(KERN_INFO "dm-remap BUFIO-DEBUG: About to call dm_bufio_read...\n");
     
     /* Read buffer from dm-bufio */
     data = dm_bufio_read(client, block, &buffer);
     if (IS_ERR(data)) {
         int ret = PTR_ERR(data);
-        printk(KERN_ERR "dm-remap BUFIO-DEBUG: dm_bufio_read failed: %d\n", ret);
         return ret;
     }
     
@@ -293,8 +286,6 @@ int dm_remap_read_metadata_v4_bufio_with_repair(struct dm_bufio_client *client,
     int i, ret;
     ktime_t start_time, end_time;
     
-    printk(KERN_INFO "dm-remap BUFIO-DEBUG: read_metadata_v4_bufio ENTRY\n");
-    
     start_time = ktime_get();
     
     /* Allocate copies array on heap */
@@ -352,7 +343,6 @@ int dm_remap_read_metadata_v4_bufio_with_repair(struct dm_bufio_client *client,
                  &metadata_stats.total_read_time_ns);
     atomic64_inc(&metadata_stats.reads_completed);
     
-    printk(KERN_INFO "dm-remap BUFIO-DEBUG: read_metadata_v4_bufio EXIT ret=%d\n", ret);
     return ret;
 }
 EXPORT_SYMBOL(dm_remap_read_metadata_v4_bufio_with_repair);
@@ -775,17 +765,11 @@ int dm_remap_write_metadata_v4_async(struct dm_bufio_client *bufio_client,
 	int i;
 	int ret = 0;
 	
-	printk(KERN_INFO "dm-remap BUFIO-DEBUG: write_metadata_async ENTRY\n");
-	
 	if (!bufio_client || !metadata) {
-		printk(KERN_ERR "dm-remap BUFIO-DEBUG: NULL parameters (client=%p, metadata=%p)\n",
-		       bufio_client, metadata);
 		return -EINVAL;
 	}
 	
-	printk(KERN_INFO "dm-remap BUFIO-DEBUG: Acquiring metadata mutex\n");
 	mutex_lock(&dm_remap_metadata_mutex);
-	printk(KERN_INFO "dm-remap BUFIO-DEBUG: Metadata mutex acquired\n");
 	
 	/* Update metadata header */
 	metadata->header.magic = DM_REMAP_METADATA_V4_MAGIC;
@@ -795,51 +779,34 @@ int dm_remap_write_metadata_v4_async(struct dm_bufio_client *bufio_client,
 	metadata->header.structure_size = sizeof(*metadata);
 	metadata->header.metadata_checksum = calculate_metadata_crc32(metadata);
 	
-	printk(KERN_INFO "dm-remap BUFIO-DEBUG: Header updated, writing 5 copies\n");
-	
 	/* Write 5 redundant copies using dm-bufio */
 	for (i = 0; i < 5; i++) {
 		struct dm_buffer *buffer;
 		void *data;
 		sector_t block = i;  /* Blocks 0-4 for 5 copies */
 		
-		printk(KERN_INFO "dm-remap BUFIO-DEBUG: Copy %d - calling dm_bufio_new(block=%llu)\n",
-		       i, (unsigned long long)block);
-		
 		/* Get buffer from dm-bufio (handles page allocation internally) */
 		data = dm_bufio_new(bufio_client, block, &buffer);
 		
-		printk(KERN_INFO "dm-remap BUFIO-DEBUG: Copy %d - dm_bufio_new returned data=%p\n",
-		       i, data);
-		
 		if (IS_ERR(data)) {
 			ret = PTR_ERR(data);
-			printk(KERN_ERR "dm-remap BUFIO-DEBUG: Copy %d - dm_bufio_new failed: %d\n", i, ret);
 			DMR_ERROR("dm-bufio: Failed to allocate buffer for copy %d: %d", i, ret);
 			break;
 		}
 		
-		printk(KERN_INFO "dm-remap BUFIO-DEBUG: Copy %d - calling memcpy\n", i);
 		/* Copy metadata to buffer */
 		memcpy(data, metadata, sizeof(*metadata));
 		
-		printk(KERN_INFO "dm-remap BUFIO-DEBUG: Copy %d - calling dm_bufio_mark_buffer_dirty\n", i);
 		/* Mark buffer dirty and release (dm-bufio handles writeback) */
 		dm_bufio_mark_buffer_dirty(buffer);
-		
-		printk(KERN_INFO "dm-remap BUFIO-DEBUG: Copy %d - calling dm_bufio_release\n", i);
 		dm_bufio_release(buffer);
 		
-		printk(KERN_INFO "dm-remap BUFIO-DEBUG: Copy %d - complete\n", i);
 		DMR_DEBUG(3, "Wrote metadata copy %d using dm-bufio", i);
 	}
 	
-	printk(KERN_INFO "dm-remap BUFIO-DEBUG: Releasing metadata mutex\n");
 	mutex_unlock(&dm_remap_metadata_mutex);
-	printk(KERN_INFO "dm-remap BUFIO-DEBUG: Metadata mutex released\n");
 	
 	if (ret) {
-		printk(KERN_ERR "dm-remap BUFIO-DEBUG: Failed with error %d\n", ret);
 		DMR_ERROR("Failed to write metadata: %d", ret);
 		return ret;
 	}
@@ -850,7 +817,6 @@ int dm_remap_write_metadata_v4_async(struct dm_bufio_client *bufio_client,
 		complete(&context->all_copies_done);
 	}
 	
-	printk(KERN_INFO "dm-remap BUFIO-DEBUG: write_metadata_async EXIT SUCCESS\n");
 	DMR_INFO("Metadata written successfully (5 copies) using dm-bufio");
 	return 0;
 }

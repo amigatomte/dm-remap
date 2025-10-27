@@ -2278,57 +2278,6 @@ static int dm_remap_message_v4_real(struct dm_target *ti, unsigned argc, char **
         return 0;
     }
     
-    /* Test command - manually trigger a remap for testing */
-    if (!strcasecmp(argv[0], "test_remap")) {
-        sector_t test_sector = 1000;  /* Test sector */
-        sector_t spare_sector;
-        int ret;
-        
-        /* Find available spare sector */
-        spin_lock(&device->remap_lock);
-        if (device->next_spare_sector >= device->spare_sector_count) {
-            spin_unlock(&device->remap_lock);
-            scnprintf(result, maxlen, "No spare sectors available");
-            return -ENOSPC;
-        }
-        spare_sector = device->next_spare_sector++;
-        spin_unlock(&device->remap_lock);
-        
-        /* Create remap entry */
-        ret = dm_remap_add_remap_entry(device, test_sector, spare_sector);
-        if (ret != 0) {
-            spin_lock(&device->remap_lock);
-            device->next_spare_sector--;
-            spin_unlock(&device->remap_lock);
-            scnprintf(result, maxlen, "Failed to create remap: %d", ret);
-            return ret;
-        }
-        
-        /* Trigger metadata write */
-        mutex_lock(&device->metadata_mutex);
-        device->metadata.last_update = ktime_to_ns(ktime_get_real());
-        device->metadata.sequence_number++;
-        dm_remap_sync_persistent_metadata(device);
-        
-        if (device->metadata_bufio_client) {
-            ret = dm_remap_write_metadata_v4_async(device->metadata_bufio_client,
-                                                  device->persistent_metadata,
-                                                  NULL);
-            if (ret) {
-                mutex_unlock(&device->metadata_mutex);
-                scnprintf(result, maxlen, "Metadata write failed: %d", ret);
-                return ret;
-            }
-            device->metadata_dirty = false;
-        }
-        mutex_unlock(&device->metadata_mutex);
-        
-        scnprintf(result, maxlen, "Test remap created: %llu -> %llu",
-                 (unsigned long long)test_sector,
-                 (unsigned long long)spare_sector);
-        return 0;
-    }
-    
     /* Unknown command */
     scnprintf(result, maxlen, "Unknown command '%s'. Try 'help'", argv[0]);
     return -EINVAL;
