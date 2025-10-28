@@ -2295,7 +2295,10 @@ static int dm_remap_message_v4_real(struct dm_target *ti, unsigned argc, char **
             return ret;
         }
         
-        scnprintf(result, maxlen, "Created test remap: bad_sector=%llu spare_sector=%llu",
+        /* Request immediate metadata write to persist the remap */
+        dm_remap_request_metadata_write(device);
+        
+        scnprintf(result, maxlen, "Created test remap: bad_sector=%llu spare_sector=%llu (metadata write requested)",
                  bad_sector, spare_sector);
         return 0;
     }

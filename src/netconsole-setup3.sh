@@ -18,7 +18,7 @@ if [ -d "$TARGET_DIR" ]; then
     echo 0 | sudo tee "$TARGET_DIR/enabled" >/dev/null || true
     sudo rmdir "$TARGET_DIR" || true
 fi
-
+sudo dmesg -n 8
 echo "📦 Loading netconsole module..."
 sudo modprobe netconsole
 
