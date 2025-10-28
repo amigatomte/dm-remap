@@ -630,11 +630,15 @@ static int dm_remap_read_persistent_metadata(struct dm_remap_device_v4_real *dev
 }
 
 /**
- * dm_remap_check_resize_hash_table() - Dynamically resize hash table if needed
- * ADAPTIVE HASH TABLE SIZING (Phase 3 - v4.2.1):
+ * dm_remap_check_resize_hash_table() - Dynamically resize hash table based on load factor
+ * UNLIMITED DYNAMIC HASH TABLE SIZING (Phase 3 - v4.2.2):
  * 
- * Resizes hash table from 64->256 at 100 remaps, 256->1024 at 1000 remaps
- * to maintain O(1) performance while saving memory on small deployments
+ * Resizes hash table dynamically to maintain O(1) performance at ANY scale.
+ * Growth strategy: Doubles bucket count when load factor exceeds 1.5
+ * Shrinks when load factor drops below 0.5 (only if size > 64)
+ * 
+ * Load factor = remaps / hash_table_size
+ * Target: Keep load factor between 0.5 and 1.5 for optimal performance
  * 
  * Called after incrementing remap_count_active
  */
@@ -642,27 +646,36 @@ static void dm_remap_check_resize_hash_table(struct dm_remap_device_v4_real *dev
 {
     struct hlist_head *new_table;
     struct dm_remap_entry_v4 *entry;
-    uint32_t old_size, new_size, i, hash_idx;
+    uint32_t old_size, new_size, hash_idx;
+    uint32_t load_scaled;  /* Load factor * 100 for integer math */
     
-    /* Determine if resize is needed */
-    if (device->remap_count_active == 100 && device->remap_hash_size == 64) {
-        /* Grow from 64 to 256 buckets at 100 remaps */
-        new_size = 256;
-    } else if (device->remap_count_active == 1000 && device->remap_hash_size == 256) {
-        /* Grow from 256 to 1024 buckets at 1000 remaps */
-        new_size = 1024;
-    } else {
-        return; /* No resize needed */
+    if (!device->remap_hash_table || device->remap_hash_size == 0) {
+        return; /* Hash table not initialized */
     }
     
-    DMR_INFO("Adaptive hash table resize: %u -> %u buckets (count=%u)",
-             device->remap_hash_size, new_size, device->remap_count_active);
+    /* Calculate current load factor using integer math (scaled by 100) */
+    /* load_factor * 100 = (remaps * 100) / hash_size */
+    load_scaled = (device->remap_count_active * 100) / device->remap_hash_size;
+    
+    /* Determine if resize is needed - Grow on high load factor (>1.5) */
+    if (load_scaled > 150) {
+        /* Double the bucket count (exponential growth) */
+        new_size = device->remap_hash_size * 2;
+    } else if (load_scaled < 50 && device->remap_hash_size > 64) {
+        /* Halve the bucket count (<0.5), but keep minimum at 64 */
+        new_size = device->remap_hash_size / 2;
+        if (new_size < 64) {
+            new_size = 64;
+        }
+    } else {
+        return; /* Load factor is in optimal range, no resize needed */
+    }
     
     /* Allocate new table */
     new_table = kzalloc(new_size * sizeof(struct hlist_head), GFP_KERNEL);
     if (!new_table) {
-        DMR_WARN("Failed to resize hash table, keeping %u buckets",
-                 device->remap_hash_size);
+        DMR_WARN("Failed to resize hash table (load_scaled=%u%%, keeping %u buckets)",
+                 load_scaled, device->remap_hash_size);
         return;
     }
     
@@ -676,7 +689,7 @@ static void dm_remap_check_resize_hash_table(struct dm_remap_device_v4_real *dev
         /* Remove from old hash table */
         hlist_del(&entry->hlist);
         
-        /* Rehash into new bucket */
+        /* Rehash into new bucket based on new size */
         hash_idx = dm_remap_hash_key(entry->original_sector, new_size);
         hlist_add_head(&entry->hlist, &new_table[hash_idx]);
     }
@@ -686,8 +699,8 @@ static void dm_remap_check_resize_hash_table(struct dm_remap_device_v4_real *dev
     device->remap_hash_table = new_table;
     device->remap_hash_size = new_size;
     
-    DMR_INFO("Hash table resize complete: %u -> %u buckets",
-             old_size, new_size);
+    DMR_INFO("Dynamic hash table resize: %u -> %u buckets (load_scaled=%u%%, remaps=%u)",
+             old_size, new_size, load_scaled, device->remap_count_active);
 }
 
 /**
@@ -1581,7 +1594,7 @@ static void dm_remap_initialize_metadata_v4_real(struct dm_remap_device_v4_real 
     /* Mapping information */
     meta->sector_size = device->sector_size;
     meta->total_sectors = device->main_device_sectors;
-    meta->max_mappings = 16384;  /* 16K max remaps */
+    meta->max_mappings = 4294967295U;  /* Unlimited remaps (v4.2.2) - load factor based hash table sizing */
     meta->active_mappings = 0;
     
     /* Health monitoring */

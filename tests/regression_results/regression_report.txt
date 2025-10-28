@@ -1,14 +1,14 @@
 dm-remap v4.0 Comprehensive Regression Test Report
-Generated: tis  7 okt 2025 20:02:05 CEST
+Generated: tis 28 okt 2025 20:31:57 CET
 Test Suite: Full system validation before Phase 2
 ===========================================================
 
 OVERALL RESULTS:
   Total Tests Run: 30
-  Tests Passed: 19
-  Tests Failed: 8
-  Warnings: 3
-  Success Rate: 63%
+  Tests Passed: 6
+  Tests Failed: 19
+  Warnings: 5
+  Success Rate: 20%
 
 ❌ REGRESSION TEST STATUS: SIGNIFICANT ISSUES
 ❌ Multiple failures detected - address before Phase 2
@@ -16,9 +16,9 @@ OVERALL RESULTS:
 SYSTEM COMPONENTS STATUS:
   Module Loading: ✅ OK
   Device Creation: ❌ FAIL
-  Health Scanning: ✅ OK
-  Memory Pools: ✅ OK
-  Hotpath Optimization: ✅ OK
+  Health Scanning: ⚠️  WARN
+  Memory Pools: ❌ FAIL
+  Hotpath Optimization: ❌ FAIL
   I/O Operations: ✅ OK
   Error Handling: ✅ OK
   Resource Cleanup: ❌ FAIL
