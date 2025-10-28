@@ -77,14 +77,15 @@ test_first_access_latency() {
     
     echo "Measuring read latency..."
     
-    # Read the remapped sector 10 times and measure latency
+    # Read the remapped sector 10 times with nanosecond timing
     for i in {1..10}; do
-        # Use dd with time measurement
-        time_output=$( { time sudo dd if=/dev/mapper/"$DM_REMAP_DEVICE" of=/dev/null \
-            bs=512 count=1 skip=$test_sector 2>&1; } 2>&1 )
+        start_ns=$(date +%s%N)
+        sudo dd if=/dev/mapper/"$DM_REMAP_DEVICE" of=/dev/null \
+            bs=512 count=1 skip=$test_sector 2>/dev/null
+        end_ns=$(date +%s%N)
         
-        # Extract user time and sys time
-        echo "$time_output" >> "$result_file"
+        latency_us=$(( (end_ns - start_ns) / 1000 ))
+        echo "$i $latency_us" >> "$result_file"
     done
     
     echo "Results saved to $result_file"
@@ -113,9 +114,13 @@ test_cached_access_latency() {
     
     # Read the remapped sector 10 times
     for i in {1..10}; do
-        time_output=$( { time sudo dd if=/dev/mapper/"$DM_REMAP_DEVICE" of=/dev/null \
-            bs=512 count=1 skip=$test_sector 2>&1; } 2>&1 )
-        echo "$time_output" >> "$result_file"
+        start_ns=$(date +%s%N)
+        sudo dd if=/dev/mapper/"$DM_REMAP_DEVICE" of=/dev/null \
+            bs=512 count=1 skip=$test_sector 2>/dev/null
+        end_ns=$(date +%s%N)
+        
+        latency_us=$(( (end_ns - start_ns) / 1000 ))
+        echo "$i $latency_us" >> "$result_file"
     done
     
     echo "Results saved to $result_file"
@@ -138,9 +143,13 @@ test_latency_distribution() {
     
     # Read the remapped sector 100 times
     for i in {1..100}; do
-        time_output=$( { time sudo dd if=/dev/mapper/"$DM_REMAP_DEVICE" of=/dev/null \
-            bs=512 count=1 skip=$test_sector 2>&1; } 2>&1 )
-        echo "$time_output" >> "$result_file"
+        start_ns=$(date +%s%N)
+        sudo dd if=/dev/mapper/"$DM_REMAP_DEVICE" of=/dev/null \
+            bs=512 count=1 skip=$test_sector 2>/dev/null
+        end_ns=$(date +%s%N)
+        
+        latency_us=$(( (end_ns - start_ns) / 1000 ))
+        echo "$i $latency_us" >> "$result_file"
         
         # Progress indicator
         if [ $((i % 20)) -eq 0 ]; then
@@ -175,9 +184,13 @@ test_multiple_remaps() {
     for i in $(seq 0 $((num_remaps - 1))); do
         bad_sector=$((4000 + i * 100))
         
-        time_output=$( { time sudo dd if=/dev/mapper/"$DM_REMAP_DEVICE" of=/dev/null \
-            bs=512 count=1 skip=$bad_sector 2>&1; } 2>&1 )
-        echo "Sector $bad_sector: $time_output" >> "$result_file"
+        start_ns=$(date +%s%N)
+        sudo dd if=/dev/mapper/"$DM_REMAP_DEVICE" of=/dev/null \
+            bs=512 count=1 skip=$bad_sector 2>/dev/null
+        end_ns=$(date +%s%N)
+        
+        latency_us=$(( (end_ns - start_ns) / 1000 ))
+        echo "Sector $bad_sector: $latency_us" >> "$result_file"
     done
     
     echo "Results saved to $result_file"
