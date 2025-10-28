@@ -2200,7 +2200,7 @@ static int dm_remap_message_v4_real(struct dm_target *ti, unsigned argc, char **
     /* Help command */
     if (!strcasecmp(argv[0], "help")) {
         scnprintf(result, maxlen,
-                 "Commands: help, status, stats, clear_stats, health, cache_stats");
+                 "Commands: help, status, stats, clear_stats, health, cache_stats, test_remap");
         return 0;
     }
     
@@ -2275,6 +2275,28 @@ static int dm_remap_message_v4_real(struct dm_target *ti, unsigned argc, char **
                  hits, misses, hit_rate,
                  (unsigned long long)atomic64_read(&device->perf_optimizer.fast_path_hits),
                  device->perf_optimizer.cache_size);
+        return 0;
+    }
+    
+    /* Test remap command - manually create a test remap entry for testing */
+    if (!strcasecmp(argv[0], "test_remap")) {
+        if (argc < 3) {
+            scnprintf(result, maxlen, "Usage: test_remap <bad_sector> <spare_sector>");
+            return -EINVAL;
+        }
+        
+        u64 bad_sector = simple_strtoull(argv[1], NULL, 0);
+        u64 spare_sector = simple_strtoull(argv[2], NULL, 0);
+        
+        /* Add remap entry */
+        int ret = dm_remap_add_remap_entry(device, bad_sector, spare_sector);
+        if (ret) {
+            scnprintf(result, maxlen, "Failed to add remap: %d", ret);
+            return ret;
+        }
+        
+        scnprintf(result, maxlen, "Created test remap: bad_sector=%llu spare_sector=%llu",
+                 bad_sector, spare_sector);
         return 0;
     }
     
