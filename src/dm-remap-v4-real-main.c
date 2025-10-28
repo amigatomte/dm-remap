@@ -26,6 +26,7 @@
 #include <linux/crc32.h>
 #include <linux/delay.h>  /* For msleep() */
 #include <linux/dm-bufio.h>  /* Proper kernel API for metadata I/O */
+#include <linux/hash.h>  /* Kernel hashing utilities */
 
 #include "dm-remap-v4-compat.h"
 #include "../include/dm-remap-v4-stats.h"
@@ -138,7 +139,8 @@ struct dm_remap_entry_v4 {
     uint64_t remap_time;         /* Time when remap was created */
     uint32_t error_count;        /* Number of errors on this sector */
     uint32_t flags;              /* Status flags (DM_REMAP_FLAG_*) */
-    struct list_head list;       /* List linkage */
+    struct list_head list;       /* List linkage (for full iteration) */
+    struct hlist_node hlist;     /* Hash list linkage (for fast lookup) */
 };
 
 /* Phase 1.4: Health monitoring structures */
@@ -246,6 +248,8 @@ struct dm_remap_device_v4_real {
     
     /* Sector remapping - Phase 1.3 */
     struct list_head remap_list; /* List of active remaps */  
+    struct hlist_head *remap_hash_table; /* Hash table for O(1) lookup (Phase 3 optimization) */
+    uint32_t remap_hash_size;    /* Size of hash table */
     spinlock_t remap_lock;       /* Lock for remap operations */
     uint32_t remap_count_active; /* Current active remaps */
     sector_t spare_sector_count; /* Available spare sectors */
@@ -354,20 +358,73 @@ static uint32_t dm_remap_calculate_crc32(const void *data, size_t len)
 }
 
 /**
- * dm_remap_find_remap_entry() - Find remap entry for given sector
+ * dm_remap_hash_key() - Generate hash key for sector
+ * Phase 3 Hot Path Optimization: O(1) remap lookup using hash table
  * 
- * v4.2: Only returns ACTIVE remaps (metadata persisted). Skips PENDING remaps
- * that are waiting for write-ahead metadata write to complete.
+ * Hash function converts sector number to hash bucket index
+ * Uses kernel's built-in hash functions for good distribution
  */
-static struct dm_remap_entry_v4 *dm_remap_find_remap_entry(
+static inline uint32_t dm_remap_hash_key(sector_t sector, uint32_t hash_size)
+{
+    /* Use kernel's hash function for good distribution */
+    return hash_64(sector, ilog2(hash_size));
+}
+
+/**
+ * dm_remap_find_remap_entry_fast() - Fast O(1) remap lookup using hash table
+ * Phase 3 Hot Path Optimization: Hash table lookup replaces linear search
+ * 
+ * This is the NEW optimized path - tries hash table first before falling back
+ * to list iteration (handles collision cases gracefully)
+ * 
+ * ULTRA-FAST PATH: If no remaps exist, return immediately (common case!)
+ * 
+ * Returns: Pointer to remap entry or NULL if not found
+ */
+static struct dm_remap_entry_v4 *dm_remap_find_remap_entry_fast(
     struct dm_remap_device_v4_real *device, sector_t sector)
 {
     struct dm_remap_entry_v4 *entry;
+    uint32_t hash_idx;
     
+    /* ULTRA-FAST PATH: Most common case - no remaps at all!
+     * Check count without acquiring lock (atomic read is very fast)
+     * Avoid hash function call entirely if no remaps exist
+     */
+    if (likely(device->remap_count_active == 0)) {
+        return NULL;  /* No remaps, no need to search */
+    }
+    
+    /* If hash table is not yet initialized, fall back to linear search */
+    if (unlikely(!device->remap_hash_table || device->remap_hash_size == 0)) {
+        /* Fall back to list search (slower, but works during init) */
+        goto fallback_linear_search;
+    }
+    
+    /* Calculate hash index for this sector */
+    hash_idx = dm_remap_hash_key(sector, device->remap_hash_size);
+    
+    /* Fast path: Search in hash bucket (typically 1-2 items due to good hash) */
+    hlist_for_each_entry(entry, &device->remap_hash_table[hash_idx], hlist) {
+        if (entry->original_sector == sector) {
+            /* Check PENDING flag - skip if not yet persisted */
+            if (unlikely(entry->flags & DM_REMAP_FLAG_PENDING)) {
+                DMR_DEBUG(3, "Remap for sector %llu exists but PENDING, skipping",
+                          (unsigned long long)sector);
+                continue;
+            }
+            /* Found it! */
+            return entry;
+        }
+    }
+    
+    return NULL;
+
+fallback_linear_search:
+    /* Slower fallback for hash table initialization phase */
     list_for_each_entry(entry, &device->remap_list, list) {
         if (entry->original_sector == sector) {
-            /* Skip remaps that are still pending metadata write */
-            if (entry->flags & DM_REMAP_FLAG_PENDING) {
+            if (unlikely(entry->flags & DM_REMAP_FLAG_PENDING)) {
                 DMR_DEBUG(3, "Remap for sector %llu exists but PENDING, skipping",
                           (unsigned long long)sector);
                 continue;
@@ -377,6 +434,21 @@ static struct dm_remap_entry_v4 *dm_remap_find_remap_entry(
     }
     
     return NULL;
+}
+
+/**
+ * dm_remap_find_remap_entry() - Find remap entry for given sector
+ * 
+ * v4.2: Only returns ACTIVE remaps (metadata persisted). Skips PENDING remaps
+ * that are waiting for write-ahead metadata write to complete.
+ * 
+ * Phase 3: NOW USES HASH TABLE FOR O(1) LOOKUP!
+ */
+static struct dm_remap_entry_v4 *dm_remap_find_remap_entry(
+    struct dm_remap_device_v4_real *device, sector_t sector)
+{
+    /* Use fast hash table lookup (Phase 3 optimization) */
+    return dm_remap_find_remap_entry_fast(device, sector);
 }
 
 /**
@@ -520,6 +592,13 @@ static int dm_remap_read_persistent_metadata(struct dm_remap_device_v4_real *dev
         
         spin_lock(&device->remap_lock);
         list_add_tail(&entry->list, &device->remap_list);
+        
+        /* Phase 3: Also add to hash table for O(1) lookup */
+        if (device->remap_hash_table && device->remap_hash_size > 0) {
+            uint32_t hash_idx = dm_remap_hash_key(entry->original_sector, device->remap_hash_size);
+            hlist_add_head(&entry->hlist, &device->remap_hash_table[hash_idx]);
+        }
+        
         device->remap_count_active++;
         spin_unlock(&device->remap_lock);
         
@@ -569,6 +648,13 @@ static int dm_remap_add_remap_entry(struct dm_remap_device_v4_real *device,
     /* Add to remap list */
     spin_lock(&device->remap_lock);
     list_add_tail(&entry->list, &device->remap_list);
+    
+    /* Phase 3: Also add to hash table for O(1) lookup */
+    if (device->remap_hash_table && device->remap_hash_size > 0) {
+        uint32_t hash_idx = dm_remap_hash_key(original_sector, device->remap_hash_size);
+        hlist_add_head(&entry->hlist, &device->remap_hash_table[hash_idx]);
+    }
+    
     device->remap_count_active++;
     device->metadata.active_mappings++;
     spin_unlock(&device->remap_lock);
@@ -1700,6 +1786,20 @@ static int dm_remap_ctr_v4_real(struct dm_target *ti, unsigned int argc, char **
     device->spare_sector_count = device->spare_device_sectors / 2; /* Reserve half for remapping */
     device->next_spare_sector = 0;
     
+    /* Phase 3: Initialize hash table for O(1) remap lookup */
+    device->remap_hash_size = 256; /* Hash table size (must be power of 2) */
+    device->remap_hash_table = kzalloc(
+        device->remap_hash_size * sizeof(struct hlist_head), 
+        GFP_KERNEL
+    );
+    if (!device->remap_hash_table) {
+        DMR_WARN("Failed to allocate hash table for remap optimization, falling back to linear search");
+        device->remap_hash_size = 0; /* Will trigger fallback in fast lookup */
+    } else {
+        DMR_INFO("Initialized remap hash table (size=%u) for O(1) lookup optimization",
+                 device->remap_hash_size);
+    }
+    
     /* Initialize metadata sync workqueue */
     device->metadata_workqueue = alloc_workqueue("dm_remap_meta_sync", WQ_MEM_RECLAIM, 1);
     if (!device->metadata_workqueue) {
@@ -1940,6 +2040,8 @@ static void dm_remap_presuspend_v4_real(struct dm_target *ti)
     spin_lock(&device->remap_lock);
     list_for_each_entry_safe(entry, tmp, &device->remap_list, list) {
         list_del(&entry->list);
+        /* Phase 3: Also remove from hash table */
+        hlist_del(&entry->hlist);
         kfree(entry);
     }
     device->remap_count_active = 0;
@@ -1977,6 +2079,14 @@ static void dm_remap_dtr_v4_real(struct dm_target *ti)
     /* Free performance optimization cache */
     if (device->perf_optimizer.cache_entries) {
         kfree(device->perf_optimizer.cache_entries);
+    }
+    
+    /* Phase 3: Free hash table */
+    if (device->remap_hash_table) {
+        kfree(device->remap_hash_table);
+        device->remap_hash_table = NULL;
+        device->remap_hash_size = 0;
+        DMR_INFO("Destructor: remap hash table freed");
     }
     
     /* v4.1: Destroy workqueue - NOW SAFE with async I/O!
