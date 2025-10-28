@@ -1,25 +1,22 @@
-# dm-remap v4.0 - Quick Start Guide
+# dm-remap v4.2.2 Quick Start Guide
 
-Get started with dm-remap v4.0 in 5 minutes! 🚀
+**Get up and running in 5 minutes!**
 
 ## What is dm-remap?
 
-**dm-remap** is a Linux kernel device-mapper target that provides transparent bad sector remapping with external spare device support. It protects your data by automatically relocating bad sectors to a spare storage pool while maintaining full read/write access.
-
-### Key Features
-
-- ✅ **Transparent Operation** - No application changes needed
-- ✅ **External Spare Pool** - Flexible spare capacity management (Priority 3)
-- ✅ **Automatic Setup** - Self-assembling device configuration (Priority 6)
-- ✅ **Kernel 6.x Compatible** - Modern API integration
-- ✅ **Production Ready** - Fully tested and validated
+dm-remap is a Linux device mapper target that remaps data blocks:
+- ✅ Automatic block remapping
+- ✅ Scales to 4+ billion remaps
+- ✅ O(1) performance (microsecond lookups)
+- ✅ Transparent to applications
+- ✅ Production ready (fully tested)
 
 ## Prerequisites
 
-- **Linux Kernel**: 6.0 or higher
-- **Tools**: `dmsetup`, `losetup`, standard build tools
+- **Linux Kernel**: 5.10 or higher
+- **Tools**: `dmsetup`, `losetup`, build tools
 - **Privileges**: Root access (sudo)
-- **Storage**: Main device + spare device (≥5% larger)
+- **Storage**: Main device + spare device (same size)
 
 ## Installation
 
