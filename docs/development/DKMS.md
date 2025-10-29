@@ -522,6 +522,20 @@ ls -lh ../*dkms*.deb
 make dkms-deb-clean
 ```
 
+**Troubleshooting Build Failures:**
+
+If you encounter test validation errors during build, you can skip the test phase:
+
+```bash
+# Skip tests during build
+DEB_BUILD_OPTIONS=nocheck make dkms-deb
+
+# Or with dpkg directly from debian-dkms/ directory
+cd debian-dkms
+DEB_BUILD_OPTIONS=nocheck debuild -us -uc
+cd ..
+```
+
 ### Building RPM Package (Red Hat/Fedora/CentOS)
 
 ```bash

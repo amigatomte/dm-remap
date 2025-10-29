@@ -7,26 +7,27 @@ export DH_VERBOSE = 1
 
 override_dh_auto_build:
 	# Nothing to build for DKMS source - built by DKMS on install
+	@echo "DKMS source package - no build phase needed"
+
+override_dh_auto_test:
+	# No automated tests for DKMS source package
+	@echo "Skipping tests for DKMS source package"
 
 override_dh_auto_install:
 	# Install DKMS source files
 	mkdir -p debian/dm-remap-dkms/usr/src/dm-remap-1.0.0
-	cp -r src debian/dm-remap-dkms/usr/src/dm-remap-1.0.0/
-	cp -r include debian/dm-remap-dkms/usr/src/dm-remap-1.0.0/
-	cp Makefile dkms.conf debian/dm-remap-dkms/usr/src/dm-remap-1.0.0/
+	cp -r ../src debian/dm-remap-dkms/usr/src/dm-remap-1.0.0/ 2>/dev/null || cp -r src debian/dm-remap-dkms/usr/src/dm-remap-1.0.0/
+	cp -r ../include debian/dm-remap-dkms/usr/src/dm-remap-1.0.0/ 2>/dev/null || cp -r include debian/dm-remap-dkms/usr/src/dm-remap-1.0.0/
+	cp ../Makefile ../dkms.conf debian/dm-remap-dkms/usr/src/dm-remap-1.0.0/ 2>/dev/null || cp Makefile dkms.conf debian/dm-remap-dkms/usr/src/dm-remap-1.0.0/
 	
 	# Install DKMS configuration
 	mkdir -p debian/dm-remap-dkms/etc/dkms
-	install -D -m 0644 dkms.conf debian/dm-remap-dkms/usr/src/dm-remap-1.0.0/
+	install -D -m 0644 debian/dm-remap-dkms/usr/src/dm-remap-1.0.0/dkms.conf debian/dm-remap-dkms/etc/dkms/dkms.conf.d/dm-remap || true
 	
 	# Install documentation
 	mkdir -p debian/dm-remap-doc/usr/share/doc/dm-remap
-	install -D -m 0644 README.md debian/dm-remap-doc/usr/share/doc/dm-remap/
-	install -D -m 0644 LICENSE debian/dm-remap-doc/usr/share/doc/dm-remap/
-	cp -r docs/* debian/dm-remap-doc/usr/share/doc/dm-remap/
-
-override_dh_auto_test:
-	# No automated tests for DKMS source package
+	install -D -m 0644 ../README.md debian/dm-remap-doc/usr/share/doc/dm-remap/ 2>/dev/null || install -D -m 0644 README.md debian/dm-remap-doc/usr/share/doc/dm-remap/
+	install -D -m 0644 ../LICENSE debian/dm-remap-doc/usr/share/doc/dm-remap/ 2>/dev/null || install -D -m 0644 LICENSE debian/dm-remap-doc/usr/share/doc/dm-remap/
 
 override_dh_strip:
 	# No stripping needed for DKMS source
