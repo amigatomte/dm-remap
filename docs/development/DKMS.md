@@ -784,17 +784,24 @@ Everything else is standard kernel development practice.
 
 ### Roadmap for Warning Resolution
 
-**v4.0.1 (Coming Soon):**
-- [ ] Add forward declarations for missing prototypes
-- [ ] Optimize frame size allocations
+**Good News:** All warnings CAN be fixed! See [COMPILER_WARNINGS_FIX.md](./COMPILER_WARNINGS_FIX.md) for the elimination strategy.
+
+**v4.0.1 (Target: Next Release - 4-5 hours work):**
+- [ ] Consolidate macro definitions (eliminate redefinitions)
+- [ ] Add missing function prototypes
+- [ ] Mark unused variables with `__maybe_unused`
+- [ ] Fix frame size allocations (dynamic instead of stack)
 - [ ] Fix format string specifiers
 
-**v4.0.2 (Future):**
-- [ ] Eliminate unused function warnings
-- [ ] Clean up macro redefinitions
+**Expected Result:** Zero compiler warnings ✅
 
 **v4.1 (Long-term):**
-- [ ] Full compilation with `-Wall -Werror`
+- [ ] Enable `-Wall -Werror` for strict compilation
+- [ ] Code quality improvements
+
+**See Also:**
+- [COMPILER_WARNINGS_FIX.md](./COMPILER_WARNINGS_FIX.md) - Detailed elimination strategy
+- [V4_BUILD_SUCCESS.md](./V4_BUILD_SUCCESS.md) - Build history and known issues
 
 ---
 
