@@ -104,7 +104,7 @@ Resize overhead: Negligible (~5-10ms one-time per resize)
 
 **Research & Development**
 - ✅ [Runtime Test Report](RUNTIME_TEST_REPORT_FINAL.md) - Proof of concept
-- 📋 [Implementation Details](V4.2.2_UNLIMITED_IMPLEMENTATION.md)
+- 📋 [Implementation Details](IMPLEMENTATION_DETAILS.md)
 - 🧪 [Validation Test Report](TEST_REPORT_HASH_RESIZE.md)
 
 ---
@@ -124,11 +124,11 @@ cd dm-remap
 make && sudo make install
 
 # Load module
-sudo modprobe dm_remap_v4_real
+sudo modprobe dm_remap
 
 # Verify
 sudo dmsetup targets | grep remap
-# Expected: dm-remap-v4 v4.0.0
+# Expected: dm-remap
 ```
 
 **See [Installation Guide](docs/user/INSTALLATION.md) for:**
@@ -162,7 +162,7 @@ sudo losetup $SPARE /tmp/spare
 SECTORS=$((500 * 1024 * 1024 / 512))
 
 # Create device
-TABLE="0 $SECTORS dm-remap-v4 $MAIN $SPARE"
+TABLE="0 $SECTORS dm-remap $MAIN $SPARE"
 echo "$TABLE" | sudo dmsetup create my-remap
 ```
 
@@ -213,7 +213,7 @@ sudo dmesg -w | grep "Adaptive hash table"
 | Document | Purpose |
 |----------|---------|
 | [Architecture Guide](docs/development/ARCHITECTURE.md) | System design, data flow, hash table implementation |
-| [Implementation Details](V4.2.2_UNLIMITED_IMPLEMENTATION.md) | v4.2.2 specific feature details |
+| [Implementation Details](IMPLEMENTATION_DETAILS.md) | Feature implementation and design decisions |
 
 ### Testing & Validation
 
@@ -229,7 +229,7 @@ sudo dmesg -w | grep "Adaptive hash table"
 
 ### ✅ Production Ready
 
-**v4.2.2 has passed all validation layers:**
+**All versions have passed all validation layers:**
 
 | Layer | Tests | Status | Evidence |
 |-------|-------|--------|----------|
@@ -262,7 +262,7 @@ All validation tests included:
                │
                ▼
 ┌─────────────────────────────────────┐
-│  dm-remap-v4 Target                 │
+│  dm-remap Target                    │
 │  ┌─────────────────────────────────┐│
 │  │ Hash Table (Dynamic Resize)     ││
 │  │ ┌────────┐                      ││
@@ -308,7 +308,7 @@ All validation tests included:
 ```
 dm-remap/
 ├── src/                          # Source code
-│   ├── dm-remap-v4-real-main.c  # Main implementation (~2600 lines)
+│   ├── dm-remap-core.c          # Main implementation (~2600 lines)
 │   ├── compat.h                  # Kernel compatibility macros
 │   └── dm_remap_debug.c          # Debug utilities
 │
@@ -342,7 +342,7 @@ dm-remap/
 ├── README.md                      # This file
 │
 ├── RUNTIME_TEST_REPORT_FINAL.md   # Production validation
-├── V4.2.2_UNLIMITED_IMPLEMENTATION.md  # Feature details
+├── IMPLEMENTATION_DETAILS.md      # Feature implementation
 ├── TEST_REPORT_HASH_RESIZE.md     # Validation results
 └── TESTING_COMPLETE.md            # Testing summary
 ```
@@ -351,7 +351,7 @@ dm-remap/
 
 ## Performance
 
-### Measured Performance (v4.2.2)
+### Measured Performance
 
 **Lookup Time (Hash Table):**
 ```
@@ -400,8 +400,8 @@ Expected resizes for 100,000 remaps: ~7 total
 
 **⚙️ Deep dive?**
 1. Review [Architecture](docs/development/ARCHITECTURE.md)
-2. Study [Implementation](V4.2.2_UNLIMITED_IMPLEMENTATION.md)
-3. Explore source code: `src/dm-remap-v4-real-main.c`
+2. Study [Implementation](IMPLEMENTATION_DETAILS.md)
+3. Explore source code: `src/dm-remap-core.c`
 
 ---
 
@@ -420,7 +420,7 @@ make
 sudo make install
 
 # Load
-sudo modprobe dm_remap_v4_real
+sudo modprobe dm_remap
 
 # Verify
 sudo dmsetup targets | grep remap
@@ -481,7 +481,6 @@ See LICENSE file for details.
 
 ---
 
-**README Version:** 4.2.2  
-**Last Updated:** October 28, 2025  
+**README Last Updated:** October 29, 2025  
 **Status:** FINAL ✅  
 **Production Ready:** YES ✅
