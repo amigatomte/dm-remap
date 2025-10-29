@@ -264,13 +264,13 @@ All validation tests included:
 ┌─────────────────────────────────────┐
 │  dm-remap-v4 Target                 │
 │  ┌─────────────────────────────────┐│
-│  │ Hash Table (Dynamic Resize)    ││
-│  │ ┌────────┐                     ││
-│  │ │Bucket 0│ → Remap entries     ││
-│  │ └────────┘                     ││
-│  │ ┌────────┐                     ││
-│  │ │Bucket 1│ → Remap entries     ││
-│  │ └────────┘                     ││
+│  │ Hash Table (Dynamic Resize)     ││
+│  │ ┌────────┐                      ││
+│  │ │Bucket 0│ → Remap entries      ││
+│  │ └────────┘                      ││
+│  │ ┌────────┐                      ││
+│  │ │Bucket 1│ → Remap entries      ││
+│  │ └────────┘                      ││
 │  │ ...                             ││
 │  └─────────────────────────────────┘│
 │  ┌─────────────────────────────────┐│
