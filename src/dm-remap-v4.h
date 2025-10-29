@@ -17,6 +17,8 @@
 #include <linux/workqueue.h>
 #include <linux/mutex.h>
 #include <linux/atomic.h>
+#include "../include/dm-remap-logging.h"
+
 /* Forward declarations */
 struct dm_remap_repair_context;
 struct dm_bufio_client;  /* dm-bufio client for metadata I/O */
@@ -32,14 +34,7 @@ struct dm_bufio_client;  /* dm-bufio client for metadata I/O */
 #define DM_REMAP_HEALTH_WARNING         60
 #define DM_REMAP_HEALTH_CRITICAL        40
 #define DM_REMAP_HEALTH_FAILING         20
-/* Debug logging macro */
-#define DMR_DEBUG(level, fmt, args...) \
-    do { \
-        if (dm_remap_debug >= level) \
-            printk(KERN_INFO "dm-remap-v4: " fmt "\n", ##args); \
-    } while (0)
-/* External debug level variable */
-extern int dm_remap_debug;
+
 /**
  * Pure v4.0 Metadata Structure - No Legacy Baggage
  * 

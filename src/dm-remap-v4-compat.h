@@ -10,6 +10,7 @@
 
 #include <linux/version.h>
 #include <linux/blkdev.h>
+#include "../include/dm-remap-logging.h"
 
 /* Compatibility wrapper for bdev_name() */
 static inline const char *dm_remap_bdev_name(struct block_device *bdev)
@@ -185,29 +186,5 @@ static inline void dm_remap_close_bdev(struct block_device *bdev, fmode_t mode)
 #ifndef DM_REMAP_MIN_DEVICE_SECTORS
 #define DM_REMAP_MIN_DEVICE_SECTORS 2048
 #endif
-
-/* Debug macro compatibility */
-#ifndef DMR_DEBUG
-/* Debug macros */
-#define DMR_DEBUG(level, fmt, args...) \
-    do { \
-        if (dm_remap_debug >= (level)) { \
-            printk(KERN_INFO "dm-remap v4.0: " fmt "\n", ##args); \
-        } \
-    } while (0)
-
-#define DMR_INFO(fmt, args...) \
-    printk(KERN_INFO "dm-remap v4.0: " fmt "\n", ##args)
-
-#define DMR_WARN(fmt, args...) \
-    printk(KERN_WARNING "dm-remap v4.0: " fmt "\n", ##args)
-
-#define DMR_ERROR(fmt, args...) \
-    printk(KERN_ERR "dm-remap v4.0: " fmt "\n", ##args)
-
-#endif
-
-/* Declare external debug variable */
-extern int dm_remap_debug;
 
 #endif /* DM_REMAP_V4_COMPAT_H */

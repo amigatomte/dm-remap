@@ -26,13 +26,7 @@
 #include <linux/dm-bufio.h>  /* Kernel standard for DM metadata I/O */
 
 #include "dm-remap-v4.h"
-
-/* Error and info logging macros for metadata module */
-#define DMR_ERROR(fmt, ...) \
-    printk(KERN_ERR "dm-remap-v4-metadata: " fmt "\n", ##__VA_ARGS__)
-
-#define DMR_INFO(fmt, ...) \
-    printk(KERN_INFO "dm-remap-v4-metadata: " fmt "\n", ##__VA_ARGS__)
+#include "../include/dm-remap-logging.h"
 
 /* Global sequence counter for metadata updates */
 static atomic64_t dm_remap_global_sequence = ATOMIC64_INIT(1);
