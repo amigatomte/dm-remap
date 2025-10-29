@@ -323,5 +323,11 @@ static void __exit dm_remap_stats_exit(void)
     pr_info("dm-remap-stats: Statistics export removed\n");
 }
 
-module_init(dm_remap_stats_init);
-module_exit(dm_remap_stats_exit);
+/* Module initialization disabled for integrated builds
+ * When dm-remap-v4-stats.c is linked into dm-remap-v4-real,
+ * the main module's init/exit functions handle initialization.
+ * For standalone builds, uncomment these lines and rebuild.
+ *
+ * module_init(dm_remap_stats_init);
+ * module_exit(dm_remap_stats_exit);
+ */
