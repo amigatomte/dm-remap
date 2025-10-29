@@ -1,0 +1,45 @@
+# Example bad sectors file for dm-remap testing
+#
+# Format: One sector ID per line (comments start with #)
+# Sector IDs are LBA (Logical Block Address) values
+#
+# Example: With 4KB sectors
+#   Sector 0   = bytes 0-4095
+#   Sector 1   = bytes 4096-8191
+#   Sector 100 = bytes 409600-413695
+#
+# This example file creates a pattern with:
+# - Early bad sectors (testing metadata area)
+# - Mid-device scattered bad sectors
+# - Clustered bad sectors (testing fragmentation)
+
+# Early device (first 100 sectors)
+0
+5
+10
+50
+
+# Mid-device scattered sectors
+256
+512
+1024
+2048
+
+# Clustered bad sectors (simulating a degraded region)
+5000
+5001
+5002
+5003
+5004
+
+# Random distribution
+7777
+9999
+15000
+25000
+50000
+
+# Late device bad sectors
+100000
+150000
+200000
