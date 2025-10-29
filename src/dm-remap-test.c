@@ -1,10 +1,9 @@
 /**
- * dm-remap-minimal-test.c - ABSOLUTE MINIMAL dm-target for crash diagnosis
+ * dm-remap-test.c - Minimal dm-remap test module
  * 
- * This module contains ONLY the bare minimum required for a dm-target.
- * No complex logic, no I/O handling, no background tasks.
+ * A minimal Device Mapper target for testing and validation purposes.
  * 
- * Purpose: Determine if the crash is in our complex code or a fundamental issue.
+ * Copyright (C) 2025 dm-remap Development Team
  */
 
 #include <linux/module.h>
@@ -13,10 +12,10 @@
 #include <linux/bio.h>
 #include <linux/device-mapper.h>
 
-MODULE_DESCRIPTION("Minimal DM Target Test");
-MODULE_AUTHOR("Test");
+MODULE_DESCRIPTION("dm-remap minimal test module");
+MODULE_AUTHOR("dm-remap Development Team");
 MODULE_LICENSE("GPL");
-MODULE_VERSION("0.0.1");
+MODULE_VERSION("1.0.0");
 
 /* Minimal device structure - just one field */
 struct minimal_device {
@@ -111,8 +110,8 @@ static void minimal_status(struct dm_target *ti, status_type_t type,
 
 /* Target structure - MINIMAL fields only */
 static struct target_type minimal_target = {
-    .name = "minimal-test",
-    .version = {0, 0, 1},
+    .name = "remap-test",
+    .version = {1, 0, 0},
     .module = THIS_MODULE,
     .ctr = minimal_ctr,
     .dtr = minimal_dtr,

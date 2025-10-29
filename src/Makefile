@@ -3,7 +3,7 @@
 # ============================================================================
 #
 # BUILD_MODE options:
-#   INTEGRATED (default) - Single dm-remap-v4-real.ko with all features
+#   INTEGRATED (default) - Single dm-remap.ko with all features
 #                          (clean builds, simpler installation)
 #   MODULAR              - Separate .ko files for features
 #                          (requires proper MODULE_LICENSE in each file)
@@ -22,7 +22,7 @@ ifeq ($(BUILD_MODE),INTEGRATED)
   # ========== INTEGRATED BUILD (DEFAULT) ==========
   # Single kernel module with all features compiled together
   # Recommended for most installations - simplest deployment
-  obj-m := dm-remap-v4-real.o dm-remap-minimal-test.o
+  obj-m := dm-remap.o dm-remap-test.o
   
   # All components integrated into main module:
   # - Core remapping engine
@@ -30,8 +30,8 @@ ifeq ($(BUILD_MODE),INTEGRATED)
   # - Spare pool management
   # - Setup and reassembly
   # - Statistics collection
-  dm-remap-v4-real-objs := \
-      dm-remap-v4-real-main.o \
+  dm-remap-objs := \
+      dm-remap-core.o \
       dm-remap-v4-metadata.o \
       dm-remap-v4-metadata-creation.o \
       dm-remap-v4-metadata-utils.o \
@@ -47,26 +47,26 @@ else ifeq ($(BUILD_MODE),MODULAR)
   # Separate kernel modules for maximum flexibility
   # Each module can be independently loaded/unloaded
   # Note: Requires proper MODULE_LICENSE in each file
-  obj-m := dm-remap-v4-real.o dm-remap-minimal-test.o
-  obj-m += dm-remap-v4-spare-pool.o
-  obj-m += dm-remap-v4-setup-reassembly.o
-  obj-m += dm-remap-v4-stats.o
+  obj-m := dm-remap.o dm-remap-test.o
+  obj-m += dm-remap-spare-pool.o
+  obj-m += dm-remap-setup-reassembly.o
+  obj-m += dm-remap-stats.o
   
   # Core remapping module (required)
-  dm-remap-v4-real-objs := \
-      dm-remap-v4-real-main.o \
+  dm-remap-objs := \
+      dm-remap-core.o \
       dm-remap-v4-metadata.o \
       dm-remap-v4-metadata-creation.o \
       dm-remap-v4-metadata-utils.o \
       dm-remap-v4-repair.o
   
   # Optional feature modules (load as needed)
-  dm-remap-v4-spare-pool-objs := dm-remap-v4-spare-pool.o
-  dm-remap-v4-setup-reassembly-objs := \
+  dm-remap-spare-pool-objs := dm-remap-v4-spare-pool.o
+  dm-remap-setup-reassembly-objs := \
       dm-remap-v4-setup-reassembly-core.o \
       dm-remap-v4-setup-reassembly-storage.o \
       dm-remap-v4-setup-reassembly-discovery.o
-  dm-remap-v4-stats-objs := dm-remap-v4-stats.o
+  dm-remap-stats-objs := dm-remap-v4-stats.o
   
 else
   $(error Invalid BUILD_MODE: $(BUILD_MODE). Use INTEGRATED or MODULAR)
@@ -99,7 +99,7 @@ show-build-mode:
 	@echo "=========================================="
 	@echo "BUILD_MODE: $(BUILD_MODE)"
 ifeq ($(BUILD_MODE),INTEGRATED)
-	@echo "Output: dm-remap-v4-real.ko (single module)"
+	@echo "Output: dm-remap.ko (single module)"
 	@echo "Features: All core features compiled in"
 	@echo ""
 	@echo "Benefits:"
@@ -110,10 +110,10 @@ ifeq ($(BUILD_MODE),INTEGRATED)
 else ifeq ($(BUILD_MODE),MODULAR)
 	@echo "Output: Multiple kernel modules"
 	@echo "Modules:"
-	@echo "  • dm-remap-v4-real.ko (core remapping engine)"
-	@echo "  • dm-remap-v4-spare-pool.ko (spare device management)"
-	@echo "  • dm-remap-v4-setup-reassembly.ko (device setup)"
-	@echo "  • dm-remap-v4-stats.ko (statistics collection)"
+	@echo "  • dm-remap.ko (core remapping engine)"
+	@echo "  • dm-remap-spare-pool.ko (spare device management)"
+	@echo "  • dm-remap-setup-reassembly.ko (device setup)"
+	@echo "  • dm-remap-stats.ko (statistics collection)"
 	@echo ""
 	@echo "Benefits:"
 	@echo "  ✓ Load features independently"

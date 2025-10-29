@@ -1,8 +1,9 @@
 /**
- * dm-remap-v4-real.c - v4.0 Enterprise with Real Device Support
+ * dm-remap-core.c - Device Mapper Remapping Target
  * 
- * This version implements full real device integration moving beyond
- * demonstration mode to production-ready enterprise storage management.
+ * This is the core implementation providing transparent block remapping
+ * from primary devices to spare devices with automatic hash table resizing
+ * and O(1) performance characteristics.
  * 
  * Copyright (C) 2025 dm-remap Development Team
  */
@@ -34,11 +35,11 @@
 #include "dm-remap-v4.h"  /* Shared v4 metadata structures */
 
 /* Module metadata */
-MODULE_DESCRIPTION("Device Mapper Remapping Target v4.0 - Real Device Integration");
+MODULE_DESCRIPTION("Device Mapper Remapping Target - Block remapping with O(1) performance");
 MODULE_AUTHOR("dm-remap Development Team");  
 MODULE_LICENSE("GPL");
-MODULE_VERSION("4.0.0-real");
-MODULE_SOFTDEP("pre: dm-bufio dm-remap-v4-metadata");
+MODULE_VERSION("1.0.0");
+MODULE_SOFTDEP("pre: dm-bufio");
 
 /* Module parameters */
 int dm_remap_debug = 1;
