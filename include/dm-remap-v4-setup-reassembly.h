@@ -418,6 +418,30 @@ void dm_remap_v4_print_discovery_results(
 
 const char* dm_remap_v4_reassembly_error_to_string(int error_code);
 
+/* Core Setup Reassembly Functions - Metadata Operations */
+int dm_remap_v4_create_setup_metadata(
+    struct dm_remap_v4_setup_metadata *metadata,
+    const struct dm_remap_v4_device_fingerprint *main_device,
+    const struct dm_remap_v4_target_config *target_config);
+
+int dm_remap_v4_add_spare_device_to_metadata(
+    struct dm_remap_v4_setup_metadata *metadata,
+    const struct dm_remap_v4_device_fingerprint *spare_device,
+    uint32_t priority);
+
+/* Device fingerprinting */
+int dm_remap_v4_create_device_fingerprint(
+    struct dm_remap_v4_device_fingerprint *fingerprint,
+    const char *device_path);
+
+int dm_remap_v4_verify_device_fingerprint(
+    const struct dm_remap_v4_device_fingerprint *fingerprint,
+    const char *device_path);
+
+int dm_remap_v4_compare_device_fingerprints(
+    const struct dm_remap_v4_device_fingerprint *fp1,
+    const struct dm_remap_v4_device_fingerprint *fp2);
+
 /*
  * Error Codes for Setup Reassembly
  */

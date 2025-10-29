@@ -424,7 +424,7 @@ int dm_remap_v4_validate_setup_group(const struct dm_remap_v4_setup_group *group
         return -DM_REMAP_V4_REASSEMBLY_ERROR_LOW_CONFIDENCE;
     }
     
-    DMINFO("Setup group %u validation passed: confidence=%.2f, conflicts=%llu",
+    DMINFO("Setup group %u validation passed: confidence=%u%%, conflicts=%llu",
            group->group_id, group->group_confidence, version_conflicts);
     
     return DM_REMAP_V4_REASSEMBLY_SUCCESS;
@@ -514,7 +514,7 @@ int dm_remap_v4_reconstruct_setup(
         plan->num_steps++;
     }
     
-    DMINFO("Created reconstruction plan for setup '%s': %u steps, confidence=%.2f",
+    DMINFO("Created reconstruction plan for setup '%s': %u steps, confidence=%u%%",
            plan->setup_name, plan->num_steps, plan->confidence_score);
     
     return DM_REMAP_V4_REASSEMBLY_SUCCESS;
