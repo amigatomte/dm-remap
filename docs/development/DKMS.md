@@ -107,6 +107,20 @@ Automatically works for all kernels
 
 ## Quick Start
 
+### Prerequisites
+
+**Ubuntu/Debian:**
+```bash
+sudo apt-get update
+sudo apt-get install -y dkms build-essential linux-headers-generic
+```
+
+**Fedora/CentOS/RHEL:**
+```bash
+sudo dnf groupinstall -y "Development Tools"
+sudo dnf install -y dkms kernel-devel
+```
+
 ### Installation
 
 ```bash
