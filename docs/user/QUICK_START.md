@@ -20,6 +20,20 @@ dm-remap is a Linux device mapper target that remaps data blocks:
 - **Privileges**: Root access (sudo)
 - **Storage**: Main device + spare device (same size)
 
+### Install Required Packages
+
+**Ubuntu/Debian:**
+```bash
+sudo apt-get update
+sudo apt-get install -y build-essential linux-headers-generic dmsetup
+```
+
+**Fedora/CentOS/RHEL:**
+```bash
+sudo dnf groupinstall -y "Development Tools"
+sudo dnf install -y kernel-devel device-mapper
+```
+
 ## Installation
 
 ### Step 1: Clone the Repository
