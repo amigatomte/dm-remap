@@ -16,6 +16,8 @@
 - [Kernel Updates](#kernel-updates)
 - [Troubleshooting](#troubleshooting)
 - [Manual DKMS Operations](#manual-dkms-operations)
+- [Building DKMS Packages](#building-dkms-packages)
+- [DKMS Configuration](#dkms-configuration)
 
 ---
 
@@ -468,6 +470,106 @@ ls -la /usr/src/dm-remap-1.0.0/
 # Built module
 ls -la /lib/modules/$(uname -r)/extra/dm-remap.ko
 ```
+
+---
+
+## Building DKMS Packages
+
+### Overview
+
+DKMS packages are built from source and can be distributed to other systems. There are two main package formats:
+
+- **DEB** - For Debian/Ubuntu systems
+- **RPM** - For Red Hat/Fedora/CentOS systems
+
+### Prerequisites
+
+```bash
+# For DEB package building
+sudo apt-get install -y debhelper devscripts fakeroot
+
+# For RPM package building
+sudo dnf install -y rpm-build rpmbuild
+```
+
+### Building DEB Package (Debian/Ubuntu)
+
+```bash
+# Build the DKMS DEB package
+make dkms-deb
+
+# Output location: parent directory (../*.deb)
+# Example: dm-remap-dkms_1.0.0_all.deb
+
+# Verify build
+ls -lh ../*dkms*.deb
+
+# Clean build artifacts
+make dkms-deb-clean
+```
+
+### Building RPM Package (Red Hat/Fedora/CentOS)
+
+```bash
+# Build the DKMS RPM package
+make dkms-rpm
+
+# Output location: ~/rpmbuild/RPMS/noarch/
+# Example: dm-remap-dkms-1.0.0-1.el9.noarch.rpm
+
+# Verify build
+ls -lh ~/rpmbuild/RPMS/noarch/*dkms*.rpm
+
+# Clean build artifacts
+rm -rf ~/rpmbuild/BUILD/dm-remap-dkms-*
+```
+
+### Building Both Packages
+
+```bash
+# Build DEB and RPM packages
+make dkms-packages
+
+# Outputs will be in:
+# - DEB: ../*.deb
+# - RPM: ~/rpmbuild/RPMS/noarch/*.rpm
+```
+
+### Distribution
+
+After building, distribute the packages to users:
+
+```bash
+# DEB installation
+sudo apt-get install ./dm-remap-dkms_1.0.0_all.deb
+
+# RPM installation
+sudo dnf install ./dm-remap-dkms-1.0.0-1.el9.noarch.rpm
+sudo yum install ./dm-remap-dkms-1.0.0-1.el9.noarch.rpm
+```
+
+### Package Contents
+
+Both DEB and RPM packages contain:
+
+```
+dkms.conf                    # DKMS configuration
+src/                        # Source code
+debian-dkms/                # Debian packaging files (DEB only)
+dm-remap-dkms.spec         # RPM spec file (RPM only)
+debian-dkms/postinst       # Post-install script (automatic DKMS setup)
+debian-dkms/prerm          # Pre-remove script (cleanup)
+```
+
+### Package Installation Flow
+
+When a user installs the package:
+
+1. **Extract** - Package extracts to `/usr/src/dm-remap-1.0.0/`
+2. **Register** - `dkms add -m dm-remap -v 1.0.0` registers the source
+3. **Build** - `dkms build -m dm-remap -v 1.0.0` compiles for current kernel
+4. **Install** - `dkms install -m dm-remap -v 1.0.0` places module in `/lib/modules/`
+5. **Verify** - User can check with `dkms status`
 
 ---
 
