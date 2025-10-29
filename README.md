@@ -98,6 +98,10 @@ Resize overhead: Negligible (~5-10ms one-time per resize)
 - 📊 [Monitoring Guide](docs/user/MONITORING.md) - Watch resize events
 - 🛠️ [Troubleshooting](docs/user/TROUBLESHOOTING.md) - Fix common issues
 
+**Package Management?**
+- 📦 [Packaging Guide](docs/development/PACKAGING.md) - Build DEB and RPM packages
+- Build packages: `make deb` or `make rpm` or `make packages`
+
 **Questions?**
 - ❓ [FAQ](docs/user/FAQ.md) - Frequently asked questions
 - 🏗️ [Architecture](docs/development/ARCHITECTURE.md) - How it works
@@ -214,6 +218,7 @@ sudo dmesg -w | grep "Adaptive hash table"
 | Document | Purpose |
 |----------|---------|
 | [Build System Guide](docs/development/BUILD_SYSTEM.md) | Two build modes (INTEGRATED, MODULAR) and usage |
+| [Packaging Guide](docs/development/PACKAGING.md) | Building DEB and RPM packages for distribution |
 | [Architecture Guide](docs/development/ARCHITECTURE.md) | System design, data flow, hash table implementation |
 | [Implementation Details](IMPLEMENTATION_DETAILS.md) | Feature implementation and design decisions |
 
@@ -427,6 +432,25 @@ sudo modprobe dm_remap
 # Verify
 sudo dmsetup targets | grep remap
 ```
+
+## Building Packages
+
+### Quick Package Build
+
+```bash
+# Build DEB package (Debian/Ubuntu)
+make deb
+sudo dpkg -i ../dm-remap*.deb
+
+# Build RPM package (Red Hat/Fedora/CentOS)
+make rpm
+sudo rpm -i ~/rpmbuild/RPMS/*/*.rpm
+
+# Build both
+make packages
+```
+
+See [Packaging Guide](docs/development/PACKAGING.md) for detailed instructions.
 
 ---
 
