@@ -22,6 +22,7 @@
 #include <linux/sysfs.h>
 #include <linux/string.h>
 #include <linux/atomic.h>
+#include "../include/dm-remap-v4-stats.h"
 
 MODULE_DESCRIPTION("dm-remap v4.0 Statistics Export");
 MODULE_AUTHOR("dm-remap Development Team");

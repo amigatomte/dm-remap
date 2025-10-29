@@ -171,7 +171,7 @@ static int dm_remap_v4_write_metadata_sector(
 /*
  * Write metadata with redundant copies
  */
-int dm_remap_v4_write_metadata_redundant(
+static int dm_remap_v4_write_metadata_redundant(
     const char *device_path,
     const struct dm_remap_v4_setup_metadata *metadata)
 {
@@ -383,7 +383,7 @@ int dm_remap_v4_read_metadata_validated(
 /*
  * Store metadata on all devices in a setup
  */
-int dm_remap_v4_store_metadata_on_setup(
+static int dm_remap_v4_store_metadata_on_setup(
     const struct dm_remap_v4_setup_metadata *metadata)
 {
     int result;
@@ -444,7 +444,7 @@ int dm_remap_v4_store_metadata_on_setup(
 /*
  * Update metadata on existing setup
  */
-int dm_remap_v4_update_metadata_on_setup(
+static int dm_remap_v4_update_metadata_on_setup(
     struct dm_remap_v4_setup_metadata *metadata)
 {
     if (!metadata) {
@@ -464,7 +464,7 @@ int dm_remap_v4_update_metadata_on_setup(
 /*
  * Repair corrupted metadata using valid copies
  */
-int dm_remap_v4_repair_metadata_corruption(
+static int dm_remap_v4_repair_metadata_corruption(
     const char *device_path,
     const struct dm_remap_v4_setup_metadata *reference_metadata)
 {
@@ -517,7 +517,7 @@ int dm_remap_v4_repair_metadata_corruption(
 /*
  * Clean/remove metadata from device
  */
-int dm_remap_v4_clean_metadata_from_device(const char *device_path)
+static int dm_remap_v4_clean_metadata_from_device(const char *device_path)
 {
     struct file *file;
     struct inode *inode;

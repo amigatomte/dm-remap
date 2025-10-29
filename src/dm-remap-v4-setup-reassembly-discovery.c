@@ -54,7 +54,7 @@ static const char* default_scan_patterns[] = {
 /*
  * Initialize discovery system
  */
-int dm_remap_v4_init_discovery_system(void)
+static int dm_remap_v4_init_discovery_system(void)
 {
     mutex_lock(&discovery_state.discovery_lock);
     
@@ -73,7 +73,7 @@ int dm_remap_v4_init_discovery_system(void)
 /*
  * Cleanup discovery system
  */
-void dm_remap_v4_cleanup_discovery_system(void)
+static void dm_remap_v4_cleanup_discovery_system(void)
 {
     struct dm_remap_v4_discovery_result *result, *tmp;
     
@@ -93,7 +93,7 @@ void dm_remap_v4_cleanup_discovery_system(void)
 /*
  * Scan single device for dm-remap metadata
  */
-int dm_remap_v4_scan_device_for_metadata(
+static int dm_remap_v4_scan_device_for_metadata(
     const char *device_path,
     struct dm_remap_v4_discovery_result *result)
 {
@@ -164,9 +164,9 @@ static bool dm_remap_v4_device_exists(const char *device_path)
 }
 
 /*
- * Scan all block devices for dm-remap metadata
+ * Scan all system devices for dm-remap metadata
  */
-int dm_remap_v4_scan_all_devices(
+static int dm_remap_v4_scan_all_devices(
     struct dm_remap_v4_discovery_result **results,
     uint32_t *num_results,
     uint32_t max_results)
@@ -255,7 +255,7 @@ int dm_remap_v4_scan_all_devices(
 /*
  * Group discovered results by setup ID
  */
-int dm_remap_v4_group_discovery_results(
+static int dm_remap_v4_group_discovery_results(
     const struct dm_remap_v4_discovery_result *results,
     uint32_t num_results,
     struct dm_remap_v4_setup_group **groups,
@@ -360,7 +360,7 @@ int dm_remap_v4_group_discovery_results(
 /*
  * Validate setup group consistency
  */
-int dm_remap_v4_validate_setup_group(const struct dm_remap_v4_setup_group *group)
+static int dm_remap_v4_validate_setup_group(const struct dm_remap_v4_setup_group *group)
 {
     const struct dm_remap_v4_setup_metadata *ref_metadata;
     uint64_t version_conflicts = 0;
@@ -433,7 +433,7 @@ int dm_remap_v4_validate_setup_group(const struct dm_remap_v4_setup_group *group
 /*
  * Reconstruct dm-remap setup from discovered metadata
  */
-int dm_remap_v4_reconstruct_setup(
+static int dm_remap_v4_reconstruct_setup(
     const struct dm_remap_v4_setup_group *group,
     struct dm_remap_v4_reconstruction_plan *plan)
 {
@@ -523,7 +523,7 @@ int dm_remap_v4_reconstruct_setup(
 /*
  * Get discovery system statistics
  */
-int dm_remap_v4_get_discovery_stats(struct dm_remap_v4_discovery_stats *stats)
+static int dm_remap_v4_get_discovery_stats(struct dm_remap_v4_discovery_stats *stats)
 {
     if (!stats) {
         return -EINVAL;

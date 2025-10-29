@@ -500,8 +500,8 @@ static void dm_remap_sync_persistent_metadata(struct dm_remap_device_v4_real *de
  */
 static int dm_remap_write_persistent_metadata(struct dm_remap_device_v4_real *device)
 {
-    struct block_device *bdev;
-    int ret;
+    struct block_device * __maybe_unused bdev;
+    int __maybe_unused ret;
     
     /* CRITICAL: Check if device is being destroyed before doing I/O */
     if (!atomic_read(&device->device_active)) {
@@ -936,7 +936,7 @@ static void dm_remap_handle_io_error(struct dm_remap_device_v4_real *device,
 static int dm_remap_metadata_thread(void *data)
 {
     struct dm_remap_device_v4_real *device = data;
-    struct block_device *bdev;
+    struct block_device * __maybe_unused bdev;
     int ret;
     
     DMR_INFO("Metadata write thread started");
@@ -1071,7 +1071,7 @@ static void dm_remap_deferred_metadata_read_work(struct work_struct *work)
     struct dm_remap_device_v4_real *device = 
         container_of(to_delayed_work(work), struct dm_remap_device_v4_real, 
                      deferred_metadata_read_work);
-    struct block_device *bdev;
+    struct block_device * __maybe_unused bdev;
     int ret;
     
     /* Check if already loaded (double-check pattern) */
@@ -2357,7 +2357,7 @@ static int dm_remap_end_io_v4_real(struct dm_target *ti, struct bio *bio,
     if (*error != BLK_STS_OK) {
         sector_t failed_sector = bio->bi_iter.bi_sector;
         int errno_val = blk_status_to_errno(*error);
-        struct block_device *main_bdev = device->main_dev ? file_bdev(device->main_dev) : NULL;
+        struct block_device * __maybe_unused main_bdev = device->main_dev ? file_bdev(device->main_dev) : NULL;
         
         DMR_WARN("I/O error detected on sector %llu (error=%d)",
                  (unsigned long long)failed_sector, errno_val);
