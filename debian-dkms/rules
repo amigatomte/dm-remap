@@ -1,0 +1,38 @@
+#!/usr/bin/make -f
+
+export DH_VERBOSE = 1
+
+%:
+	dh $@
+
+override_dh_auto_build:
+	# Nothing to build for DKMS source - built by DKMS on install
+
+override_dh_auto_install:
+	# Install DKMS source files
+	mkdir -p debian/dm-remap-dkms/usr/src/dm-remap-1.0.0
+	cp -r src debian/dm-remap-dkms/usr/src/dm-remap-1.0.0/
+	cp -r include debian/dm-remap-dkms/usr/src/dm-remap-1.0.0/
+	cp Makefile dkms.conf debian/dm-remap-dkms/usr/src/dm-remap-1.0.0/
+	
+	# Install DKMS configuration
+	mkdir -p debian/dm-remap-dkms/etc/dkms
+	install -D -m 0644 dkms.conf debian/dm-remap-dkms/usr/src/dm-remap-1.0.0/
+	
+	# Install documentation
+	mkdir -p debian/dm-remap-doc/usr/share/doc/dm-remap
+	install -D -m 0644 README.md debian/dm-remap-doc/usr/share/doc/dm-remap/
+	install -D -m 0644 LICENSE debian/dm-remap-doc/usr/share/doc/dm-remap/
+	cp -r docs/* debian/dm-remap-doc/usr/share/doc/dm-remap/
+
+override_dh_auto_test:
+	# No automated tests for DKMS source package
+
+override_dh_strip:
+	# No stripping needed for DKMS source
+
+override_dh_usrlocal:
+	# Skip this step for DKMS source
+
+clean:
+	dh_clean

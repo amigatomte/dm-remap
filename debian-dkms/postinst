@@ -1,0 +1,32 @@
+#!/usr/bin/env bash
+
+set -e
+
+# Post-install: Add DKMS module and build for current kernel
+if [ "$1" = "configure" ]; then
+    echo "Adding dm-remap to DKMS..."
+    dkms add -m dm-remap -v 1.0.0 2>/dev/null || true
+    
+    echo "Building dm-remap for kernel $(uname -r)..."
+    dkms build -m dm-remap -v 1.0.0 2>/dev/null || true
+    
+    echo "Installing dm-remap for kernel $(uname -r)..."
+    dkms install -m dm-remap -v 1.0.0 2>/dev/null || true
+    
+    echo ""
+    echo "=========================================="
+    echo "dm-remap DKMS installation complete!"
+    echo "=========================================="
+    echo ""
+    echo "To load the module, run:"
+    echo "  sudo modprobe dm_remap"
+    echo ""
+    echo "To check DKMS status:"
+    echo "  dkms status"
+    echo ""
+    echo "When you upgrade your kernel, the module"
+    echo "will automatically rebuild and install."
+    echo ""
+    echo "For more information:"
+    echo "  /usr/share/doc/dm-remap/"
+fi

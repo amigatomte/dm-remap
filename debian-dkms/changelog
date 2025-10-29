@@ -1,0 +1,13 @@
+dm-remap-dkms (1.0.0-1) unstable; urgency=high
+
+  * Initial DKMS source package (pre-release v1.0)
+  * Automatically compiled for any kernel version
+  * No need for separate packages per kernel
+  * Unlimited remap capacity (4.2+ billion)
+  * O(1) lookup performance (~8 microseconds)
+  * Dynamic hash table resizing
+  * Persistent metadata management
+  * Comprehensive testing and validation
+  * Flexible build system (INTEGRATED and MODULAR modes)
+
+ -- Christian <amigatomte@example.com>  Wed, 29 Oct 2025 12:00:00 +0000

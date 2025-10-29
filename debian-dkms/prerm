@@ -1,0 +1,13 @@
+#!/usr/bin/env bash
+
+set -e
+
+# Pre-removal: Remove DKMS module
+if [ "$1" = "remove" ]; then
+    echo "Removing dm-remap from DKMS..."
+    
+    # Uninstall all kernel versions
+    dkms remove -m dm-remap -v 1.0.0 --all 2>/dev/null || true
+    
+    echo "dm-remap DKMS module removed"
+fi

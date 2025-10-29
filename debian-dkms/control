@@ -1,0 +1,42 @@
+Source: dm-remap-dkms
+Section: admin
+Priority: optional
+Maintainer: Christian <amigatomte@example.com>
+Build-Depends: debhelper-compat (= 13), dkms
+Standards-Version: 4.6.0
+Homepage: https://github.com/amigatomte/dm-remap
+Vcs-Git: https://github.com/amigatomte/dm-remap.git
+
+Package: dm-remap-dkms
+Architecture: all
+Depends: ${misc:Depends}, dkms, linux-headers-generic | linux-headers, build-essential, dmsetup
+Recommends: linux-headers-generic
+Suggests: dm-remap-doc
+Description: Device Mapper Remapping Target - DKMS source for automatic kernel module compilation
+ dm-remap is a Linux kernel device-mapper target that provides transparent
+ block remapping from a primary device to a spare device. It enables:
+ .
+ - Unlimited remaps (4.2+ billion, up from 16,384)
+ - O(1) performance (~8 microsecond lookups)
+ - Automatic scaling (hash table resizes dynamically)
+ - Transparent operation (no application changes needed)
+ - Production ready (fully validated and tested)
+ .
+ This package contains the DKMS source for dm-remap. The kernel module will
+ be automatically compiled and installed for your running kernel using DKMS.
+ No need for separate packages for different kernel versions!
+
+Package: dm-remap-doc
+Section: doc
+Architecture: all
+Depends: ${misc:Depends}
+Suggests: dm-remap-dkms
+Description: Device Mapper Remapping Target - Documentation
+ This package contains comprehensive documentation for dm-remap including:
+ .
+ - User guides and quick start tutorials
+ - Installation and configuration guides
+ - Build system documentation
+ - Architecture and implementation details
+ - API reference and troubleshooting guides
+ - DKMS and packaging information

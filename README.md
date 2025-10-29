@@ -99,8 +99,9 @@ Resize overhead: Negligible (~5-10ms one-time per resize)
 - 🛠️ [Troubleshooting](docs/user/TROUBLESHOOTING.md) - Fix common issues
 
 **Package Management?**
-- 📦 [Packaging Guide](docs/development/PACKAGING.md) - Build DEB and RPM packages
-- Build packages: `make deb` or `make rpm` or `make packages`
+- 📦 [Packaging Guide](docs/development/PACKAGING.md) - Build traditional DEB and RPM packages
+- 🔄 [DKMS Guide](docs/development/DKMS.md) - **Recommended**: One package for all kernel versions
+- Quick: `make dkms-deb` or `make dkms-rpm` or `make dkms-packages`
 
 **Questions?**
 - ❓ [FAQ](docs/user/FAQ.md) - Frequently asked questions
@@ -218,7 +219,8 @@ sudo dmesg -w | grep "Adaptive hash table"
 | Document | Purpose |
 |----------|---------|
 | [Build System Guide](docs/development/BUILD_SYSTEM.md) | Two build modes (INTEGRATED, MODULAR) and usage |
-| [Packaging Guide](docs/development/PACKAGING.md) | Building DEB and RPM packages for distribution |
+| [Packaging Guide](docs/development/PACKAGING.md) | Building traditional DEB and RPM packages |
+| [DKMS Guide](docs/development/DKMS.md) | **Recommended**: Automatic module compilation for any kernel |
 | [Architecture Guide](docs/development/ARCHITECTURE.md) | System design, data flow, hash table implementation |
 | [Implementation Details](IMPLEMENTATION_DETAILS.md) | Feature implementation and design decisions |
 
@@ -438,19 +440,34 @@ sudo dmsetup targets | grep remap
 ### Quick Package Build
 
 ```bash
-# Build DEB package (Debian/Ubuntu)
-make deb
-sudo dpkg -i ../dm-remap*.deb
+# Build DKMS package (recommended - works for ANY kernel version)
+make dkms-deb      # For Debian/Ubuntu
+make dkms-rpm      # For Red Hat/Fedora/CentOS
+make dkms-packages # Build both
 
-# Build RPM package (Red Hat/Fedora/CentOS)
-make rpm
-sudo rpm -i ~/rpmbuild/RPMS/*/*.rpm
-
-# Build both
-make packages
+# Or traditional packages (one per kernel version)
+make deb           # For Debian/Ubuntu
+make rpm           # For Red Hat/Fedora/CentOS
+make packages      # Build all
 ```
 
-See [Packaging Guide](docs/development/PACKAGING.md) for detailed instructions.
+### DKMS: The Easy Way
+
+**DKMS (Dynamic Kernel Module Support)** automatically builds the module for any kernel version:
+
+```bash
+# Install DKMS package
+sudo apt-get install dm-remap-dkms    # Ubuntu/Debian
+sudo dnf install dm-remap-dkms        # Fedora/CentOS
+
+# Module automatically built and installed
+# Kernel updates? Module automatically rebuilds
+
+# Check status
+dkms status
+```
+
+See [DKMS Guide](docs/development/DKMS.md) or [Packaging Guide](docs/development/PACKAGING.md) for details.
 
 ---
 
