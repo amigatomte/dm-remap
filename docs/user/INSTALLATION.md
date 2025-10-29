@@ -1,7 +1,6 @@
 # dm-remap Installation Guide
 
-**Version:** 4.2.2  
-**Last Updated:** October 28, 2025
+> **Status**: Pre-release (unreleased module) - Fully tested but not yet released
 
 ---
 

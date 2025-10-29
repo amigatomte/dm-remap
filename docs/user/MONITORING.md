@@ -1,5 +1,7 @@
 # dm-remap Monitoring & Observability Guide
 
+> **Status**: Pre-release (unreleased module)
+
 **Monitor resize events, performance, and system health**
 
 ---

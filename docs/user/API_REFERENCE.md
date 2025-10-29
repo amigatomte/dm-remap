@@ -1,4 +1,8 @@
-# dm-remap v4.2.2 - API Reference & Command Reference
+# dm-remap - API Reference & Command Reference
+
+> **Status**: Pre-release (unreleased module)
+
+---
 
 ## Table of Contents
 
@@ -851,6 +855,6 @@ sudo modprobe -r dm_remap_v4_real
 
 ---
 
-**API Reference:** v4.2.2  
+**API Reference**: Pre-release (unreleased)  
 **Last Updated:** October 28, 2025  
-**Status:** COMPLETE ✅
+**Status:** Complete

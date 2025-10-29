@@ -1,8 +1,6 @@
-# dm-remap v4.2.2 - Complete User Guide
+# dm-remap - Complete User Guide
 
-**Version:** 4.2.2  
-**Date:** October 2025  
-**Status:** Production Ready ✅
+> **Status**: Pre-release (unreleased module)
 
 ---
 

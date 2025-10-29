@@ -1,4 +1,8 @@
-# dm-remap v4.2.2 - Architecture & Implementation Guide
+# dm-remap - Architecture & Implementation Guide
+
+> **Status**: Pre-release (unreleased module)
+
+---
 
 ## Table of Contents
 
@@ -1111,7 +1115,6 @@ dm_remap_v4_stats.ko (optional)
 
 ---
 
-**Architecture Document:** v4.2.2  
+**Architecture Document**: Pre-release (unreleased)  
 **Last Updated:** October 28, 2025  
-**Status:** COMPLETE ✅  
-**Production Ready:** YES ✅
+**Status:** Complete

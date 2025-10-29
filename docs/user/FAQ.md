@@ -1,5 +1,7 @@
 # dm-remap FAQ - Frequently Asked Questions
 
+> **Status**: Pre-release (unreleased module)
+
 ---
 
 ## Installation & Setup
@@ -227,25 +229,18 @@ A: Don't be! Resizes are rare (logarithmic) and fast (~5-10ms). Total overhead o
 
 ## Version History
 
-**v4.2.2 (Current):**
+**Current Development**: Pre-release
 - ✅ Unlimited remap capacity (UINT32_MAX)
 - ✅ Dynamic hash table resizing
 - ✅ O(1) performance verified
-- ✅ Production-ready validation complete
+- ✅ Comprehensive testing complete
+- ✅ Full documentation
 
-**v4.2.1:**
-- CPU prefetching optimizations
-- Adaptive hash sizing (early version)
-
-**v4.0:**
-- Initial release
-- Basic block remapping
-- Limited to 16,384 remaps
+**First Release**: v1.0 (planned)
 
 ---
 
 **Document:** dm-remap FAQ  
-**Version:** 4.2.2  
-**Last Updated:** October 28, 2025  
-**Status:** FINAL ✅
+**Status:** Pre-release (unreleased)  
+**Last Updated:** October 28, 2025
 

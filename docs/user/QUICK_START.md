@@ -1,6 +1,8 @@
-# dm-remap v4.2.2 Quick Start Guide
+# dm-remap Quick Start Guide
 
 **Get up and running in 5 minutes!**
+
+> **Status**: Pre-release (unreleased module)
 
 ## What is dm-remap?
 

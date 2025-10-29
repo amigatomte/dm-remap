@@ -1,6 +1,8 @@
-# dm-remap v4.2.2 - Linux Device Mapper Remapping Target
+# dm-remap - Linux Device Mapper Remapping Target
 
 **Unlimited block remapping with O(1) performance**
+
+> **Status**: Pre-release development (unreleased)
 
 ---
 
@@ -47,11 +49,11 @@ When storage devices fail or develop bad sectors:
 
 ## Key Features
 
-### Unlimited Remap Capacity (v4.2.2)
+### Unlimited Remap Capacity
 ```
 Maximum remaps: 4,294,967,295 (UINT32_MAX)
-Previous limit: 16,384
-Increase: 262,144x scalability
+Performance: O(1) lookup (~8 microseconds)
+Scaling: Automatic hash table resize
 ```
 
 ### O(1) Hash Table Lookups
@@ -451,24 +453,16 @@ sudo bash tests/runtime_resize_test_fixed.sh
 
 ---
 
-## Version History
+## Pre-Release Status
 
-**v4.2.2 (Current - 2025-10-28)** ✅
-- ✅ Unlimited remap capacity (UINT32_MAX = 4.2+ billion)
+This is a **pre-release development** project. Key features implemented and tested:
+- ✅ Unlimited remap capacity (UINT32_MAX)
 - ✅ Dynamic hash table resizing (automatic)
 - ✅ O(1) performance verified
-- ✅ Production validation complete
-- ✅ Comprehensive documentation
-- ✅ Full test suite (static, runtime, kernel-observed)
+- ✅ Comprehensive testing (static, runtime, kernel-observed)
+- ✅ Full documentation
 
-**v4.2.1**
-- CPU prefetching optimizations
-- Early adaptive hash sizing
-
-**v4.0**
-- Initial release
-- Basic remapping
-- Limited to 16,384 remaps
+First official release: v1.0 (planned)
 
 ---
 
