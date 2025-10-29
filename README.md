@@ -91,6 +91,7 @@ Resize overhead: Negligible (~5-10ms one-time per resize)
 - 📖 [Quick Start Guide](docs/user/QUICK_START.md) - Get running in 5 minutes
 - 🚀 [Installation Guide](docs/user/INSTALLATION.md) - Step-by-step setup
 - 📚 [User Guide](docs/user/USER_GUIDE.md) - Complete reference (all features)
+- 🔨 [Build System Guide](docs/development/BUILD_SYSTEM.md) - Two build modes explained
 
 **Already Installed?**
 - 🔧 [Configuration & Tuning](docs/user/CONFIGURATION.md)
@@ -212,6 +213,7 @@ sudo dmesg -w | grep "Adaptive hash table"
 
 | Document | Purpose |
 |----------|---------|
+| [Build System Guide](docs/development/BUILD_SYSTEM.md) | Two build modes (INTEGRATED, MODULAR) and usage |
 | [Architecture Guide](docs/development/ARCHITECTURE.md) | System design, data flow, hash table implementation |
 | [Implementation Details](IMPLEMENTATION_DETAILS.md) | Feature implementation and design decisions |
 
