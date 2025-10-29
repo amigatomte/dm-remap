@@ -276,7 +276,7 @@ EXPORT_SYMBOL(dm_remap_stats_update_health_score);
  * Module initialization and cleanup
  */
 
-static int __init dm_remap_stats_init(void)
+static int __maybe_unused __init dm_remap_stats_init(void)
 {
     int ret;
     
@@ -317,7 +317,7 @@ static int __init dm_remap_stats_init(void)
     return 0;
 }
 
-static void __exit dm_remap_stats_exit(void)
+static void __maybe_unused __exit dm_remap_stats_exit(void)
 {
     sysfs_remove_group(dm_remap_kobj, &dm_remap_attr_group);
     kobject_put(dm_remap_kobj);

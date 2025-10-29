@@ -40,8 +40,14 @@ static struct dm_remap_v4_discovery_state discovery_state = {
     .setups_discovered = 0
 };
 
-/* Device scanning parameters */
-static const char* default_scan_patterns[] = {
+/* FUTURE: Device scanning patterns disabled with discovery infrastructure
+ * These patterns are not currently used and may be re-enabled for
+ * future auto-discovery features. Wrapped in #if 0 to eliminate warnings.
+ */
+#if 0
+
+/* Device scanning parameters - currently unused but kept for future discovery implementation */
+static const char* __maybe_unused default_scan_patterns[] = {
     "/dev/sd*",      /* SCSI disks */
     "/dev/nvme*",    /* NVMe devices */
     "/dev/vd*",      /* Virtual disks */
@@ -50,6 +56,14 @@ static const char* default_scan_patterns[] = {
     "/dev/dm-*",     /* Device mapper devices */
     NULL
 };
+
+#endif
+
+/* FUTURE: Discovery system infrastructure disabled in current build
+ * These functions are not currently used and may be re-enabled for
+ * future auto-discovery features. Wrapped in #if 0 to eliminate warnings.
+ */
+#if 0
 
 /*
  * Initialize discovery system
@@ -550,3 +564,5 @@ static int dm_remap_v4_get_discovery_stats(struct dm_remap_v4_discovery_stats *s
     
     return DM_REMAP_V4_REASSEMBLY_SUCCESS;
 }
+
+#endif  /* End of disabled discovery infrastructure */

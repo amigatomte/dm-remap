@@ -494,46 +494,6 @@ static void dm_remap_sync_persistent_metadata(struct dm_remap_device_v4_real *de
     device->persistent_metadata->header.sequence_number++;
     device->persistent_metadata->header.timestamp = ktime_to_ns(ktime_get_real());
 }
-
-/**
- * dm_remap_write_persistent_metadata() - Write metadata to spare device
- */
-static int dm_remap_write_persistent_metadata(struct dm_remap_device_v4_real *device)
-{
-    struct block_device * __maybe_unused bdev;
-    int __maybe_unused ret;
-    
-    /* CRITICAL: Check if device is being destroyed before doing I/O */
-    if (!atomic_read(&device->device_active)) {
-        DMR_DEBUG(2, "Metadata write aborted - device inactive");
-        return -ESHUTDOWN;
-    }
-    
-    if (!device->persistent_metadata || !device->spare_dev)
-        return -EINVAL;
-    
-    /* Sync current state to persistent metadata */
-    dm_remap_sync_persistent_metadata(device);
-    
-    /* Get block device from file */
-    bdev = file_bdev(device->spare_dev);
-    if (!bdev) {
-        DMR_ERROR("Failed to get block device from spare device file");
-        return -EINVAL;
-    }
-    
-    /* Check again before I/O (device might have become inactive) */
-    if (!atomic_read(&device->device_active)) {
-        DMR_DEBUG(2, "Metadata write aborted before I/O - device inactive");
-        return -ESHUTDOWN;
-    }
-    
-    DMR_INFO("Metadata write with %u remaps",
-             device->persistent_metadata->remap_data.active_remaps);
-    
-    return 0;
-}
-
 /**
  * dm_remap_init_persistent_metadata() - Initialize persistent v4 metadata
  */

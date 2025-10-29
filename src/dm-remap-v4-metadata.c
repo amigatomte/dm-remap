@@ -641,7 +641,15 @@ void dm_remap_init_metadata_v4(struct dm_remap_metadata_v4 *metadata,
  * v4.1 Async Metadata I/O Implementation
  * ======================================================================== */
 
-/**
+/*
+ * FUTURE: Bio completion handler disabled in current build
+ * This function was planned for async metadata I/O but is not currently used.
+ * Kept as reference for future metadata I/O completion handling.
+ * Wrapped in #if 0 to eliminate warnings.
+ */
+#if 0
+
+/*
  * dm_remap_metadata_write_endio - Completion handler for async metadata writes
  * 
  * Called from bio completion context (may be interrupt context).
@@ -688,6 +696,8 @@ static void dm_remap_metadata_write_endio(struct bio *bio)
 		printk(KERN_INFO "dm-remap: endio still waiting for more copies\n");
 	}
 }
+
+#endif  /* End of disabled metadata completion handler */
 
 /**
  * dm_remap_init_async_context - Initialize async metadata context

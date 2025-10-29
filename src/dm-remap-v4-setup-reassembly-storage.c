@@ -381,9 +381,9 @@ int dm_remap_v4_read_metadata_validated(
 }
 
 /*
- * Store metadata on all devices in a setup
+ * Store metadata on all devices in setup
  */
-static int dm_remap_v4_store_metadata_on_setup(
+static int __maybe_unused dm_remap_v4_store_metadata_on_setup(
     const struct dm_remap_v4_setup_metadata *metadata)
 {
     int result;
@@ -440,6 +440,12 @@ static int dm_remap_v4_store_metadata_on_setup(
     
     return successful_stores == total_devices ? DM_REMAP_V4_REASSEMBLY_SUCCESS : -ECOMM;
 }
+
+/* FUTURE: Storage management infrastructure disabled in current build
+ * These functions are not currently used and may be re-enabled for
+ * future metadata management features. Wrapped in #if 0 to eliminate warnings.
+ */
+#if 0
 
 /*
  * Update metadata on existing setup
@@ -588,3 +594,4 @@ static int dm_remap_v4_clean_metadata_from_device(const char *device_path)
     
     return DM_REMAP_V4_REASSEMBLY_SUCCESS;
 }
+#endif  /* End of disabled storage infrastructure */
