@@ -67,4 +67,4 @@ show-packaging:
 	@echo "Documentation: docs/development/PACKAGING.md"
 	@echo "==========================================="
 
-.PHONY: all clean install deb deb-clean rpm rpm-clean packages packages-clean show-packaging.PHONY: all clean install
+.PHONY: all clean install deb deb-clean rpm rpm-clean packages packages-clean show-packaging
