@@ -1,0 +1,42 @@
+#!/usr/bin/make -f
+
+export DH_VERBOSE = 1
+
+%:
+	dh $@
+
+override_dh_auto_build:
+	make -C src KDIR=/lib/modules/$$(uname -r)/build
+
+override_dh_auto_install:
+	# Install kernel module
+	mkdir -p debian/dm-remap/lib/modules/$$(uname -r)/extra
+	install -D -m 0644 src/dm-remap.ko debian/dm-remap/lib/modules/$$(uname -r)/extra/
+	install -D -m 0644 src/dm-remap-test.ko debian/dm-remap/lib/modules/$$(uname -r)/extra/
+	
+	# Install documentation
+	mkdir -p debian/dm-remap-doc/usr/share/doc/dm-remap
+	install -D -m 0644 README.md debian/dm-remap-doc/usr/share/doc/dm-remap/
+	install -D -m 0644 LICENSE debian/dm-remap-doc/usr/share/doc/dm-remap/
+	cp -r docs/* debian/dm-remap-doc/usr/share/doc/dm-remap/
+	
+	# Install depmod configuration
+	mkdir -p debian/dm-remap/etc/depmod.d
+	echo "extra dm-remap" > debian/dm-remap/etc/depmod.d/dm-remap.conf
+
+override_dh_auto_test:
+	# Run validation tests if available
+	if [ -f tests/validate_hash_resize.sh ]; then \
+		bash tests/validate_hash_resize.sh; \
+	fi
+
+override_dh_strip:
+	# Keep debug symbols for kernel modules
+	dh_strip --exclude=dm-remap
+
+override_dh_usrlocal:
+	# Skip this step for kernel modules
+
+clean:
+	make -C src clean
+	dh_clean

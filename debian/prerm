@@ -1,0 +1,23 @@
+#!/usr/bin/env bash
+
+set -e
+
+# Pre-removal: Unload module if loaded
+if [ "$1" = "remove" ]; then
+    echo "Checking for active dm-remap devices..."
+    
+    # Check if any dm-remap devices exist
+    if dmsetup ls 2>/dev/null | grep -q remap; then
+        echo "WARNING: Active dm-remap devices found!"
+        echo "You should remove dm-remap devices before uninstalling:"
+        echo "  sudo dmsetup remove <device-name>"
+        echo ""
+    fi
+    
+    # Try to unload module if not in use
+    if lsmod 2>/dev/null | grep -q dm_remap; then
+        echo "Attempting to unload dm-remap module..."
+        modprobe -r dm_remap 2>/dev/null || \
+            echo "Note: Module could not be unloaded (may be in use)"
+    fi
+fi

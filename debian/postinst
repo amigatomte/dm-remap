@@ -1,0 +1,17 @@
+#!/usr/bin/env bash
+
+set -e
+
+# Post-install: Update module dependencies
+if [ "$1" = "configure" ]; then
+    echo "Updating kernel module dependencies..."
+    depmod -a || true
+    
+    echo "dm-remap kernel module installed successfully"
+    echo ""
+    echo "To load the module, run:"
+    echo "  sudo modprobe dm_remap"
+    echo ""
+    echo "For more information, visit:"
+    echo "  /usr/share/doc/dm-remap/"
+fi
