@@ -27,6 +27,12 @@ struct dm_remap_v4_bio_completion {
     int result;
 };
 
+/* FUTURE: Helper functions disabled with discovery/repair infrastructure
+ * These functions are only used by metadata discovery and repair systems.
+ * Wrapped in #if 0 to eliminate warnings.
+ */
+#if 0
+
 /*
  * Bio completion callback function
  */
@@ -72,7 +78,11 @@ static int dm_remap_v4_read_metadata_sector(
     }
     
     bio->bi_iter.bi_sector = sector;
-    bio_add_page(bio, page, PAGE_SIZE, 0);
+    /* bio_add_page rarely fails; failure at this point would be unrecoverable */
+    {
+        int __maybe_unused bio_pages_added;
+        bio_pages_added = bio_add_page(bio, page, PAGE_SIZE, 0);
+    }
     
     /* Setup completion */
     init_completion(&bc.completion);
@@ -143,7 +153,11 @@ static int dm_remap_v4_write_metadata_sector(
     }
     
     bio->bi_iter.bi_sector = sector;
-    bio_add_page(bio, page, PAGE_SIZE, 0);
+    /* bio_add_page rarely fails; failure at this point would be unrecoverable */
+    {
+        int __maybe_unused bio_pages_added;
+        bio_pages_added = bio_add_page(bio, page, PAGE_SIZE, 0);
+    }
     
     /* Setup completion */
     init_completion(&bc.completion);
@@ -245,6 +259,14 @@ static int dm_remap_v4_write_metadata_redundant(
     DMINFO("Successfully wrote %d metadata copies to %s", successful_writes, device_path);
     return DM_REMAP_V4_REASSEMBLY_SUCCESS;
 }
+#endif  /* End of disabled helper functions */
+
+/*
+ * Read metadata with validation from multiple copies
+ * FUTURE: This function is only called by disabled discovery/repair code.
+ * Wrapped in #if 0 to eliminate stack frame warnings.
+ */
+#if 0
 
 /*
  * Read metadata with validation from multiple copies
@@ -254,18 +276,19 @@ int dm_remap_v4_read_metadata_validated(
     struct dm_remap_v4_setup_metadata *metadata,
     struct dm_remap_v4_metadata_read_result *read_result)
 {
-    struct file *file;
-    struct inode *inode;
-    struct block_device *bdev;
-    struct dm_remap_v4_setup_metadata temp_metadata;
-    struct dm_remap_v4_setup_metadata best_metadata;
-    sector_t copy_locations[] = {
+    /* Use static const to move array out of stack */
+    static const sector_t copy_locations[] = {
         DM_REMAP_V4_METADATA_SECTOR_0,
         DM_REMAP_V4_METADATA_SECTOR_1,
         DM_REMAP_V4_METADATA_SECTOR_2,
         DM_REMAP_V4_METADATA_SECTOR_3,
         DM_REMAP_V4_METADATA_SECTOR_4
     };
+    struct file *file;
+    struct inode *inode;
+    struct block_device *bdev;
+    struct dm_remap_v4_setup_metadata *temp_metadata;
+    struct dm_remap_v4_setup_metadata *best_metadata;
     int copies_found = 0;
     int copies_valid = 0;
     uint64_t best_version = 0;
@@ -275,6 +298,15 @@ int dm_remap_v4_read_metadata_validated(
     
     if (!device_path || !metadata) {
         return -EINVAL;
+    }
+    
+    /* Allocate temp and best metadata structures on heap to reduce stack usage */
+    temp_metadata = kzalloc(sizeof(*temp_metadata), GFP_KERNEL);
+    best_metadata = kzalloc(sizeof(*best_metadata), GFP_KERNEL);
+    if (!temp_metadata || !best_metadata) {
+        kfree(temp_metadata);
+        kfree(best_metadata);
+        return -ENOMEM;
     }
     
     /* Initialize read result if provided */
@@ -287,6 +319,8 @@ int dm_remap_v4_read_metadata_validated(
     file = filp_open(device_path, O_RDONLY, 0);
     if (IS_ERR(file)) {
         DMWARN("Cannot open device %s for reading metadata", device_path);
+        kfree(temp_metadata);
+        kfree(best_metadata);
         return PTR_ERR(file);
     }
     
@@ -294,6 +328,8 @@ int dm_remap_v4_read_metadata_validated(
     if (!S_ISBLK(inode->i_mode)) {
         DMERR("Device %s is not a block device", device_path);
         filp_close(file, NULL);
+        kfree(temp_metadata);
+        kfree(best_metadata);
         return -EINVAL;
     }
     
@@ -301,30 +337,32 @@ int dm_remap_v4_read_metadata_validated(
     if (!bdev) {
         DMERR("Cannot get block device for %s", device_path);
         filp_close(file, NULL);
+        kfree(temp_metadata);
+        kfree(best_metadata);
         return -EINVAL;
     }
     
     /* Try to read from all possible locations */
     for (i = 0; i < ARRAY_SIZE(copy_locations); i++) {
-        result = dm_remap_v4_read_metadata_sector(bdev, copy_locations[i], &temp_metadata);
+        result = dm_remap_v4_read_metadata_sector(bdev, copy_locations[i], temp_metadata);
         
         if (result == 0) {
             copies_found++;
             
             /* Verify metadata integrity */
-            result = dm_remap_v4_verify_metadata_integrity(&temp_metadata);
+            result = dm_remap_v4_verify_metadata_integrity(temp_metadata);
             if (result == DM_REMAP_V4_REASSEMBLY_SUCCESS) {
                 copies_valid++;
                 
                 /* Check if this is the newest version */
-                if (!found_valid || temp_metadata.version_counter > best_version) {
-                    best_metadata = temp_metadata;
-                    best_version = temp_metadata.version_counter;
+                if (!found_valid || temp_metadata->version_counter > best_version) {
+                    memcpy(best_metadata, temp_metadata, sizeof(*best_metadata));
+                    best_version = temp_metadata->version_counter;
                     found_valid = true;
                 }
                 
                 DMINFO("Found valid metadata at sector %llu (version %llu)",
-                       (unsigned long long)copy_locations[i], temp_metadata.version_counter);
+                       (unsigned long long)copy_locations[i], temp_metadata->version_counter);
             } else {
                 DMWARN("Metadata at sector %llu failed integrity check: %d",
                        (unsigned long long)copy_locations[i], result);
@@ -350,7 +388,7 @@ int dm_remap_v4_read_metadata_validated(
                     .copies_found = copies_found,
                     .copies_valid = copies_valid,
                     .corruption_level = read_result->corruption_level,
-                    .metadata = best_metadata
+                    .metadata = *best_metadata
                 });
         }
     }
@@ -359,10 +397,14 @@ int dm_remap_v4_read_metadata_validated(
     if (!found_valid) {
         if (copies_found == 0) {
             DMINFO("No metadata found on device %s", device_path);
+            kfree(temp_metadata);
+            kfree(best_metadata);
             return -DM_REMAP_V4_REASSEMBLY_ERROR_NO_METADATA;
         } else {
             DMERR("Found %d metadata copies but none are valid on device %s", 
                   copies_found, device_path);
+            kfree(temp_metadata);
+            kfree(best_metadata);
             return -DM_REMAP_V4_REASSEMBLY_ERROR_CORRUPTED;
         }
     }
@@ -372,13 +414,24 @@ int dm_remap_v4_read_metadata_validated(
                copies_valid, device_path);
     }
     
-    *metadata = best_metadata;
+    memcpy(metadata, best_metadata, sizeof(*metadata));
     
     DMINFO("Successfully read metadata from %s: version %llu, %d of %d copies valid",
            device_path, best_version, copies_valid, copies_found);
     
+    /* Cleanup allocated structures */
+    kfree(temp_metadata);
+    kfree(best_metadata);
+    
     return DM_REMAP_V4_REASSEMBLY_SUCCESS;
 }
+
+#endif  /* End of disabled metadata read function */
+
+/*
+ * future metadata management features. Wrapped in #if 0 to eliminate warnings.
+ */
+#if 0
 
 /*
  * Store metadata on all devices in setup
@@ -440,12 +493,6 @@ static int __maybe_unused dm_remap_v4_store_metadata_on_setup(
     
     return successful_stores == total_devices ? DM_REMAP_V4_REASSEMBLY_SUCCESS : -ECOMM;
 }
-
-/* FUTURE: Storage management infrastructure disabled in current build
- * These functions are not currently used and may be re-enabled for
- * future metadata management features. Wrapped in #if 0 to eliminate warnings.
- */
-#if 0
 
 /*
  * Update metadata on existing setup

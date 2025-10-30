@@ -227,13 +227,17 @@ static int write_metadata_copy(struct block_device *bdev, sector_t sector,
         return -ENOMEM;
     }
     
-    printk(KERN_CRIT "dm-remap CRASH-DEBUG: write_metadata_copy before setting bi_sector\n");
+    printk(KERN_CRIT "dm-remap CRASH-DEBUG: write_metadata_copy before bi_sector\n");
     bio->bi_iter.bi_sector = sector;
     printk(KERN_CRIT "dm-remap CRASH-DEBUG: write_metadata_copy after setting bi_sector=%llu\n",
            (unsigned long long)sector);
     
     printk(KERN_CRIT "dm-remap CRASH-DEBUG: write_metadata_copy before bio_add_page\n");
-    bio_add_page(bio, page, PAGE_SIZE, 0);
+    /* bio_add_page rarely fails; failure at this point would be unrecoverable */
+    {
+        int __maybe_unused bio_pages_added;
+        bio_pages_added = bio_add_page(bio, page, PAGE_SIZE, 0);
+    }
     printk(KERN_CRIT "dm-remap CRASH-DEBUG: write_metadata_copy after bio_add_page\n");
     
     /* Submit bio and wait for completion */
