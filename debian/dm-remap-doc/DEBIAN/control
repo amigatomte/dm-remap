@@ -1,0 +1,18 @@
+Package: dm-remap-doc
+Source: dm-remap
+Version: 1.0.0-1
+Architecture: all
+Maintainer: Christian <amigatomte@example.com>
+Installed-Size: 1293
+Suggests: dm-remap-dkms
+Section: doc
+Priority: optional
+Homepage: https://github.com/amigatomte/dm-remap
+Description: Device Mapper Remapping Target - Documentation
+ This package contains comprehensive documentation for dm-remap including:
+ .
+ - User guides and quick start tutorials
+ - Installation and configuration guides
+ - Build system documentation
+ - Architecture and implementation details
+ - API reference and troubleshooting guides

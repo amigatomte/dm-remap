@@ -1,0 +1,171 @@
+# dm-remap v4.0 Enterprise Edition Makefile
+# 
+# Copyright (C) 2025 dm-remap Development Team
+# 
+# This builds the complete v4.0 clean slate architecture with:
+# - Enhanced Metadata Infrastructure (5-copy redundancy)
+# - Background Health Scanning (work queue-based)
+# - Automatic Device Discovery
+# - Comprehensive sysfs Interface
+# - <1% Performance Overhead Target
+
+obj-m := dm-remap-v4.o
+
+# Core v4.0 implementation
+dm-remap-v4-y := dm-remap-v4-core.o \
+                 dm-remap-v4-metadata.o \
+                 dm-remap-v4-health.o \
+                 dm-remap-v4-discovery.o \
+                 dm-remap-v4-sysfs.o
+
+# Build configuration
+KDIR := /lib/modules/$(shell uname -r)/build
+PWD := $(shell pwd)
+
+# Compiler flags for v4.0
+ccflags-y += -DDM_REMAP_VERSION_MAJOR=4
+ccflags-y += -DDM_REMAP_VERSION_MINOR=0
+ccflags-y += -DDM_REMAP_VERSION_PATCH=0
+ccflags-y += -DDM_REMAP_CLEAN_SLATE_ARCHITECTURE
+ccflags-y += -DDEBUG
+ccflags-y += -Wall -Wextra
+ccflags-y += -O2
+
+# Default target
+all: module
+
+# Build the kernel module
+module:
+	$(MAKE) -C $(KDIR) M=$(PWD) modules
+
+# Clean build artifacts
+clean:
+	$(MAKE) -C $(KDIR) M=$(PWD) clean
+	rm -f *.symvers *.order *.mod.c
+
+# Install module (requires root)
+install: module
+	$(MAKE) -C $(KDIR) M=$(PWD) modules_install
+	depmod -a
+
+# Remove module (requires root)
+uninstall:
+	rm -f /lib/modules/$(shell uname -r)/extra/dm-remap-v4.ko
+	depmod -a
+
+# Load module for testing
+load: module
+	sudo insmod dm-remap-v4.ko dm_remap_debug=2 enable_background_scanning=1
+
+# Unload module
+unload:
+	sudo rmmod dm-remap-v4 || true
+
+# Reload module (useful for testing)
+reload: unload load
+
+# Show module information
+info:
+	@echo "dm-remap v4.0 Enterprise Edition"
+	@echo "================================"
+	@echo "Architecture: Clean Slate (no v3.0 compatibility)"
+	@echo "Features: Enhanced Metadata + Background Health Scanning"
+	@echo "Target Overhead: <1%"
+	@echo ""
+	@echo "Components:"
+	@echo "  - dm-remap-v4-core.c      (Main implementation)"
+	@echo "  - dm-remap-v4-metadata.c  (5-copy redundant metadata)"
+	@echo "  - dm-remap-v4-health.c    (Background health scanning)"
+	@echo "  - dm-remap-v4-discovery.c (Automatic device discovery)"
+	@echo "  - dm-remap-v4-sysfs.c     (Comprehensive sysfs interface)"
+	@echo "  - dm-remap-v4.h           (Header definitions)"
+	@echo ""
+	@echo "Usage:"
+	@echo "  make               - Build module"
+	@echo "  make load          - Load module with debugging"
+	@echo "  make unload        - Unload module"
+	@echo "  make reload        - Unload and reload module"
+	@echo "  make install       - Install module system-wide"
+	@echo "  make test          - Run basic functionality tests"
+	@echo "  make clean         - Clean build artifacts"
+
+# Basic functionality test
+test: module
+	@echo "Testing dm-remap v4.0 module..."
+	sudo insmod dm-remap-v4.ko dm_remap_debug=1 || true
+	@echo "Checking module load..."
+	lsmod | grep dm_remap || echo "Module not loaded"
+	@echo "Checking sysfs interface..."
+	test -d /sys/kernel/dm-remap-v4 && echo "Sysfs interface created" || echo "No sysfs interface"
+	@echo "Checking version..."
+	test -f /sys/kernel/dm-remap-v4/config/version_info && cat /sys/kernel/dm-remap-v4/config/version_info || echo "No version info"
+	@echo "Checking discovery..."
+	test -f /sys/kernel/dm-remap-v4/discovery/device_list && echo "Discovery interface available" || echo "No discovery interface"
+	sudo rmmod dm-remap-v4 || true
+	@echo "Test complete."
+
+# Development targets
+debug: ccflags-y += -DDEBUG -g
+debug: module
+
+# Performance optimized build
+release: ccflags-y += -O3 -DNDEBUG
+release: ccflags-y := $(filter-out -DDEBUG,$(ccflags-y))
+release: module
+
+# Create device targets (for testing)
+create-test-devices:
+	@echo "Creating test loop devices..."
+	sudo dd if=/dev/zero of=/tmp/dm-remap-main.img bs=1M count=100 2>/dev/null
+	sudo dd if=/dev/zero of=/tmp/dm-remap-spare.img bs=1M count=100 2>/dev/null
+	sudo losetup /dev/loop10 /tmp/dm-remap-main.img 2>/dev/null || true
+	sudo losetup /dev/loop11 /tmp/dm-remap-spare.img 2>/dev/null || true
+	@echo "Created test devices: /dev/loop10 (main), /dev/loop11 (spare)"
+
+destroy-test-devices:
+	@echo "Destroying test loop devices..."
+	sudo losetup -d /dev/loop10 2>/dev/null || true
+	sudo losetup -d /dev/loop11 2>/dev/null || true
+	sudo rm -f /tmp/dm-remap-main.img /tmp/dm-remap-spare.img
+	@echo "Test devices destroyed."
+
+# Show kernel messages related to dm-remap
+dmesg:
+	dmesg | grep -i dm.remap | tail -20
+
+# Show current module parameters
+params:
+	@echo "Current module parameters:"
+	@test -d /sys/module/dm_remap_v4/parameters && find /sys/module/dm_remap_v4/parameters -type f -exec sh -c 'echo "$$1: $$(cat $$1)"' _ {} \; || echo "Module not loaded"
+
+# Help target
+help:
+	@echo "dm-remap v4.0 Build System"
+	@echo "=========================="
+	@echo ""
+	@echo "Build targets:"
+	@echo "  all/module         - Build the kernel module"
+	@echo "  debug              - Build with debug symbols and verbose logging"
+	@echo "  release            - Build optimized release version"
+	@echo "  clean              - Remove build artifacts"
+	@echo ""
+	@echo "Installation targets:"
+	@echo "  install            - Install module system-wide (requires root)"
+	@echo "  uninstall          - Remove installed module (requires root)"
+	@echo ""
+	@echo "Testing targets:"
+	@echo "  load               - Load module with debug settings"
+	@echo "  unload             - Unload module"
+	@echo "  reload             - Unload and reload module"
+	@echo "  test               - Run basic functionality tests"
+	@echo "  create-test-devices - Create loop devices for testing"
+	@echo "  destroy-test-devices - Remove test loop devices"
+	@echo ""
+	@echo "Monitoring targets:"
+	@echo "  dmesg              - Show recent dm-remap kernel messages"
+	@echo "  params             - Show current module parameters"
+	@echo "  info               - Show module information"
+	@echo ""
+	@echo "For detailed usage information, see README.md"
+
+.PHONY: all module clean install uninstall load unload reload test debug release info help dmesg params create-test-devices destroy-test-devices

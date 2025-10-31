@@ -1,0 +1,292 @@
+# Makefile for dm-remap v4.0 Real Device Integration
+# Advanced build system for production-ready module
+
+# Module information
+MODULE_NAME := dm-remap-v4-real
+VERSION := 4.0.0-real
+BUILD_DATE := $(shell date '+%Y-%m-%d %H:%M:%S')
+
+# Build configuration
+KDIR ?= /lib/modules/$(shell uname -r)/build
+PWD := $(shell pwd)
+
+# Compiler flags for enhanced debugging and optimization
+EXTRA_CFLAGS += -Wall -Wextra -Wstrict-prototypes -Wno-unused-parameter -Wno-sign-compare
+EXTRA_CFLAGS += -I$(PWD)
+EXTRA_CFLAGS += -DDM_REMAP_VERSION=\"$(VERSION)\"
+EXTRA_CFLAGS += -DDM_REMAP_BUILD_DATE=\"$(BUILD_DATE)\"
+
+# Debug build configuration
+ifdef DEBUG
+EXTRA_CFLAGS += -DDEBUG -g -O0
+EXTRA_CFLAGS += -DDM_REMAP_DEBUG_BUILD=1
+else
+EXTRA_CFLAGS += -O2 -fomit-frame-pointer
+EXTRA_CFLAGS += -DDM_REMAP_DEBUG_BUILD=0
+endif
+
+# Real device vs demo mode
+ifdef DEMO_MODE
+EXTRA_CFLAGS += -DDM_REMAP_DEMO_MODE=1
+else
+EXTRA_CFLAGS += -DDM_REMAP_DEMO_MODE=0  
+endif
+
+# Module object - single source file
+obj-m := dm-remap-v4-real.o
+
+# Required header dependencies
+HEADERS := dm-remap-v4-compat.h
+
+# Build targets
+.PHONY: all clean install uninstall load unload reload status test help debug version
+
+all: dm-remap-v4-real.ko
+
+# Standard kernel module build
+dm-remap-v4-real.ko: dm-remap-v4-real.c $(HEADERS)
+	@echo "Building dm-remap v4.0 Real Device Module..."
+	@echo "Version: $(VERSION)"
+	@echo "Build Date: $(BUILD_DATE)"
+	@echo "Kernel: $(shell uname -r)"
+	@echo "Debug Mode: $(if $(DEBUG),enabled,disabled)"
+	@echo "Demo Mode: $(if $(DEMO_MODE),enabled,disabled)"
+	@echo
+	$(MAKE) -C $(KDIR) M=$(PWD) modules
+	@echo
+	@echo "Build completed successfully!"
+	@if [ -f dm-remap-v4-real.ko ]; then \
+		ls -la dm-remap-v4-real.ko; \
+		file dm-remap-v4-real.ko; \
+		modinfo dm-remap-v4-real.ko | head -10; \
+	else \
+		echo "Warning: dm-remap-v4-real.ko not found, checking for alternative names..."; \
+		ls -la *.ko 2>/dev/null || echo "No .ko files found"; \
+	fi
+
+# Debug build
+debug:
+	@echo "Building debug version..."
+	$(MAKE) DEBUG=1 all
+
+# Demo mode build  
+demo:
+	@echo "Building demo mode version..."
+	$(MAKE) DEMO_MODE=1 all
+
+# Clean build artifacts
+clean:
+	@echo "Cleaning build artifacts..."
+	$(MAKE) -C $(KDIR) M=$(PWD) clean
+	rm -f *.markers Module.* modules.order .modules.order.cmd
+	rm -f .*.cmd *.mod *.mod.c *.mod.o
+	@echo "Clean completed."
+
+# Install module to system
+install: $(MODULE_NAME).ko
+	@echo "Installing $(MODULE_NAME).ko..."
+	sudo mkdir -p /lib/modules/$(shell uname -r)/extra/dm-remap/
+	sudo cp $(MODULE_NAME).ko /lib/modules/$(shell uname -r)/extra/dm-remap/
+	sudo depmod -a
+	@echo "Module installed successfully."
+
+# Uninstall module from system
+uninstall:
+	@echo "Uninstalling $(MODULE_NAME)..."
+	sudo rm -f /lib/modules/$(shell uname -r)/extra/dm-remap/$(MODULE_NAME).ko
+	sudo depmod -a
+	@echo "Module uninstalled."
+
+# Load the module
+load: dm-remap-v4-real.ko
+	@echo "Loading $(MODULE_NAME) module..."
+	@if lsmod | grep -q "^dm_remap_v4_real"; then \
+		echo "Module already loaded, reloading..."; \
+		$(MAKE) reload; \
+	else \
+		sudo insmod $(MODULE_NAME).ko; \
+		echo "Module loaded successfully."; \
+		$(MAKE) status; \
+	fi
+
+# Unload the module  
+unload:
+	@echo "Unloading dm-remap-v4-real module..."
+	@if lsmod | grep -q "^dm_remap_v4_real"; then \
+		sudo rmmod dm_remap_v4_real; \
+		echo "Module unloaded successfully."; \
+	else \
+		echo "Module not loaded."; \
+	fi
+
+# Reload the module
+reload:
+	@echo "Reloading module..."
+	@$(MAKE) unload || true
+	@sleep 1
+	@$(MAKE) load
+
+# Show module status
+status:
+	@echo "=== dm-remap v4.0 Real Device Status ==="
+	@echo
+	@echo "Module Status:"
+	@if lsmod | grep -q "^dm_remap_v4_real"; then \
+		echo "✓ Module loaded"; \
+		lsmod | grep "^dm_remap_v4_real"; \
+	else \
+		echo "✗ Module not loaded"; \
+	fi
+	@echo
+	@echo "Device Mapper Targets:"
+	@if [ -f /proc/devices ] && grep -q "device-mapper" /proc/devices; then \
+		echo "✓ Device Mapper subsystem available"; \
+		if [ -d /sys/module/dm_remap_v4_real ]; then \
+			echo "✓ dm-remap-v4-real target available"; \
+			if [ -f /sys/module/dm_remap_v4_real/parameters/dm_remap_debug ]; then \
+				echo "  Debug Level: $$(cat /sys/module/dm_remap_v4_real/parameters/dm_remap_debug 2>/dev/null || echo 'unknown')"; \
+			fi; \
+			if [ -f /sys/module/dm_remap_v4_real/parameters/real_device_mode ]; then \
+				echo "  Real Device Mode: $$(cat /sys/module/dm_remap_v4_real/parameters/real_device_mode 2>/dev/null || echo 'unknown')"; \
+			fi; \
+		else \
+			echo "✗ dm-remap-v4-real target not available"; \
+		fi; \
+	else \
+		echo "✗ Device Mapper subsystem not available"; \
+	fi
+	@echo
+	@echo "Active Devices:"
+	@if command -v dmsetup > /dev/null 2>&1; then \
+		DEVICES=$$(dmsetup ls --target dm-remap-v4 2>/dev/null | wc -l); \
+		echo "  Active dm-remap-v4 devices: $$DEVICES"; \
+		if [ $$DEVICES -gt 0 ]; then \
+			dmsetup ls --target dm-remap-v4 2>/dev/null | sed 's/^/    /'; \
+		fi; \
+	else \
+		echo "  dmsetup not available"; \
+	fi
+	@echo
+	@echo "Kernel Messages (last 10 dm-remap entries):"
+	@dmesg | grep -i "dm.remap" | tail -10 | sed 's/^/  /' 2>/dev/null || echo "  No recent messages"
+
+# Version information
+version:
+	@echo "dm-remap v4.0 Real Device Integration"
+	@echo "Version: $(VERSION)"
+	@echo "Build Date: $(BUILD_DATE)"
+	@echo "Kernel Target: $(shell uname -r)"
+	@if [ -f $(MODULE_NAME).ko ]; then \
+		echo "Module Built: Yes"; \
+		echo "Module Size: $$(stat -c%s $(MODULE_NAME).ko) bytes"; \
+		echo "Module Info:"; \
+		modinfo $(MODULE_NAME).ko | sed 's/^/  /'; \
+	else \
+		echo "Module Built: No"; \
+	fi
+
+# Run comprehensive tests
+test: dm-remap-v4-real.ko
+	@echo "Running dm-remap v4.0 Real Device Tests..."
+	@if [ -f ../tests/dm-remap-v4-real-test.sh ]; then \
+		cd ../tests && bash dm-remap-v4-real-test.sh; \
+	else \
+		echo "Test script not found. Creating basic test..."; \
+		$(MAKE) basic-test; \
+	fi
+
+# Basic functionality test
+basic-test: $(MODULE_NAME).ko
+	@echo "=== Basic dm-remap v4.0 Real Device Test ==="
+	@echo
+	@echo "1. Loading module..."
+	@$(MAKE) load
+	@echo
+	@echo "2. Checking module status..."
+	@$(MAKE) status
+	@echo
+	@echo "3. Testing module parameters..."
+	@if [ -d /sys/module/dm_remap_v4_real/parameters ]; then \
+		echo "Module parameters:"; \
+		for param in /sys/module/dm_remap_v4_real/parameters/*; do \
+			if [ -r "$$param" ]; then \
+				echo "  $$(basename $$param): $$(cat $$param)"; \
+			fi; \
+		done; \
+	fi
+	@echo
+	@echo "4. Basic test completed successfully!"
+	@echo "   Next: Run full test suite or create dm-remap devices"
+
+# Performance test
+perf-test: $(MODULE_NAME).ko
+	@echo "=== Performance Test ==="
+	@$(MAKE) load
+	@echo "Module loaded. Performance metrics available via /sys interface."
+	@echo "Use: watch -n 1 'cat /sys/module/dm_remap_v4_real/parameters/*'"
+
+# Help message
+help:
+	@echo "dm-remap v4.0 Real Device Integration Build System"
+	@echo "Version: $(VERSION)"
+	@echo
+	@echo "Available targets:"
+	@echo "  all          - Build the module (default)"
+	@echo "  debug        - Build with debug symbols and verbose output"
+	@echo "  demo         - Build in demo mode (no real devices)"
+	@echo "  clean        - Remove build artifacts"
+	@echo "  install      - Install module to system"
+	@echo "  uninstall    - Remove module from system"
+	@echo "  load         - Load the module"
+	@echo "  unload       - Unload the module"
+	@echo "  reload       - Reload the module"
+	@echo "  status       - Show module and device status"
+	@echo "  test         - Run comprehensive tests"
+	@echo "  basic-test   - Run basic functionality test"
+	@echo "  perf-test    - Run performance test"
+	@echo "  version      - Show version information"
+	@echo "  help         - Show this help message"
+	@echo
+	@echo "Build options:"
+	@echo "  DEBUG=1      - Enable debug build"
+	@echo "  DEMO_MODE=1  - Enable demo mode"
+	@echo "  KDIR=path    - Set kernel source directory"
+	@echo
+	@echo "Examples:"
+	@echo "  make              # Build release version"
+	@echo "  make debug        # Build debug version"
+	@echo "  make demo         # Build demo mode"
+	@echo "  make load test    # Load and test module"
+	@echo "  make DEBUG=1 all load status  # Debug build, load and check"
+
+# Dependency check
+check-deps:
+	@echo "Checking build dependencies..."
+	@if [ ! -d "$(KDIR)" ]; then \
+		echo "✗ Kernel headers not found at $(KDIR)"; \
+		echo "  Install with: sudo apt install linux-headers-$$(uname -r)"; \
+		exit 1; \
+	else \
+		echo "✓ Kernel headers found at $(KDIR)"; \
+	fi
+	@if [ ! -f "dm-remap-v4-compat.h" ]; then \
+		echo "✗ Required header dm-remap-v4-compat.h not found"; \
+		exit 1; \
+	else \
+		echo "✓ Compatibility header found"; \
+	fi
+	@echo "All dependencies satisfied."
+
+# Show build configuration
+config:
+	@echo "=== Build Configuration ==="
+	@echo "Module Name: $(MODULE_NAME)"
+	@echo "Version: $(VERSION)"
+	@echo "Build Date: $(BUILD_DATE)"
+	@echo "Kernel Directory: $(KDIR)"
+	@echo "Current Directory: $(PWD)"
+	@echo "Debug Mode: $(if $(DEBUG),enabled,disabled)"
+	@echo "Demo Mode: $(if $(DEMO_MODE),enabled,disabled)"
+	@echo "Compiler Flags: $(EXTRA_CFLAGS)"
+	@echo "Target Architecture: $(shell uname -m)"
+	@echo "Target Kernel: $(shell uname -r)"

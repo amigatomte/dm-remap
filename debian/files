@@ -1,0 +1,3 @@
+dm-remap-dkms_1.0.0-1_all.deb kernel optional
+dm-remap-doc_1.0.0-1_all.deb doc optional
+dm-remap_1.0.0-1_amd64.buildinfo kernel optional

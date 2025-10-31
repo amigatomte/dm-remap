@@ -1,0 +1,91 @@
+# dm-remap v4.0 Enterprise Edition Makefile
+# Full enterprise features with kernel API compatibility
+
+obj-m := dm_remap_v4_enterprise.o
+dm_remap_v4_enterprise-y := dm-remap-v4-enterprise.o
+
+KDIR := /lib/modules/$(shell uname -r)/build
+PWD := $(shell pwd)
+
+# Compiler flags
+ccflags-y := -DDMR_V4_ENTERPRISE -Wno-unused-function
+
+all:
+	$(MAKE) -C $(KDIR) M=$(PWD) modules
+
+clean:
+	$(MAKE) -C $(KDIR) M=$(PWD) clean
+	rm -f *.o *.ko *.mod.c *.mod.o .*.cmd Module.symvers modules.order
+
+install: all
+	$(MAKE) -C $(KDIR) M=$(PWD) modules_install
+
+test: all
+	@echo "=== Building dm-remap v4.0 Enterprise Edition ==="
+	@if [ -f dm_remap_v4_enterprise.ko ]; then \
+		echo "✅ v4.0 Enterprise build successful"; \
+		echo "Module: dm_remap_v4_enterprise.ko"; \
+		ls -la dm_remap_v4_enterprise.ko; \
+		echo ""; \
+		echo "To load the module:"; \
+		echo "  sudo insmod dm_remap_v4_enterprise.ko dm_remap_debug=2"; \
+		echo ""; \
+		echo "To check status:"; \
+		echo "  cat /proc/dm-remap-v4"; \
+		echo "  dmesg | tail -20"; \
+	else \
+		echo "❌ v4.0 Enterprise build failed"; \
+		exit 1; \
+	fi
+
+load: all
+	@echo "Loading dm-remap v4.0 Enterprise Edition..."
+	sudo insmod dm_remap_v4_enterprise.ko dm_remap_debug=2 enable_background_scanning=true
+	@echo "Module loaded. Check with: lsmod | grep dm_remap"
+	@echo "Status available at: cat /proc/dm-remap-v4"
+
+unload:
+	@echo "Unloading dm-remap v4.0 Enterprise Edition..."
+	-sudo rmmod dm_remap_v4_enterprise
+	@echo "Module unloaded."
+
+status:
+	@echo "=== dm-remap v4.0 Enterprise Status ==="
+	@if lsmod | grep -q dm_remap_v4_enterprise; then \
+		echo "✅ Module loaded"; \
+		echo ""; \
+		echo "Module information:"; \
+		lsmod | head -1; \
+		lsmod | grep dm_remap_v4_enterprise; \
+		echo ""; \
+		echo "Recent kernel messages:"; \
+		dmesg | grep -i "dm-remap v4.0 enterprise" | tail -10; \
+		echo ""; \
+		if [ -f /proc/dm-remap-v4 ]; then \
+			echo "Enterprise statistics:"; \
+			cat /proc/dm-remap-v4; \
+		fi; \
+	else \
+		echo "❌ Module not loaded"; \
+	fi
+
+help:
+	@echo "dm-remap v4.0 Enterprise Edition Build System"
+	@echo "=============================================="
+	@echo ""
+	@echo "Targets:"
+	@echo "  all      - Build the v4.0 enterprise module"
+	@echo "  clean    - Clean build artifacts"
+	@echo "  test     - Build and show success status"
+	@echo "  load     - Build and load the module"
+	@echo "  unload   - Unload the module"
+	@echo "  status   - Show current module status"
+	@echo "  install  - Install module to system"
+	@echo "  help     - Show this help"
+	@echo ""
+	@echo "Module parameters:"
+	@echo "  dm_remap_debug=N           - Debug level (0-3)"
+	@echo "  enable_background_scanning - Enable health scans (true/false)"
+	@echo "  scan_interval_hours=N      - Health scan interval (1-168)"
+
+.PHONY: all clean test load unload status install help
