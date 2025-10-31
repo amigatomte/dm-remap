@@ -1,12 +1,12 @@
-dm-remap (1.0.0-1) unstable; urgency=high
+dm-remap (1.0.0) plucky; urgency=high
 
-  * Initial release (pre-release v1.0)
+  * Initial release
   * Unlimited remap capacity (4.2+ billion)
   * O(1) lookup performance (~8 microseconds)
   * Dynamic hash table resizing
   * Persistent metadata management
   * Comprehensive testing and validation
-  * Flexible build system (INTEGRATED and MODULAR modes)
+  * DKMS source package for automatic kernel compilation
   * Complete documentation suite
 
- -- Christian <amigatomte@example.com>  Wed, 29 Oct 2025 12:00:00 +0000
+ -- Christian <amigatomte@example.com>  Fri, 31 Oct 2025 12:00:00 +0000

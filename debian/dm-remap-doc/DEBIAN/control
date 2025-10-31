@@ -1,6 +1,6 @@
 Package: dm-remap-doc
 Source: dm-remap
-Version: 1.0.0-1
+Version: 1.0.0
 Architecture: all
 Maintainer: Christian <amigatomte@example.com>
 Installed-Size: 1293

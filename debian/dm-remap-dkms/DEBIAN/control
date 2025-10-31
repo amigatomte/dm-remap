@@ -1,9 +1,9 @@
 Package: dm-remap-dkms
 Source: dm-remap
-Version: 1.0.0-1
+Version: 1.0.0
 Architecture: all
 Maintainer: Christian <amigatomte@example.com>
-Installed-Size: 2261
+Installed-Size: 1694
 Depends: dkms, linux-headers-generic | linux-headers, build-essential, make
 Recommends: linux-headers-generic
 Suggests: dm-remap-doc

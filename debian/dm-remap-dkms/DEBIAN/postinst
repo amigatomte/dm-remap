@@ -1,6 +1,8 @@
-#!/usr/bin/env bash
+#!/bin/bash
 
 set -e
+
+# 
 
 PACKAGE_NAME="dm-remap"
 PACKAGE_VERSION="1.0.0"

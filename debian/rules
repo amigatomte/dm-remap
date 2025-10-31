@@ -28,6 +28,12 @@ override_dh_auto_install:
 	find debian/dm-remap-dkms/usr/src/dm-remap-1.0.0/src -name "*.ko" -delete
 	find debian/dm-remap-dkms/usr/src/dm-remap-1.0.0/src -name "*.mod" -delete
 	find debian/dm-remap-dkms/usr/src/dm-remap-1.0.0/src -name ".*.d" -delete
+	# Remove debug/utility scripts not needed for building
+	rm -f debian/dm-remap-dkms/usr/src/dm-remap-1.0.0/src/dmesg.sh
+	rm -f debian/dm-remap-dkms/usr/src/dm-remap-1.0.0/src/netconsole-setup*.sh
+	rm -f debian/dm-remap-dkms/usr/src/dm-remap-1.0.0/src/rebuild.sh
+	rm -f debian/dm-remap-dkms/usr/src/dm-remap-1.0.0/src/dmesg*.log
+	rm -f debian/dm-remap-dkms/usr/src/dm-remap-1.0.0/src/log.txt
 	
 	cp -r include debian/dm-remap-dkms/usr/src/dm-remap-1.0.0/
 	cp Makefile debian/dm-remap-dkms/usr/src/dm-remap-1.0.0/

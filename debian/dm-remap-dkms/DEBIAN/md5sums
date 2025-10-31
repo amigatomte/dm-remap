@@ -1,4 +1,4 @@
-3ed9771886a5d04bb3adae71d594f576  usr/share/doc/dm-remap-dkms/changelog.Debian.gz
+4b3b899604aa37b91342ad9f3ec756ba  usr/share/doc/dm-remap-dkms/changelog.gz
 b603ae8aaa9f5e124cb8c670aa106dfc  usr/share/doc/dm-remap-dkms/copyright
 b234ee4d69f5fce4486a80fdaf4a4263  usr/src/dm-remap-1.0.0/LICENSE
 309190202f407a8b48d6765e532651eb  usr/src/dm-remap-1.0.0/Makefile
@@ -112,13 +112,5 @@ bc6627a45724edbdec920bd30067be4f  usr/src/dm-remap-1.0.0/src/dm_remap_production
 1253f129437a0f6226f1b94a628b0fa9  usr/src/dm-remap-1.0.0/src/dm_remap_reservation.c
 97ccdeac31cf9fafe99d703f49c46042  usr/src/dm-remap-1.0.0/src/dm_remap_reservation.h
 a5469ae983cf60ba79e25d28ebe1f937  usr/src/dm-remap-1.0.0/src/dm_remap_sysfs.c
-925d234657e74f0246ac99aafd8cf8cf  usr/src/dm-remap-1.0.0/src/dmesg.log
-15c600e58302e9fb9f7e852243f4ac5f  usr/src/dm-remap-1.0.0/src/dmesg.sh
 032fcdf04e32b8320b75011d41d4a9ff  usr/src/dm-remap-1.0.0/src/dmesg.txt
-a38abd8ea37c984bb5e4f42ed45f1320  usr/src/dm-remap-1.0.0/src/dmesg2.log
 25ca09230316f5446c389a96b0dec8e7  usr/src/dm-remap-1.0.0/src/dmr_hotpath_init_test.c
-849194d7383555a313ee00e7e059c3d7  usr/src/dm-remap-1.0.0/src/log.txt
-93a82d7bd96f6ece679cf8f699072ec4  usr/src/dm-remap-1.0.0/src/netconsole-setup.sh
-8d8ffc82947ba3ef9286ed8318e96525  usr/src/dm-remap-1.0.0/src/netconsole-setup2.sh
-61cbb3411b6558dd244ee67f67e1b781  usr/src/dm-remap-1.0.0/src/netconsole-setup3.sh
-b597253b17de8b6e9409643330376bda  usr/src/dm-remap-1.0.0/src/rebuild.sh
