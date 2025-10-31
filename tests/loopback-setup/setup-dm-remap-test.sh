@@ -511,7 +511,7 @@ teardown_loopback() {
 
 read_bad_sectors_from_file() {
     local filename="$1"
-    local -n array=$2
+    local arrayname="$2"
     
     log_info "Reading bad sectors from: $filename"
     
@@ -525,21 +525,31 @@ read_bad_sectors_from_file() {
         line="${line%[[:space:]]*}"
         
         if [[ "$line" =~ ^[0-9]+$ ]]; then
-            array+=("$line")
+            eval "$arrayname+=('$line')"
         else
             log_warn "Invalid sector ID in file: $line"
         fi
     done < "$filename"
     
-    log_info "Loaded ${#array[@]} bad sector IDs"
+    eval "log_info \"Loaded \${#$arrayname[@]} bad sector IDs\""
 }
 
 generate_random_bad_sectors() {
     local count=$1
     local total_sectors=$2
-    local -n array=$3
+    local arrayname=$3
     
     log_info "Generating $count random bad sectors"
+    
+    # For large counts, skip uniqueness check for performance
+    if (( count > 1000 )); then
+        log_info "Large count detected - skipping uniqueness check for performance"
+        for (( i = 0; i < count; i++ )); do
+            local sector=$((RANDOM % total_sectors))
+            eval "$arrayname+=('$sector')"
+        done
+        return
+    fi
     
     local generated=0
     local attempts=0
@@ -548,17 +558,17 @@ generate_random_bad_sectors() {
     while (( generated < count && attempts < max_attempts )); do
         local sector=$((RANDOM % total_sectors))
         
-        # Check if already in list
+        # Check if already in list using eval
         local found=0
-        for existing in "${array[@]}"; do
-            if [[ "$existing" == "$sector" ]]; then
+        eval "for existing in \"\${$arrayname[@]}\"; do
+            if [[ \"\$existing\" == \"$sector\" ]]; then
                 found=1
                 break
             fi
-        done
+        done"
         
         if (( found == 0 )); then
-            array+=("$sector")
+            eval "$arrayname+=('$sector')"
             generated=$((generated + 1))
         fi
         
@@ -573,7 +583,7 @@ generate_random_bad_sectors() {
 generate_percent_bad_sectors() {
     local percent=$1
     local total_sectors=$2
-    local -n array=$3
+    local arrayname=$3
     
     log_info "Generating $percent% bad sectors (from $total_sectors total sectors)"
     
@@ -586,23 +596,23 @@ generate_percent_bad_sectors() {
     fi
     
     log_info "Creating $count bad sectors"
-    generate_random_bad_sectors "$count" "$total_sectors" array
+    generate_random_bad_sectors "$count" "$total_sectors" "$arrayname"
 }
 
 get_bad_sectors() {
-    local -n bad_array=$1
+    local arrayname=$1
     local total_sectors=$2
     
     if [[ -n "$BAD_SECTORS_FILE" ]]; then
-        read_bad_sectors_from_file "$BAD_SECTORS_FILE" bad_array
+        read_bad_sectors_from_file "$BAD_SECTORS_FILE" "$arrayname"
     elif [[ -n "$BAD_SECTORS_COUNT" ]]; then
-        generate_random_bad_sectors "$BAD_SECTORS_COUNT" "$total_sectors" bad_array
+        generate_random_bad_sectors "$BAD_SECTORS_COUNT" "$total_sectors" "$arrayname"
     elif [[ -n "$BAD_SECTORS_PERCENT" ]]; then
-        generate_percent_bad_sectors "$BAD_SECTORS_PERCENT" "$total_sectors" bad_array
+        generate_percent_bad_sectors "$BAD_SECTORS_PERCENT" "$total_sectors" "$arrayname"
     fi
     
-    # Sort for easier processing
-    IFS=$'\n' bad_array=($(sort -n <<<"${bad_array[*]}"))
+    # Note: Sorting is deferred or done at smaller scale due to performance
+    # For large arrays, maintaining sorted order during generation would be more efficient
 }
 
 ###############################################################################
