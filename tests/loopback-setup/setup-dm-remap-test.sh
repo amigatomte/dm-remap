@@ -611,8 +611,9 @@ get_bad_sectors() {
         generate_percent_bad_sectors "$BAD_SECTORS_PERCENT" "$total_sectors" "$arrayname"
     fi
     
-    # Note: Sorting is deferred or done at smaller scale due to performance
-    # For large arrays, maintaining sorted order during generation would be more efficient
+    # Sort the array - for large arrays this is necessary to ensure correct sector ordering
+    # Use printf and sort in a subshell, then reassign
+    eval "$arrayname=($(eval "printf '%s\n' \"\${$arrayname[@]}\"" | sort -n))"
 }
 
 ###############################################################################
@@ -641,16 +642,6 @@ generate_linear_table() {
     local table_entries=()
     
     for bad_sector in "${bad_sectors_ref[@]}"; do
-        # Skip sectors that are out of order (only happens with unsorted input)
-        if (( bad_sector < last_sector )); then
-            continue
-        fi
-        
-        # Skip duplicate sectors
-        if (( bad_sector == last_sector )); then
-            continue
-        fi
-        
         # Add linear chunk before bad sector
         if (( bad_sector > last_sector )); then
             local chunk_size=$((bad_sector - last_sector))
