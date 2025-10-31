@@ -63,6 +63,7 @@ src/.*.cmd
 Module.symvers
 .modules.order.cmd
 .Module.symvers.cmd
+debian/
 
 # Debug binaries
 src/dmmsg
