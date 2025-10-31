@@ -641,8 +641,13 @@ generate_linear_table() {
     local table_entries=()
     
     for bad_sector in "${bad_sectors_ref[@]}"; do
+        # Skip sectors that are out of order (only happens with unsorted input)
         if (( bad_sector < last_sector )); then
-            log_warn "Skipping out-of-order sector: $bad_sector"
+            continue
+        fi
+        
+        # Skip duplicate sectors
+        if (( bad_sector == last_sector )); then
             continue
         fi
         
