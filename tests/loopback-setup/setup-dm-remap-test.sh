@@ -91,7 +91,8 @@ OPTIONS:
                                Examples: 100M, 1G, 512K
   -S, --spare-size SIZE        Spare device size (default: 20M)
   
-  --sparse yes|no              Use sparse files (default: yes)
+  --sparse                     Use sparse files (default: yes)
+  --no-sparse                  Use non-sparse (pre-allocated) files
   
   BAD SECTOR OPTIONS (choose one):
     -f, --bad-sectors-file F   Text file with sector IDs (one per line)
@@ -283,18 +284,12 @@ parse_arguments() {
                 shift 2
                 ;;
             --sparse)
-                case "$2" in
-                    yes|y|1|true)
-                        USE_SPARSE=1
-                        ;;
-                    no|n|0|false)
-                        USE_SPARSE=0
-                        ;;
-                    *)
-                        die "Invalid value for --sparse: $2 (use yes/no)"
-                        ;;
-                esac
-                shift 2
+                USE_SPARSE=1
+                shift
+                ;;
+            --no-sparse)
+                USE_SPARSE=0
+                shift
                 ;;
             -f|--bad-sectors-file)
                 BAD_SECTORS_FILE="$2"
