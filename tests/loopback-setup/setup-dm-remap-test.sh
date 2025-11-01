@@ -715,13 +715,23 @@ create_dm_linear() {
     
     log_info "Creating dm-linear device: /dev/mapper/$DM_LINEAR_NAME"
     
-    if (( DRY_RUN )); then
-        log_debug "DRY RUN: Would create dm-linear with $(generate_linear_table "$loop_device" bad_sectors_array | wc -l) table entries"
-        return
-    fi
-    
     # Generate the table
     local table=$(generate_linear_table "$loop_device" bad_sectors_array)
+    
+    if [[ -n "$OUTPUT_SCRIPT" ]]; then
+        local linear_table_file="${DM_LINEAR_NAME}.table"
+        local linear_table_path="$(dirname "$OUTPUT_SCRIPT")/$linear_table_file"
+        printf '%s\n' "$table" > "$linear_table_path"
+
+        echo "# dm-linear table stored in $linear_table_file" >> "$OUTPUT_SCRIPT"
+        echo "dmsetup create \"$DM_LINEAR_NAME\" $linear_table_file" >> "$OUTPUT_SCRIPT"
+        echo "" >> "$OUTPUT_SCRIPT"
+    fi
+    
+    if (( DRY_RUN )); then
+        log_debug "DRY RUN: Would create dm-linear with $(echo "$table" | wc -l) table entries"
+        return
+    fi
     
     # Create device
     dmsetup create "$DM_LINEAR_NAME" <<< "$table" || {
@@ -738,11 +748,17 @@ create_dm_linear() {
 generate_remap_table() {
     local linear_device="/dev/mapper/$DM_LINEAR_NAME"
     local spare_device="$1"
-    
+    local fallback_sectors="$2"
+
     log_info "Generating dm-remap table configuration"
-    
-    local total_size=$(blockdev --getsz "$linear_device")
-    
+
+    local total_size=""
+    if [[ -b "$linear_device" ]]; then
+        total_size=$(blockdev --getsz "$linear_device")
+    else
+        total_size="$fallback_sectors"
+    fi
+
     # Generate remap target line
     # Format: start size remap main_dev main_start spare_dev spare_start
     echo "0 $total_size remap $linear_device 0 $spare_device 0"
@@ -750,14 +766,28 @@ generate_remap_table() {
 
 create_dm_remap() {
     local spare_device="$1"
+    local total_sectors="$2"
     
     log_info "Creating dm-remap device: /dev/mapper/$DM_REMAP_NAME"
     
+    # Generate table regardless of DRY_RUN so we can capture it in output script
+    local table=$(generate_remap_table "$spare_device" "$total_sectors")
+
+    if [[ -n "$OUTPUT_SCRIPT" ]]; then
+        local remap_table_file="${DM_REMAP_NAME}.table"
+        local remap_table_path="$(dirname "$OUTPUT_SCRIPT")/$remap_table_file"
+        printf '%s\n' "$table" > "$remap_table_path"
+
+        echo "# dm-remap table stored in $remap_table_file" >> "$OUTPUT_SCRIPT"
+        echo "dmsetup create \"$DM_REMAP_NAME\" $remap_table_file" >> "$OUTPUT_SCRIPT"
+        echo "" >> "$OUTPUT_SCRIPT"
+    fi
+
     if (( DRY_RUN )); then
         log_debug "DRY RUN: Would create dm-remap device"
         return
     fi
-    
+
     # Check if dm-remap module is loaded
     if ! grep -q "^dm_remap " /proc/modules 2>/dev/null; then
         log_info "Loading dm-remap module..."
@@ -765,13 +795,11 @@ create_dm_remap() {
             log_warn "Failed to load dm-remap module (might not be installed)"
         }
     fi
-    
-    local table=$(generate_remap_table "$spare_device")
-    
+
     dmsetup create "$DM_REMAP_NAME" <<< "$table" || {
         die "Failed to create dm-remap device"
     }
-    
+
     log_info "Created dm-remap device"
 }
 
@@ -857,6 +885,9 @@ main() {
 
 set -euo pipefail
 
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+cd "$SCRIPT_DIR"
+
 EOF
         log_info "Writing commands to: $OUTPUT_SCRIPT"
     fi
@@ -938,9 +969,8 @@ EOF
     
     # Add note to output script
     if [[ -n "$OUTPUT_SCRIPT" ]]; then
-        echo "# Note: dm-linear and dm-remap device creation requires complex table generation." >> "$OUTPUT_SCRIPT"
-        echo "# The basic setup (images and loopback) is captured above." >> "$OUTPUT_SCRIPT"
-        echo "# For the complete setup, use the original script directly or re-run with --output-script." >> "$OUTPUT_SCRIPT"
+        echo "# dmsetup tables will be written to ${DM_LINEAR_NAME}.table and ${DM_REMAP_NAME}.table" >> "$OUTPUT_SCRIPT"
+        echo "# Review or modify those files before running the commands below if needed." >> "$OUTPUT_SCRIPT"
         echo "" >> "$OUTPUT_SCRIPT"
     fi
     
@@ -948,7 +978,7 @@ EOF
     create_dm_linear "$MAIN_LOOP" bad_sectors
     
     # Create dm-remap device
-    create_dm_remap "$SPARE_LOOP"
+    create_dm_remap "$SPARE_LOOP" "$total_sectors"
     
     # Print summary
     log_info "=========================================="
@@ -956,6 +986,8 @@ EOF
     log_info "=========================================="
     
     if [[ -n "$OUTPUT_SCRIPT" ]]; then
+        local table_dir
+        table_dir=$(dirname "$OUTPUT_SCRIPT")
         if (( DRY_RUN )); then
             log_info "Output script prepared: $OUTPUT_SCRIPT"
             log_info "To use it, run: sudo bash $OUTPUT_SCRIPT"
@@ -963,6 +995,7 @@ EOF
             log_info "Output script written: $OUTPUT_SCRIPT"
             log_info "Review and execute later with: sudo bash $OUTPUT_SCRIPT"
         fi
+        log_info "Table files: $table_dir/${DM_LINEAR_NAME}.table and $table_dir/${DM_REMAP_NAME}.table"
     fi
     
     if ! (( DRY_RUN )); then
