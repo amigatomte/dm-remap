@@ -681,28 +681,51 @@ generate_linear_table() {
         total_size=$(blockdev --getsz "$loop_device")
     fi
     
-    local last_sector=0
+    local current_pos=0
     
     # Create table entries for linear and error targets
+    # Coalesce consecutive bad sectors into ranges to avoid dmsetup limits
     local table_entries=()
+    local error_start=""
+    local error_end=""
     
     for bad_sector in "${bad_sectors_ref[@]}"; do
-        # Add linear chunk before bad sector
-        if (( bad_sector > last_sector )); then
-            local chunk_size=$((bad_sector - last_sector))
-            table_entries+=("$last_sector $chunk_size linear $loop_device $last_sector")
+        # Check if this bad sector is consecutive to the previous error range
+        if [[ -n "$error_start" ]] && (( bad_sector == error_end + 1 )); then
+            # Extend current error range
+            error_end=$bad_sector
+        else
+            # Flush previous error range if any
+            if [[ -n "$error_start" ]]; then
+                local error_size=$((error_end - error_start + 1))
+                table_entries+=("$error_start $error_size error")
+                current_pos=$((error_end + 1))
+            fi
+            
+            # Add linear chunk before this bad sector if needed
+            if (( bad_sector > current_pos )); then
+                local chunk_size=$((bad_sector - current_pos))
+                table_entries+=("$current_pos $chunk_size linear $loop_device $current_pos")
+                current_pos=$bad_sector
+            fi
+            
+            # Start new error range
+            error_start=$bad_sector
+            error_end=$bad_sector
         fi
-        
-        # Add error chunk for bad sector
-        table_entries+=("$bad_sector 1 error")
-        
-        last_sector=$((bad_sector + 1))
     done
     
+    # Flush final error range if any
+    if [[ -n "$error_start" ]]; then
+        local error_size=$((error_end - error_start + 1))
+        table_entries+=("$error_start $error_size error")
+        current_pos=$((error_end + 1))
+    fi
+    
     # Add linear chunk for remainder
-    if (( last_sector < total_size )); then
-        local chunk_size=$((total_size - last_sector))
-        table_entries+=("$last_sector $chunk_size linear $loop_device $last_sector")
+    if (( current_pos < total_size )); then
+        local chunk_size=$((total_size - current_pos))
+        table_entries+=("$current_pos $chunk_size linear $loop_device $current_pos")
     fi
     
     printf '%s\n' "${table_entries[@]}"
@@ -714,6 +737,10 @@ create_dm_linear() {
     local -n bad_sectors_array=$1
     
     log_info "Creating dm-linear device: /dev/mapper/$DM_LINEAR_NAME"
+    
+    # Deduplicate and sort bad sectors to avoid table conflicts
+    local sorted_unique=($(printf '%s\n' "${bad_sectors_array[@]}" | sort -n -u))
+    bad_sectors_array=("${sorted_unique[@]}")
     
     # Generate the table
     local table=$(generate_linear_table "$loop_device" bad_sectors_array)
@@ -759,9 +786,10 @@ generate_remap_table() {
         total_size="$fallback_sectors"
     fi
 
-    # Generate remap target line
-    # Format: start size remap main_dev main_start spare_dev spare_start
-    echo "0 $total_size remap $linear_device 0 $spare_device 0"
+    # Generate remap target line using dm-remap-v4 target
+    # Format: start size dm-remap-v4 main_device spare_device
+    # (Note: dm-remap-v4 handles internal offset mapping, not part of table)
+    echo "0 $total_size dm-remap-v4 $linear_device $spare_device"
 }
 
 create_dm_remap() {
