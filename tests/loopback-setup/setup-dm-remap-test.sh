@@ -835,6 +835,12 @@ cleanup_files() {
 ###############################################################################
 
 main() {
+    # Show help if no arguments provided
+    if (( $# == 0 )); then
+        print_usage
+        exit 0
+    fi
+    
     parse_arguments "$@"
     
     # Initialize output script file
