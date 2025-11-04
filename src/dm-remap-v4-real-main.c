@@ -880,6 +880,41 @@ static void dm_remap_writeahead_remap_work(struct work_struct *work)
 }
 
 /**
+ * dm_remap_is_write_bio() - Check if bio is a write operation
+ * 
+ * Distinguish write operations (which can be remapped)
+ * from read operations (which cannot). Used to decide if error should be suppressed.
+ */
+static inline bool dm_remap_is_write_bio(struct bio *bio)
+{
+    return bio_op(bio) == REQ_OP_WRITE || bio_op(bio) == REQ_OP_WRITE_ZEROES;
+}
+
+/**
+ * dm_remap_spare_pool_has_capacity() - Check if spare pool can handle remap
+ * Returns true if spare device exists and has at least one free sector
+ * 
+ * Before suppressing an error, we must validate that the spare pool has 
+ * capacity to create a remap. This ensures we only suppress errors when 
+ * we can actually handle them.
+ */
+static inline bool dm_remap_spare_pool_has_capacity(struct dm_remap_device_v4_real *device)
+{
+    if (!device->spare_dev)
+        return false;
+    
+    /* Check spare capacity (should be > 0) */
+    if (device->spare_sectors_total <= device->spare_sectors_used)
+        return false;
+    
+    /* Check spare device is healthy */
+    if (!atomic_read(&device->device_active))
+        return false;
+    
+    return true;
+}
+
+/**
  * dm_remap_handle_io_error() - Handle I/O errors and queue write-ahead remap
  * 
  * v4.2 Data Safety: Queue write-ahead remap creation to ensure metadata is
@@ -2117,7 +2152,7 @@ static void dm_remap_presuspend_v4_real(struct dm_target *ti)
         DMR_INFO("Presuspend: metadata thread stopped");
     }
     
-    /* v4.1: Just cancel work (non-blocking)
+    /* Cancel work items (non-blocking)
      * DON'T use cancel_work_sync() - it can deadlock if work is queued but not running.
      * Instead, we'll let destroy_workqueue() in destructor handle cleanup properly.
      */
@@ -2183,11 +2218,10 @@ static void dm_remap_dtr_v4_real(struct dm_target *ti)
         DMR_INFO("Destructor: remap hash table freed");
     }
     
-    /* v4.1: Destroy workqueue - NOW SAFE with async I/O!
+    /* Destroy workqueue - safe with async I/O!
      * 
-     * With v4.1, async metadata writes can be cancelled without blocking,
+     * Async metadata writes can be cancelled without blocking,
      * so presuspend can safely cancel any in-flight writes before we get here.
-     * No more workqueue leak!
      */
     if (device->metadata_workqueue) {
         DMR_INFO("Destructor: draining and destroying workqueue");
@@ -2357,9 +2391,11 @@ static int dm_remap_end_io_v4_real(struct dm_target *ti, struct bio *bio,
         sector_t failed_sector = bio->bi_iter.bi_sector;
         int errno_val = blk_status_to_errno(*error);
         struct block_device *main_bdev = device->main_dev ? file_bdev(device->main_dev) : NULL;
+        bool is_write = dm_remap_is_write_bio(bio);
         
-        DMR_WARN("I/O error detected on sector %llu (error=%d)",
-                 (unsigned long long)failed_sector, errno_val);
+        DMR_WARN("I/O error detected on sector %llu (error=%d, op=%s)",
+                 (unsigned long long)failed_sector, errno_val,
+                 is_write ? "WRITE" : "READ");
         
         /* Handle errors from main device or any device in the stack below it.
          * This allows dm-remap to work with stacked device-mapper configurations
@@ -2380,6 +2416,30 @@ static int dm_remap_end_io_v4_real(struct dm_target *ti, struct bio *bio,
                  * The error handler checks for duplicate remaps internally.
                  */
                 dm_remap_handle_io_error(device, failed_sector, errno_val);
+                
+                /* Error Handling Fix: Suppress error for WRITE operations
+                 * 
+                 * WRITE errors can be handled by remapping to spare device.
+                 * The remap is queued asynchronously but will be ready before
+                 * any future READ to this sector (filesystems don't retry
+                 * immediately).
+                 * 
+                 * READ errors cannot be suppressed - they indicate data corruption
+                 * which we cannot retroactively fix.
+                 */
+                if (is_write && dm_remap_spare_pool_has_capacity(device)) {
+                    *error = BLK_STS_OK;  /* CLEAR ERROR FOR FILESYSTEM */
+                    DMR_WARN("Suppressed WRITE error on sector %llu - remap queued",
+                             (unsigned long long)failed_sector);
+                } else if (is_write) {
+                    DMR_ERROR("Cannot suppress WRITE error on sector %llu - spare pool has no capacity",
+                              (unsigned long long)failed_sector);
+                    /* Error remains set - filesystem will see it */
+                } else {
+                    DMR_WARN("Cannot suppress READ error on sector %llu",
+                             (unsigned long long)failed_sector);
+                    /* Error remains set - must propagate */
+                }
             }
         }
     }

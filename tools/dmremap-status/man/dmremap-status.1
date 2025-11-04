@@ -1,0 +1,356 @@
+.TH DMREMAP-STATUS 1 "November 2025" "dmremap-status 1.0.0" "User Commands"
+.SH NAME
+dmremap-status \- Display formatted dm-remap device status
+.SH SYNOPSIS
+.B dmremap-status
+[\fIOPTIONS\fR]
+[\fIDEVICE_NAME\fR]
+.SH DESCRIPTION
+.B dmremap-status
+reads the status information from a dm-remap device and displays it in human-readable,
+machine-parseable, or other formats. It provides interpretation of the 31-field kernel
+status output, including performance ratings, health scores, and cache statistics.
+
+The tool can operate in several modes:
+.IP \(bu 2
+Human-readable formatted output with color indicators
+.IP \(bu 2
+JSON output for scripting and automation
+.IP \(bu 2
+CSV output for logging and analysis
+.IP \(bu 2
+Watch mode for continuous monitoring
+.IP \(bu 2
+Raw kernel output passthrough
+
+.SH OPTIONS
+.TP
+.B \-f, \-\-format FORMAT
+Set output format. Available formats:
+.RS 7
+.IP \(bu 2
+\fBhuman\fR: Pretty-printed with colors and indicators (default)
+.IP \(bu 2
+\fBjson\fR: JSON format suitable for scripts and tools
+.IP \(bu 2
+\fBcsv\fR: Comma-separated values with header
+.IP \(bu 2
+\fBraw\fR: Raw kernel status output
+.IP \(bu 2
+\fBcompact\fR: Single-line summary
+.RE
+.TP
+.B \-i, \-\-input FILE
+Read status from a file instead of querying dmsetup. Useful for offline analysis
+or testing without a kernel module loaded.
+.TP
+.B \-w, \-\-watch INTERVAL
+Enable watch mode: refresh output every INTERVAL seconds. Requires sudo for dmsetup
+access. Useful for real-time monitoring.
+.TP
+.B \-n, \-\-no-color
+Disable colored output. Useful when piping to files or non-terminal output.
+.TP
+.B \-h, \-\-help
+Display help message and exit.
+.TP
+.B \-v, \-\-version
+Display version information and exit.
+
+.SH USAGE EXAMPLES
+
+.TP
+.B Display status with human-readable formatting (default)
+.PP
+.nf
+.RS
+$ sudo dmremap-status dm-test-remap
+┌───────────────────────────────────────────────────────────────────┐
+│                    dm-remap Status                               │
+├───────────────────────────────────────────────────────────────────┤
+│  Device Version        : v4.0-phase1.4
+│  Device Size           : 2.0 GB (4194304 sectors)
+...
+.RE
+.fi
+
+.TP
+.B Get JSON output for scripting
+.PP
+.nf
+.RS
+$ sudo dmremap-status dm-test-remap --format json | jq '.health'
+{
+  "score": 100,
+  "status": "EXCELLENT",
+  "hotspots": 0,
+  "health_scans": 0
+}
+.RE
+.fi
+
+.TP
+.B Monitor device in real-time (2 second refresh)
+.PP
+.nf
+.RS
+$ sudo dmremap-status dm-test-remap --watch 2
+.RE
+.fi
+
+.TP
+.B Export status to CSV for analysis
+.PP
+.nf
+.RS
+$ sudo dmremap-status dm-test-remap --format csv >> status_history.csv
+.RE
+.fi
+
+.TP
+.B Analyze saved status offline
+.PP
+.nf
+.RS
+$ dmremap-status --input status_snapshot.txt --format json
+.RE
+.fi
+
+.TP
+.B Get compact status summary
+.PP
+.nf
+.RS
+$ sudo dmremap-status dm-test-remap --format compact
+v4.0-phase1.4: health=100% latency=7.3μs throughput=758MB/s cache=66% errors=0 hotspots=0
+.RE
+.fi
+
+.SH OUTPUT FIELDS
+
+The human-readable output contains the following sections:
+
+.TP
+.B Device Information
+Basic device configuration including version, size, and device paths.
+
+.TP
+.B PERFORMANCE
+Performance metrics including:
+.RS 7
+.IP \(bu 2
+\fBAvg Latency\fR: Average I/O operation latency in microseconds
+.IP \(bu 2
+\fBThroughput\fR: I/O throughput in MB/s
+.IP \(bu 2
+\fBI/O Operations\fR: Number of completed operations
+.RE
+
+.TP
+.B HEALTH
+Device health information:
+.RS 7
+.IP \(bu 2
+\fBHealth Score\fR: 0-100 scale (100 = perfect)
+.IP \(bu 2
+\fBOperational State\fR: "operational" or "maintenance"
+.IP \(bu 2
+\fBErrors\fR: Total I/O errors since module load
+.IP \(bu 2
+\fBHotspots\fR: Sectors with abnormally high remap rate
+.RE
+
+.TP
+.B REMAPPING
+Information about sector remapping:
+.RS 7
+.IP \(bu 2
+\fBActive Remaps\fR: Number of currently active remap entries
+.IP \(bu 2
+\fBRemapped I/O\fR: Percentage of I/O operations to remapped sectors
+.IP \(bu 2
+\fBRemapped Sectors\fR: Total number of remapped sectors
+.IP \(bu 2
+\fBTotal I/O\fR: Count of read and write operations
+.RE
+
+.TP
+.B CACHE PERFORMANCE
+Remap cache statistics:
+.RS 7
+.IP \(bu 2
+\fBCache Hit Rate\fR: Percentage of remap lookups found in cache
+.IP \(bu 2
+\fBFast Path Hits\fR: O(1) direct hash table hits
+.IP \(bu 2
+\fBSlow Path Hits\fR: Fallback lookup hits
+.RE
+
+.SH OUTPUT INTERPRETATION
+
+The tool provides color-coded indicators and rating strings:
+
+.TP
+.B Health Score Colors
+.RS 7
+.IP \(bu 2
+Green (>=95): EXCELLENT
+.IP \(bu 2
+Green (>=80): GOOD
+.IP \(bu 2
+Yellow (>=60): FAIR
+.IP \(bu 2
+Red (>=40): POOR
+.IP \(bu 2
+Red (<40): CRITICAL
+.RE
+
+.TP
+.B Latency Ratings
+.RS 7
+.IP \(bu 2
+<10 μs: EXCELLENT (optimal O(1) performance)
+.IP \(bu 2
+<50 μs: GOOD
+.IP \(bu 2
+<100 μs: FAIR
+.IP \(bu 2
+<1 ms: POOR
+.IP \(bu 2
+>=1 ms: CRITICAL
+.RE
+
+.TP
+.B Cache Hit Rate Ratings
+.RS 7
+.IP \(bu 2
+>=80%: EXCELLENT
+.IP \(bu 2
+>=60%: GOOD
+.IP \(bu 2
+>=40%: FAIR
+.IP \(bu 2
+>=20%: POOR
+.IP \(bu 2
+<20%: CRITICAL
+.RE
+
+.SH JSON OUTPUT FORMAT
+
+The JSON output includes comprehensive device status in a structured format suitable
+for automation:
+
+.nf
+{
+  "timestamp": "2025-11-04T10:23:45Z",
+  "device": {
+    "version": "v4.0-phase1.4",
+    "target": "dm-remap-v4",
+    "size_sectors": 4194304,
+    "size_gb": 2.0,
+    "sector_size": 512
+  },
+  "performance": {
+    "io_ops_completed": 6,
+    "avg_latency_ns": 7299,
+    "avg_latency_us": 7.30,
+    "throughput_bps": 758518518,
+    "throughput_mbps": 758.00
+  },
+  ...
+}
+.fi
+
+See STATUS_OUTPUT.md for complete field documentation.
+
+.SH CSV OUTPUT FORMAT
+
+The CSV output includes timestamp and all critical metrics on a single line:
+
+.nf
+# timestamp,device,version,size_gb,health_score,...
+2025-11-04T10:23:45Z,/dev/mapper/dm-test-linear,v4.0-phase1.4,2.0,100,...
+.fi
+
+This format is suitable for importing into spreadsheets or time-series databases.
+
+.SH WATCH MODE
+
+In watch mode, the output refreshes at the specified interval:
+
+.PP
+.nf
+$ sudo dmremap-status dm-test-remap --watch 1
+.fi
+
+Press Ctrl-C to exit. The display updates automatically without user interaction.
+
+.SH REQUIREMENTS
+
+.IP \(bu 2
+\fBFor live queries\fR: dm-remap kernel module loaded, dmsetup utility, and sudo access
+.IP \(bu 2
+\fBFor file analysis\fR: None (standalone operation)
+
+.SH FILES
+
+Status dumps can be created with:
+
+.PP
+.nf
+$ sudo dmsetup status dm-test-remap > status_snapshot.txt
+.fi
+
+Then analyzed offline with:
+
+.PP
+.nf
+$ dmremap-status --input status_snapshot.txt --format json
+.fi
+
+.SH ENVIRONMENT
+
+.TP
+.B NO_COLOR
+If set, disables colored output (same as \-\-no-color flag)
+
+.SH EXIT STATUS
+
+.TP
+.B 0
+Success
+.TP
+.B 1
+Error (check stderr for details)
+
+.SH SEE ALSO
+
+.B dmsetup(8),
+.B dmremap(4),
+.B STATUS_OUTPUT.md
+
+For complete documentation of the kernel status output fields, see
+.B docs/development/STATUS_OUTPUT.md
+in the dm-remap source repository.
+
+.SH AUTHOR
+
+dm-remap development team
+
+.SH REPORTING BUGS
+
+Report bugs to the dm-remap project repository at https://github.com/amigatomte/dm-remap
+
+.SH LICENSE
+
+See LICENSE file in the dm-remap source repository
+
+.SH NOTES
+
+The tool is designed to be transparent to the kernel module. It only reads status
+information without modifying device state. All operations are read-only from the
+kernel module's perspective.
+
+For configuration changes (e.g., adding remaps), use
+.B dmsetup message
+directly.

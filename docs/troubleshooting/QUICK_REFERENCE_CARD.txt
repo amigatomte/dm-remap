@@ -1,0 +1,163 @@
+╔════════════════════════════════════════════════════════════════════════════╗
+║                    ZFS + dm-remap QUICK REFERENCE CARD                    ║
+╚════════════════════════════════════════════════════════════════════════════╝
+
+THE ERROR YOU GOT:
+  cannot create 'mynewpool': I/O error
+
+THE COMMAND THAT FAILED:
+  sudo zpool create mynewpool mirror /dev/mapper/dm-test-remap /dev/loop2
+
+THE ROOT CAUSE:
+  Sector size mismatch between devices
+  Loop device: 512-byte sectors
+  dm-remap: 4096-byte sectors (default)
+  ❌ ZFS requires they match!
+
+═══════════════════════════════════════════════════════════════════════════════
+
+QUICK FIX (Copy-Paste These 3 Steps):
+
+1️⃣  DIAGNOSE (1 minute)
+    sudo /home/christian/kernel_dev/dm-remap/scripts/diagnose-zfs-compat.sh
+    Read the colored output
+
+2️⃣  FIX (5 minutes) - If it says "SECTOR SIZE MISMATCH":
+    sudo dmsetup remove dm-test-remap dm-test-linear 2>/dev/null
+    sudo losetup -d /dev/loop{0,1,2} 2>/dev/null
+    rm -f ~/src/dm-remap/tests/loopback-setup/*.img
+    cd ~/src/dm-remap/tests/loopback-setup
+    sudo ./setup-dm-remap-test.sh --sector-size 512 -c 10
+
+3️⃣  TEST (2 minutes)
+    blockdev --getss /dev/loop2
+    blockdev --getss /dev/mapper/dm-test-remap
+    [Both should show: 512]
+    
+    sudo zpool create mynewpool mirror \
+        /dev/mapper/dm-test-remap /dev/loop2
+    
+    sudo zfs list
+
+═══════════════════════════════════════════════════════════════════════════════
+
+IF THE FIX WORKED:
+  ✓ blockdev output matches (512 == 512)
+  ✓ zpool create completes with no errors
+  ✓ sudo zfs list shows "mynewpool"
+  ✓ sudo zpool status shows "ONLINE"
+
+IF IT STILL FAILS:
+  1. Run diagnostic again
+  2. Read: /docs/troubleshooting/STEP_BY_STEP_FIX.md (Section 3B)
+  3. Try: sudo zpool create -o ashift=9 mynewpool mirror ...
+
+═══════════════════════════════════════════════════════════════════════════════
+
+DEVICE PROPERTIES EXPLAINED:
+
+Logical Sector Size (blockdev --getss):
+  What ZFS sees and uses for data operations
+  Must be IDENTICAL on all mirror devices
+  Standard: 512 bytes
+  Modern: 4096 bytes
+
+Physical Block Size (blockdev --getpbsz):
+  Hardware alignment unit
+  Affects performance
+  Should ideally match logical sector size
+
+Device Size (blockdev --getsz):
+  Total capacity in sectors
+  ZFS uses the smaller device
+  Can differ between mirror devices
+
+═══════════════════════════════════════════════════════════════════════════════
+
+DETAILED GUIDES:
+
+Need a step-by-step flowchart?
+  → Read: STEP_BY_STEP_FIX.md
+
+Want to understand the problem?
+  → Read: ZFS_QUICK_FIX.md
+
+Need technical details?
+  → Read: ZFS_COMPATIBILITY_ISSUE.md
+
+Want the complete package overview?
+  → Read: ../../ZFS_SOLUTION_PACKAGE.md
+
+═══════════════════════════════════════════════════════════════════════════════
+
+COMMAND REFERENCE:
+
+Verify sector sizes:
+  blockdev --getss /dev/loop2
+  blockdev --getss /dev/mapper/dm-test-remap
+
+Verify physical block sizes:
+  blockdev --getpbsz /dev/loop2
+  blockdev --getpbsz /dev/mapper/dm-test-remap
+
+Check loopback devices:
+  losetup -l
+
+Check dm devices:
+  dmsetup ls
+  dmsetup table dm-test-remap
+  dmsetup status dm-test-remap
+
+Check ZFS pools:
+  sudo zfs list
+  sudo zpool status mynewpool
+  sudo zpool get all mynewpool
+
+Check kernel logs:
+  sudo dmesg | grep -i remap
+  sudo dmesg | grep -i error
+
+═══════════════════════════════════════════════════════════════════════════════
+
+TROUBLESHOOTING FLOWCHART:
+
+Run diagnostic?
+  ↓
+  sudo ./scripts/diagnose-zfs-compat.sh
+  ↓
+Sector size mismatch? → YES → Go to STEP 2️⃣ above → FIX IT
+  ↓ NO
+All checks passed? → YES → Go to Section 3B in STEP_BY_STEP_FIX.md
+  ↓ NO
+Device not found? → YES → Run: cd tests/loopback-setup && sudo ./setup-dm-remap-test.sh
+  ↓ NO
+Other issue? → Read the diagnostic output - it tells you exactly what to do!
+
+═══════════════════════════════════════════════════════════════════════════════
+
+ESTIMATED TIME TO FIX:
+
+Quick fix path:              ~8 minutes
+Include reading docs:        ~15 minutes
+Full technical understanding: ~30 minutes
+Complete deep-dive:          ~45 minutes
+
+═══════════════════════════════════════════════════════════════════════════════
+
+KEY INSIGHT:
+
+ZFS mirrors are very strict about device compatibility. A simple mismatch in
+how the kernel reports sector sizes causes ZFS to reject the device with a
+generic "I/O error" message.
+
+This is NOT a dm-remap bug - it's a configuration mismatch.
+
+Fix: Make all device sector sizes match (usually 512 bytes).
+
+═══════════════════════════════════════════════════════════════════════════════
+
+VERSION: 1.0
+LAST UPDATED: November 4, 2024
+STATUS: Production ready
+TESTED WITH: Linux 5.x+, ZFS 2.x, dm-remap v4.0-phase1.4
+

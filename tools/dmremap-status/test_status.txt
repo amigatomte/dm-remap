@@ -1,0 +1,1 @@
+0 4194304 dm-remap-v4 v4.0-phase1.4 /dev/mapper/dm-test-linear /dev/loop1 6 0 0 0 1 6 43797 7299 758518518 512 4292870144 6 6 0 0 4 2 4 0 0 100 0 66 operational real

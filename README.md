@@ -2,7 +2,7 @@
 
 **Unlimited block remapping with O(1) performance**
 
-> **Status**: Pre-release development (unreleased)
+> **Status**: In development
 
 ---
 
