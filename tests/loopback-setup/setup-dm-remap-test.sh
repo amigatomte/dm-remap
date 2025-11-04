@@ -586,9 +586,9 @@ generate_random_bad_sectors() {
     
     log_info "Generating $count random bad sectors"
     
-    # For large counts, skip uniqueness check for performance
+    # Fast path: for large counts, we accept some duplicates and deduplicate later
+    # This is much faster than uniqueness checking in a loop
     if (( count > 1000 )); then
-        log_info "Large count detected - skipping uniqueness check for performance"
         for (( i = 0; i < count; i++ )); do
             local sector=$((RANDOM % total_sectors))
             eval "$arrayname+=('$sector')"
@@ -596,6 +596,7 @@ generate_random_bad_sectors() {
         return
     fi
     
+    # Slow path: for small counts, ensure uniqueness during generation
     local generated=0
     local attempts=0
     local max_attempts=$((count * 10))
@@ -738,7 +739,7 @@ create_dm_linear() {
     
     log_info "Creating dm-linear device: /dev/mapper/$DM_LINEAR_NAME"
     
-    # Deduplicate and sort bad sectors to avoid table conflicts
+    # Deduplicate and sort bad sectors (may contain duplicates from fast random generation)
     local sorted_unique=($(printf '%s\n' "${bad_sectors_array[@]}" | sort -n -u))
     bad_sectors_array=("${sorted_unique[@]}")
     
