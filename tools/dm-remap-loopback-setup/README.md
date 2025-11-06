@@ -13,6 +13,19 @@ A sophisticated testing utility for the dm-remap kernel module that creates simu
 
 ## Quick Start
 
+### 0. Create Clean Device (No Bad Sectors)
+
+```bash
+sudo ./setup-dm-remap-test.sh --no-bad-sectors -v
+```
+
+Creates:
+- 100M clean main device (no simulated bad sectors)
+- 20M spare pool for remapping
+- dm-linear device with full linear mapping
+- dm-remap device for transparent remapping
+- Ready for progressive on-the-fly bad sector injection
+
 ### 1. Create Initial Test Setup
 
 ```bash
@@ -46,10 +59,17 @@ sudo ./setup-dm-remap-test.sh --cleanup
 
 ## Features
 
-✅ **Three Flexible Methods**
-- `-c N`: Add N random bad sectors
-- `-f FILE`: Add specific sectors from text file
-- `-p P`: Add P% of device sectors
+✅ **Clean or Pre-Degraded Device**
+- `--no-bad-sectors`: Create clean device for progressive testing
+- `-c N`: Create device with N random bad sectors
+- `-f FILE`: Create device with specific sectors from file
+- `-p P`: Create device with P% distributed bad sectors
+
+✅ **Flexible Bad Sector Methods**
+- Fixed count: `-c 50` (50 random sectors)
+- From file: `-f sectors.txt` (specific sector list)
+- Percentage: `-p 10` (10% of total sectors)
+- On-the-fly: `--add-bad-sectors` (inject to running device)
 
 ✅ **Safe Operation**
 - Atomic suspend/load/resume updates
@@ -106,12 +126,41 @@ sudo ./setup-dm-remap-test.sh --cleanup
 
 ## Common Workflows
 
+### Progressive Degradation Testing (Recommended)
+
+Start clean and add bad sectors gradually:
+
+```bash
+# 1. Create clean device
+sudo ./setup-dm-remap-test.sh --no-bad-sectors -v
+
+# 2. Create ZFS pool
+sudo zpool create -f test-pool mirror /dev/loop17 /dev/loop19
+
+# 3. Write initial data
+for i in {1..100}; do
+    sudo dd if=/dev/urandom of=/test-pool/file_$i bs=1M count=1
+done
+
+# 4. Gradually degrade (run multiple times)
+for stage in {1..10}; do
+    echo "Stage $stage: Adding 50 bad sectors..."
+    sudo ./setup-dm-remap-test.sh --add-bad-sectors -c 50 -v
+    dmsetup status dm-test-remap
+    sleep 5
+done
+
+# 5. Monitor resilience
+sudo zfs scrub test-pool
+sudo zfs status test-pool
+```
+
 ### ZFS Mirror Testing
 
 Simulate progressive media degradation:
 
 ```bash
-# 1. Create initial setup
+# 1. Create initial setup with bad sectors
 sudo ./setup-dm-remap-test.sh -c 50
 
 # 2. Create clean ZFS mirror
@@ -138,18 +187,23 @@ sudo zfs status test-pool
 ### ext4 Testing
 
 ```bash
-# Create device
-sudo ./setup-dm-remap-test.sh -c 50 -v
+# Create clean device
+sudo ./setup-dm-remap-test.sh --no-bad-sectors -v
 
 # Format and mount
 sudo mkfs.ext4 /dev/mapper/dm-test-remap
 sudo mkdir -p /mnt/dm-test
 sudo mount /dev/mapper/dm-test-remap /mnt/dm-test
 
-# Use filesystem while adding bad sectors
+# Write initial data
+for i in {1..10}; do
+    sudo dd if=/dev/urandom of=/mnt/dm-test/file_$i bs=1M count=5
+done
+
+# Add bad sectors while filesystem is active
 for i in {1..5}; do
     sudo ./setup-dm-remap-test.sh --add-bad-sectors -c 50 -v
-    sudo bash -c "dd if=/dev/urandom of=/mnt/dm-test/file_$i bs=1M count=10"
+    sudo bash -c "dd if=/dev/urandom of=/mnt/dm-test/test_$i bs=1M count=10"
 done
 
 # Verify integrity
@@ -176,9 +230,10 @@ SETUP MODE OPTIONS:
   --no-sparse              Use non-sparse (pre-allocated) files
   
   Bad Sector Options (choose one):
-    -f, --bad-sectors-file FILE     Text file with sector IDs
-    -c, --bad-sectors-count N       N random bad sectors
-    -p, --bad-sectors-percent P     P% of total sectors
+    --no-bad-sectors            Clean device with no bad sectors
+    -f, --bad-sectors-file FILE Text file with sector IDs
+    -c, --bad-sectors-count N   N random bad sectors
+    -p, --bad-sectors-percent P P% of total sectors
 
 COMMON OPTIONS:
   --sector-size SIZE      Sector size in bytes (default: 4096)

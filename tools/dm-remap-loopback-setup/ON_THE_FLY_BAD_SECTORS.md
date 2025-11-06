@@ -2,12 +2,31 @@
 
 ## Overview
 
-The enhanced `setup-dm-remap-test.sh` script now supports adding bad sectors to an existing `dm-linear` device without recreating it. This allows for:
+The enhanced `setup-dm-remap-test.sh` script now supports:
 
-1. **Real-time degradation testing** - Simulate gradual media wear on active systems
-2. **Active filesystem testing** - Add bad sectors while ZFS/ext4 is mounted and operational
-3. **Incremental load testing** - Gradually increase bad sectors to observe system behavior
-4. **Flexible bad sector specification** - Use the same methods as during device creation
+1. **Clean device creation** - Create devices with 0 bad sectors for baseline testing
+2. **On-the-fly injection** - Add bad sectors to existing devices without recreation
+3. **Real-time degradation testing** - Simulate gradual media wear on active systems
+4. **Active filesystem testing** - Add bad sectors while ZFS/ext4 is mounted and operational
+5. **Flexible bad sector specification** - Use the same methods as during device creation
+
+## Getting Started
+
+### Create Clean Device
+
+Start with a clean device and inject bad sectors progressively:
+
+```bash
+# Create clean device
+sudo ./setup-dm-remap-test.sh --no-bad-sectors -v
+
+# Verify device is clean and operational
+dmsetup status dm-test-remap
+dmsetup table dm-test-linear
+
+# Then add bad sectors as needed
+sudo ./setup-dm-remap-test.sh --add-bad-sectors -c 10 -v
+```
 
 ## Usage
 
@@ -29,16 +48,7 @@ Create a text file with sector IDs (one per line):
 # Create file with specific sectors to add
 cat > additional_bad_sectors.txt << EOF
 # Additional bad sectors to inject
-500
-1500
-3000
-5000
-10000
-EOF
-
-# Add these sectors on-the-fly
-sudo ./setup-dm-remap-test.sh --add-bad-sectors -f additional_bad_sectors.txt -v
-```
+````
 
 ### Add Bad Sectors by Percentage
 
@@ -83,17 +93,56 @@ The `dm-remap-v4` device built on top of `dm-linear` immediately begins:
 
 ## Example Workflow
 
-### 1. Create Initial Test Setup
+### Progressive Degradation: Start Clean, Inject Gradually
+
+```bash
+# 1. Create clean device
+cd /home/christian/kernel_dev/dm-remap/tools/dm-remap-loopback-setup
+sudo ./setup-dm-remap-test.sh --no-bad-sectors -v
+
+# 2. Verify device is clean
+dmsetup table dm-test-linear
+
+# 3. Create ZFS pool on clean devices
+sudo zpool create -f test-pool mirror /dev/loop17 /dev/loop19
+sudo zfs create test-pool/data
+
+# 4. Write initial data
+sudo bash -c 'echo "test data" > /test-pool/data/file1.txt'
+sudo dd if=/dev/urandom of=/test-pool/data/file2.bin bs=1M count=10
+
+# 5. Gradually add bad sectors while system is active
+for stage in {1..5}; do
+    echo "Stage $stage: Adding 50 bad sectors..."
+    sudo ./setup-dm-remap-test.sh --add-bad-sectors -c 50 -v
+    
+    # Monitor remapping
+    echo "Remapping status:"
+    dmsetup status dm-test-remap
+    
+    # Continue normal operations
+    sudo bash -c "dd if=/dev/urandom of=/test-pool/data/stage_${stage}.bin bs=1M count=5"
+    
+    sleep 5
+done
+
+# 6. Verify data integrity
+sudo zfs scrub test-pool
+sudo zfs status test-pool
+sudo ls -lah /test-pool/data/
+```
+
+### Initial Setup: Create with Bad Sectors
 
 ```bash
 # Create dm-test-linear and dm-remap with 50 bad sectors
-cd /home/christian/kernel_dev/dm-remap/tests/loopback-setup
+cd /home/christian/kernel_dev/dm-remap/tools/dm-remap-loopback-setup
 sudo ./setup-dm-remap-test.sh -c 50 -v
 ```
 
-### 2. Create ZFS Pool (Clean Start)
+### Legacy: ZFS Pool (Clean Start)
 
-```bash
+````
 # Create ZFS mirror with two clean loopback devices
 sudo zpool create -f test-pool mirror /dev/loop17 /dev/loop19
 

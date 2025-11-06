@@ -30,6 +30,7 @@ USE_SPARSE=1
 BAD_SECTORS_FILE=""
 BAD_SECTORS_COUNT=""
 BAD_SECTORS_PERCENT=""
+NO_BAD_SECTORS=0  # Create clean device with 0 bad sectors
 SECTOR_SIZE=4096  # Default sector size (bytes)
 DRY_RUN=0
 VERBOSE=0
@@ -144,6 +145,7 @@ OPTIONS:
     --no-sparse                  Use non-sparse (pre-allocated) files
     
     BAD SECTOR OPTIONS (choose one):
+      --no-bad-sectors           Create clean device with no bad sectors
       -f, --bad-sectors-file F   Text file with sector IDs (one per line)
       -c, --bad-sectors-count N  Create N random bad sectors
       -p, --bad-sectors-percent P Create bad sectors for P% of sectors
@@ -160,6 +162,9 @@ OPTIONS:
     -h, --help                 Show this help message
 
 EXAMPLES:
+  # Create clean test device with no bad sectors
+  ./setup-dm-remap-test.sh --no-bad-sectors
+  
   # Create test setup with 100 random bad sectors
   ./setup-dm-remap-test.sh -c 100
   
@@ -371,6 +376,10 @@ parse_arguments() {
                 BAD_SECTORS_PERCENT="$2"
                 shift 2
                 ;;
+            --no-bad-sectors)
+                NO_BAD_SECTORS=1
+                shift
+                ;;
             --sector-size)
                 SECTOR_SIZE="$2"
                 shift 2
@@ -419,13 +428,14 @@ validate_arguments() {
     [[ -n "$BAD_SECTORS_FILE" ]] && bad_sector_opts=$((bad_sector_opts + 1))
     [[ -n "$BAD_SECTORS_COUNT" ]] && bad_sector_opts=$((bad_sector_opts + 1))
     [[ -n "$BAD_SECTORS_PERCENT" ]] && bad_sector_opts=$((bad_sector_opts + 1))
+    (( NO_BAD_SECTORS )) && bad_sector_opts=$((bad_sector_opts + 1))
     
     if (( bad_sector_opts > 1 )); then
-        die "Specify only one of: --bad-sectors-file, --bad-sectors-count, --bad-sectors-percent"
+        die "Specify only one of: --no-bad-sectors, --bad-sectors-file, --bad-sectors-count, or --bad-sectors-percent"
     fi
     
     if (( bad_sector_opts == 0 )); then
-        die "Must specify bad sectors via: --bad-sectors-file, --bad-sectors-count, or --bad-sectors-percent"
+        die "Must specify one of: --no-bad-sectors, --bad-sectors-file, --bad-sectors-count, or --bad-sectors-percent"
     fi
     
     # Validate bad sectors file if specified
@@ -441,7 +451,7 @@ validate_arguments() {
             die "Bad sectors count must be a number: $BAD_SECTORS_COUNT"
         fi
         if (( BAD_SECTORS_COUNT == 0 )); then
-            die "Bad sectors count must be > 0"
+            die "Bad sectors count must be > 0 (use --no-bad-sectors for clean device)"
         fi
     fi
     
@@ -677,7 +687,11 @@ get_bad_sectors() {
     local arrayname=$1
     local total_sectors=$2
     
-    if [[ -n "$BAD_SECTORS_FILE" ]]; then
+    if (( NO_BAD_SECTORS )); then
+        # Create clean device with no bad sectors
+        log_info "Creating clean device with no bad sectors"
+        return
+    elif [[ -n "$BAD_SECTORS_FILE" ]]; then
         read_bad_sectors_from_file "$BAD_SECTORS_FILE" "$arrayname"
     elif [[ -n "$BAD_SECTORS_COUNT" ]]; then
         generate_random_bad_sectors "$BAD_SECTORS_COUNT" "$total_sectors" "$arrayname"
@@ -687,7 +701,10 @@ get_bad_sectors() {
     
     # Sort the array - for large arrays this is necessary to ensure correct sector ordering
     # Use printf and sort in a subshell, then reassign
-    eval "$arrayname=($(eval "printf '%s\n' \"\${$arrayname[@]}\"" | sort -n))"
+    # Skip sorting if array is empty
+    if (( ${#arrayname[@]} > 0 )); then
+        eval "$arrayname=($(eval "printf '%s\n' \"\${$arrayname[@]}\"" | sort -n))"
+    fi
 }
 
 ###############################################################################
@@ -757,7 +774,10 @@ generate_linear_table() {
         table_entries+=("$current_pos $chunk_size linear $loop_device $current_pos")
     fi
     
-    printf '%s\n' "${table_entries[@]}"
+    # Output table entries (handles empty array gracefully)
+    if (( ${#table_entries[@]} > 0 )); then
+        printf '%s\n' "${table_entries[@]}"
+    fi
 }
 
 create_dm_linear() {
@@ -1144,8 +1164,10 @@ EOF
         log_info "Bad sectors: from file ($BAD_SECTORS_FILE)"
     elif [[ -n "$BAD_SECTORS_COUNT" ]]; then
         log_info "Bad sectors: $BAD_SECTORS_COUNT random"
-    else
+    elif [[ -n "$BAD_SECTORS_PERCENT" ]]; then
         log_info "Bad sectors: $BAD_SECTORS_PERCENT% distributed"
+    else
+        log_info "Bad sectors: none (clean device)"
     fi
     
     if (( DRY_RUN )); then
