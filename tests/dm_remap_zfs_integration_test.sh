@@ -34,6 +34,7 @@ FILE_SIZE="512M"  # 512MB for testing
 POOL_NAME="dm-test-pool"
 MOUNT_POINT="/mnt/dm-remap-test"
 TEST_DATA_DIR="${MOUNT_POINT}/test-data"
+OUTPUT_SCRIPT="/tmp/dm-remap-test-commands-$(date +%Y%m%d-%H%M%S).sh"
 
 # Tracking variables
 LOOP_MAIN=""
@@ -70,6 +71,28 @@ pause_for_user() {
     read -r
     echo ""
 }
+
+log_command() {
+    local cmd="$1"
+    local description="${2:-}"
+    
+    # Log to screen
+    if [ -n "$description" ]; then
+        log_info "Command: $description"
+    fi
+    log_info "  $ $cmd"
+    
+    # Log to output script
+    if [ -n "$description" ]; then
+        echo "# $description" >> "$OUTPUT_SCRIPT"
+    fi
+    echo "$cmd" >> "$OUTPUT_SCRIPT"
+    echo "" >> "$OUTPUT_SCRIPT"
+}
+
+################################################################################
+# Utility Functions - Cleanup
+################################################################################
 
 cleanup() {
     log_info "Cleaning up test environment..."
@@ -182,21 +205,25 @@ create_test_devices() {
     
     # Create sparse file for main device
     log_info "Creating sparse file: $SPARSE_FILE (512M)"
+    log_command "dd if=/dev/zero of=\"$SPARSE_FILE\" bs=1M count=512" "Create main device sparse file"
     dd if=/dev/zero of="$SPARSE_FILE" bs=1M count=512 2>/dev/null
     log_success "Sparse file created"
     
     # Create spare file for spare pool
     log_info "Creating spare file: $SPARE_FILE (512M)"
+    log_command "dd if=/dev/zero of=\"$SPARE_FILE\" bs=1M count=512" "Create spare device sparse file"
     dd if=/dev/zero of="$SPARE_FILE" bs=1M count=512 2>/dev/null
     log_success "Spare file created"
     
     # Setup loopback devices
     log_info "Setting up loopback devices..."
     LOOP_MAIN=$(sudo losetup -f)
+    log_command "sudo losetup \"$LOOP_MAIN\" \"$SPARSE_FILE\"" "Setup main loopback device"
     sudo losetup "$LOOP_MAIN" "$SPARSE_FILE"
     log_success "Main device: $LOOP_MAIN"
     
     LOOP_SPARE=$(sudo losetup -f)
+    log_command "sudo losetup \"$LOOP_SPARE\" \"$SPARE_FILE\"" "Setup spare loopback device"
     sudo losetup "$LOOP_SPARE" "$SPARE_FILE"
     log_success "Spare device: $LOOP_SPARE"
     
@@ -224,6 +251,7 @@ setup_dm_remap() {
     # Note: Module name is dm-remap-v4 (old naming convention)
     local table="0 $sectors dm-remap-v4 $LOOP_MAIN $LOOP_SPARE"
     
+    log_command "echo '$table' | sudo dmsetup create dm-test-main" "Create dm-remap device mapping"
     echo "$table" | sudo dmsetup create dm-test-main || {
         log_error "Failed to create dm-remap device"
         return 1
@@ -247,11 +275,13 @@ create_zfs_pool() {
     # Create mount point
     if [ ! -d "$MOUNT_POINT" ]; then
         log_info "Creating mount point: $MOUNT_POINT"
+        log_command "sudo mkdir -p \"$MOUNT_POINT\"" "Create mount point"
         sudo mkdir -p "$MOUNT_POINT"
     fi
     
     # Create ZFS pool first using zpool
     log_info "Creating ZFS pool: $POOL_NAME from dm-remap device"
+    log_command "sudo zpool create \"$POOL_NAME\" /dev/mapper/dm-test-main" "Create ZFS pool"
     sudo zpool create "$POOL_NAME" /dev/mapper/dm-test-main || {
         log_error "Failed to create ZFS pool"
         return 1
@@ -261,6 +291,7 @@ create_zfs_pool() {
     
     # Create ZFS dataset with mount point and properties
     log_info "Creating ZFS dataset with compression..."
+    log_command "sudo zfs create -o mountpoint=\"$MOUNT_POINT\" -o compression=lz4 \"$POOL_NAME/data\"" "Create ZFS dataset with compression"
     sudo zfs create -o mountpoint="$MOUNT_POINT" -o compression=lz4 "$POOL_NAME/data" || {
         log_error "Failed to create ZFS dataset"
         return 1
@@ -273,7 +304,9 @@ create_zfs_pool() {
     
     # Set pool properties
     log_info "Setting ZFS pool properties..."
+    log_command "sudo zfs set atime=off \"$POOL_NAME/data\"" "Disable atime for performance"
     sudo zfs set atime=off "$POOL_NAME/data"
+    log_command "sudo zfs set checksum=sha256 \"$POOL_NAME/data\"" "Set SHA256 checksum"
     sudo zfs set checksum=sha256 "$POOL_NAME/data"
     log_success "ZFS pool configured"
 }
@@ -549,6 +582,35 @@ main() {
     log_info "════════════════════════════════════════════════════════════"
     log_info ""
     
+    # Initialize output script
+    cat > "$OUTPUT_SCRIPT" << 'EOF'
+#!/bin/bash
+# dm-remap ZFS Integration Test - Commands Log
+# Generated: $(date)
+# This script contains all commands executed during the test
+# You can source or execute this script to replay the test setup
+
+set -e  # Exit on error
+
+log_info() {
+    echo "[INFO] $@"
+}
+
+log_success() {
+    echo "[✓] $@"
+}
+
+log_warning() {
+    echo "[!] $@"
+}
+
+log_error() {
+    echo "[✗] $@"
+}
+
+EOF
+    chmod +x "$OUTPUT_SCRIPT"
+    
     log_info "Step 1: Check Prerequisites"
     check_prerequisites
     echo ""
@@ -592,6 +654,18 @@ main() {
     log_success "═════════════════════════════════════════════════════════════"
     log_success "All tests completed successfully!"
     log_success "═════════════════════════════════════════════════════════════"
+    
+    # Add footer to output script
+    {
+        echo ""
+        echo "log_success \"All commands from the test have been recorded above\""
+        echo "log_success \"This script can be sourced or executed to replay the test setup\""
+        echo ""
+        echo "# To execute this script later: bash $OUTPUT_SCRIPT"
+    } >> "$OUTPUT_SCRIPT"
+    
+    log_info ""
+    log_success "Commands script saved to: $OUTPUT_SCRIPT"
     
     # Pause before cleanup
     pause_for_user "All tests completed. Ready to clean up test environment and remove devices"
