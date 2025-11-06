@@ -154,11 +154,12 @@ sudo dmsetup targets | grep remap
 dd if=/dev/zero of=/tmp/main bs=1M count=500
 dd if=/dev/zero of=/tmp/spare bs=1M count=500
 
-# Setup loopback
-MAIN=$(sudo losetup -f)
-SPARE=$(sudo losetup -f)
-sudo losetup $MAIN /tmp/main
-sudo losetup $SPARE /tmp/spare
+# Setup loopback (allocate and assign in one command)
+MAIN=$(sudo losetup -f --show /tmp/main)
+SPARE=$(sudo losetup -f --show /tmp/spare)
+
+# Verify loopback devices
+losetup -a
 ```
 
 ### 2. Create dm-remap Device (1 minute)
