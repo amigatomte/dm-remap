@@ -225,7 +225,34 @@ sudo dmesg -w | grep "Adaptive hash table"
 | [Architecture Guide](docs/development/ARCHITECTURE.md) | System design, data flow, hash table implementation |
 | [Implementation Details](IMPLEMENTATION_DETAILS.md) | Feature implementation and design decisions |
 
-### Testing & Validation
+### Testing & Validation Tools
+
+| Tool | Purpose | Documentation |
+|------|---------|---|
+| **dm-remap-loopback-setup** | Create test devices with simulated bad sectors; test on-the-fly degradation | [README](tools/dm-remap-loopback-setup/README.md), [Usage Guide](tools/dm-remap-loopback-setup/ON_THE_FLY_BAD_SECTORS.md) |
+| **dmremap-status** | Real-time monitoring of dm-remap activity and health metrics | [Tool Dir](tools/dmremap-status/) |
+
+**dm-remap-loopback-setup** - Sophisticated testing utility with:
+- Three flexible bad sector injection methods (-c, -f, -p)
+- On-the-fly degradation (add bad sectors while device is active)
+- Safe atomic operations (suspend/load/resume)
+- Works with ZFS, ext4, and any filesystem
+- 1,260+ lines of production-ready code
+- Comprehensive documentation (760+ lines)
+
+Usage:
+```bash
+# Create test device
+sudo ./tools/dm-remap-loopback-setup/setup-dm-remap-test.sh -c 50
+
+# Add bad sectors on-the-fly
+sudo ./tools/dm-remap-loopback-setup/setup-dm-remap-test.sh --add-bad-sectors -c 50 -v
+
+# Clean up
+sudo ./tools/dm-remap-loopback-setup/setup-dm-remap-test.sh --cleanup
+```
+
+### Testing & Validation Documentation
 
 | Document | Purpose |
 |----------|---------|
@@ -344,6 +371,15 @@ dm-remap/
 │   ├── validate_hash_resize.sh   # 12-point validation (PASSED)
 │   ├── runtime_verify.sh         # 10-point verification (PASSED)
 │   └── runtime_resize_test_fixed.sh  # Real device test (PASSED)
+│
+├── tools/                         # Testing & utility tools
+│   ├── dmremap-status/           # Real-time monitoring tool
+│   └── dm-remap-loopback-setup/  # Device testing utility
+│       ├── setup-dm-remap-test.sh    # Main script (1260+ lines)
+│       ├── README.md                 # Tool documentation
+│       ├── ON_THE_FLY_BAD_SECTORS.md # Usage guide
+│       ├── IMPLEMENTATION_SUMMARY.md # Design details
+│       └── CODE_IMPLEMENTATION_DETAILS.md # Code reference
 │
 ├── demos/                         # Demo scripts
 │   └── v4_interactive_demo.sh    # Interactive demo
