@@ -60,6 +60,17 @@ log_error() {
     echo -e "${RED}[✗]${NC} $@"
 }
 
+pause_for_user() {
+    local prompt="$1"
+    echo ""
+    echo -e "${BLUE}╔════════════════════════════════════════════════════════════╗${NC}"
+    echo -e "${BLUE}║${NC} $prompt"
+    echo -e "${BLUE}║${NC} Press ENTER to continue, or Ctrl+C to abort..."
+    echo -e "${BLUE}╚════════════════════════════════════════════════════════════╝${NC}"
+    read -r
+    echo ""
+}
+
 cleanup() {
     log_info "Cleaning up test environment..."
     
@@ -350,6 +361,9 @@ inject_bad_sectors() {
     sudo dmsetup message dm-test-main 0 "stats" || true
     
     log_success "Bad sectors injected"
+    
+    # Pause for user inspection
+    pause_for_user "Bad sectors injected and ready for filesystem testing"
 }
 
 ################################################################################
@@ -578,7 +592,14 @@ main() {
     log_success "═════════════════════════════════════════════════════════════"
     log_success "All tests completed successfully!"
     log_success "═════════════════════════════════════════════════════════════"
+    
+    # Pause before cleanup
+    pause_for_user "All tests completed. Ready to clean up test environment and remove devices"
+    
+    # Disable trap to prevent duplicate cleanup
+    trap - EXIT
 }
 
 # Run main
 main
+cleanup
