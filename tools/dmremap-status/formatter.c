@@ -85,7 +85,7 @@ int print_human_readable(const dm_remap_status_t *status, FILE *out)
         fprintf(out, COLOR_BOLD "├───────────────────────────────────────────────────────────────────┤" COLOR_RESET "\n");
     } else {
         fprintf(out, "┌───────────────────────────────────────────────────────────────────┐\n");
-        fprintf(out, "│                    dm-remap Status                               │\n");
+        fprintf(out, "│                     dm-remap Status                               │\n");
         fprintf(out, "├───────────────────────────────────────────────────────────────────┤\n");
     }
 
