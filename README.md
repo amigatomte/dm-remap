@@ -90,7 +90,8 @@ Resize overhead: Negligible (~5-10ms one-time per resize)
 **First Time?** Start here:
 - 📖 [Quick Start Guide](docs/user/QUICK_START.md) - Get running in 5 minutes
 - 🚀 [Installation Guide](docs/user/INSTALLATION.md) - Step-by-step setup
-- 📚 [User Guide](docs/user/USER_GUIDE.md) - Complete reference (all features)
+- �️ [Tools Documentation](TOOLS.md) - **Try the built-in tools** (easiest way to start)
+- �📚 [User Guide](docs/user/USER_GUIDE.md) - Complete reference (all features)
 - 🔨 [Build System Guide](docs/development/BUILD_SYSTEM.md) - Two build modes explained
 
 **Already Installed?**
@@ -147,7 +148,41 @@ sudo dmsetup targets | grep remap
 
 ## Quick Start
 
-### 1. Create Test Devices (1 minute)
+### Option 1: Using Setup Tool (Recommended - 2 minutes)
+
+The easiest way to get started is with the built-in setup tool:
+
+```bash
+# Create test device with dm-remap (completely automated)
+sudo tools/dm-remap-loopback-setup/setup-dm-remap-test.sh --no-bad-sectors -v
+
+# Check device status with dmremap-status tool
+dmremap-status --device dm-remap-main
+
+# Use the device
+sudo mkfs.ext4 /dev/mapper/dm-remap-main
+sudo mkdir -p /mnt/remap
+sudo mount /dev/mapper/dm-remap-main /mnt/remap
+sudo cp /usr/bin/* /mnt/remap/
+
+# Monitor remapping in real-time
+dmremap-status --device dm-remap-main --watch 1
+
+# Cleanup when done
+sudo tools/dm-remap-loopback-setup/setup-dm-remap-test.sh --cleanup
+```
+
+**Benefits**:
+- ✅ Handles all setup automatically
+- ✅ Real-time monitoring with dmremap-status
+- ✅ Safe cleanup of all artifacts
+- ✅ Multiple output formats (human, JSON, CSV)
+
+### Option 2: Manual Setup (5 minutes)
+
+For more control, setup devices manually:
+
+#### 1. Create Test Devices (1 minute)
 
 ```bash
 # Create 500MB test files
@@ -162,7 +197,7 @@ SPARE=$(sudo losetup -f --show /tmp/spare)
 losetup -a
 ```
 
-### 2. Create dm-remap Device (1 minute)
+#### 2. Create dm-remap Device (1 minute)
 
 ```bash
 # Calculate sectors
@@ -173,7 +208,7 @@ TABLE="0 $SECTORS dm-remap $MAIN $SPARE"
 echo "$TABLE" | sudo dmsetup create my-remap
 ```
 
-### 3. Use the Device (2 minutes)
+#### 3. Use the Device (2 minutes)
 
 ```bash
 # Format and mount
@@ -186,17 +221,31 @@ sudo cp /usr/bin/ls /mnt/remap/
 ls /mnt/remap/
 ```
 
-### 4. Add Remaps (1 minute)
+#### 4. Monitor Status (1 minute)
 
 ```bash
-# Add remap
-sudo dmsetup message my-remap 0 "add_remap 1000 5000 100"
+# View device status
+dmremap-status --device my-remap
 
-# Watch for resize event
-sudo dmesg -w | grep "Adaptive hash table"
+# Watch real-time performance
+dmremap-status --device my-remap --watch 2
+
+# Export JSON for automation
+dmremap-status --device my-remap --json
 ```
 
-→ See [Quick Start Guide](docs/user/QUICK_START.md) for complete example
+### Tools Overview
+
+This project includes two powerful tools:
+
+| Tool | Purpose | Usage |
+|------|---------|-------|
+| **setup-dm-remap-test.sh** | Device creation & bad sector injection | `tools/dm-remap-loopback-setup/setup-dm-remap-test.sh` |
+| **dmremap-status** | Real-time status monitoring | `dmremap-status --device dm-remap-main` |
+
+**→ See [Tools Documentation](TOOLS.md) for complete guide with examples**
+
+→ See [Quick Start Guide](docs/user/QUICK_START.md) for additional examples
 
 ---
 
