@@ -452,7 +452,7 @@ A: Not recommended initially. Test with data partitions first.
 A: Data on the main device remains accessible, but new remappings can't occur.
 
 **Q: Can I resize devices after creation?**  
-A: Not currently supported in v4.0. Plan your sizes carefully.
+A: Not currently supported. Plan your sizes carefully.
 
 **Q: Does dm-remap work with SSDs?**  
 A: Yes! Works with HDDs, SSDs, NVMe, and any block device.
