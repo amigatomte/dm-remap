@@ -157,15 +157,13 @@ sudo dmesg | grep "dm-remap v4" | tail -20
 
 ### Spare Device Size Requirements
 
-✅ **v4.0.1 Update: Intelligent Spare Sizing Implemented!**
+The spare device sizing is optimized based on expected bad sectors:
 
-The spare device sizing has been dramatically improved in v4.0.1:
-
-**Current (v4.0.1 - Optimized Mode, Default)**:
+**Optimized Sizing (Default)**:
 ```bash
 # Realistic sizing based on actual needs:
 # Main: 1TB
-# Spare: ~24-30GB (2-3% of main!)
+# Spare: ~24-30GB (2-3% of main)
 #
 # Calculation:
 # - Metadata: ~4KB
@@ -175,19 +173,9 @@ The spare device sizing has been dramatically improved in v4.0.1:
 # Total: ~24GB
 ```
 
-**Legacy (v4.0 Phase 1 - Strict Mode)**:
+**Alternative Configurations**:
 ```bash
-# If you enable strict_spare_sizing=1:
-# Main: 1TB
-# Spare: 1.05TB (105% of main - wasteful!)
-```
-
-### Module Parameters
-
-Control spare sizing behavior with module parameters:
-
-```bash
-# Default (optimized): 2% expected bad sectors
+# Default: 2% expected bad sectors
 sudo insmod src/dm-remap-v4-real.ko
 
 # Conservative: 5% expected bad sectors
@@ -195,32 +183,28 @@ sudo insmod src/dm-remap-v4-real.ko spare_overhead_percent=5
 
 # Aggressive: 0.5% expected bad sectors  
 sudo insmod src/dm-remap-v4-real.ko spare_overhead_percent=1
-
-# Legacy mode (v4.0 Phase 1 behavior)
-sudo insmod src/dm-remap-v4-real.ko strict_spare_sizing=1
 ```
 
-### Sizing Examples (v4.0.1 Optimized Mode)
+### Sizing Examples
 
-| Main Device | Expected Bad (2%) | Minimum Spare | Savings vs v4.0 |
-|-------------|-------------------|---------------|-----------------|
-| 100MB       | 2MB               | ~3MB          | 97%             |
-| 1GB         | 20MB              | ~27MB         | 97%             |
-| 100GB       | 2GB               | ~2.7GB        | 97%             |
-| 1TB         | 20GB              | ~27GB         | 97%             |
-| 10TB        | 200GB             | ~270GB        | 97%             |
+| Main Device | Expected Bad (2%) | Minimum Spare |
+|-------------|-------------------|---------------|
+| 100MB       | 2MB               | ~3MB          |
+| 1GB         | 20MB              | ~27MB         |
+| 100GB       | 2GB               | ~2.7GB        |
+| 1TB         | 20GB              | ~27GB         |
+| 10TB        | 200GB             | ~270GB        |
 
-### Better Alternative (When Spare is Large)
+### Choosing dm-remap
 
-**Your observation was correct**: If you have a spare device ≥50% of the main device, consider:
+If you have a spare device ≥50% of the main device, consider alternatives:
 
 1. **RAID 1 (Mirroring)**: Use md/RAID or dm-mirror for full redundancy
 2. **LVM + Snapshots**: Better space utilization
-3. **dm-remap optimized mode**: Only when spare capacity is truly limited
+3. **dm-remap**: Best when spare capacity is limited (2-10% of main device)
 
-**dm-remap v4.0.1 is best suited for**:
-- Small spare pools (2-10% of main device)
-- Scenarios where you have limited spare capacity  
+**dm-remap is ideal for**:
+- Limited spare capacity scenarios
 - Gradual bad sector management without full mirroring overhead
 - Predictable bad sector patterns
 
