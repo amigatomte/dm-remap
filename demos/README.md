@@ -1,10 +1,12 @@
-# dm-remap v4.0 Interactive Demo
+# dm-remap Demonstrations
 
-Welcome to the dm-remap v4.0 Phase 1 interactive demonstration! 🎉
+Welcome to dm-remap demonstrations! 🎉
 
-## What This Demo Shows
+## Available Demonstrations
 
-This demo provides a hands-on, guided tour of dm-remap v4.0's key features:
+### 1. Interactive Script Demo (`v4_interactive_demo.sh`)
+
+A hands-on, guided tour of dm-remap's key features:
 
 - **Priority 3: External Spare Device Support** - Automatic spare pool management
 - **Priority 6: Automatic Setup Reassembly** - Symbol exports and module integration
@@ -12,7 +14,48 @@ This demo provides a hands-on, guided tour of dm-remap v4.0's key features:
 - **Performance Testing** - Real-world performance characteristics
 - **Module Management** - Loading, verification, and monitoring
 
-## Quick Start
+### 2. Video Demonstrations (vhs tape files)
+
+Creating terminal recording videos for demonstration and documentation:
+
+#### `dm-remap-zfs-demo.tape`
+A step-by-step walkthrough showing:
+- dm-remap module loading
+- Device creation and configuration
+- ZFS pool creation with dm-remap
+- Data compression and performance
+- Full system integration
+
+**Usage**:
+```bash
+vhs < demos/dm-remap-zfs-demo.tape > dm-remap-demo.mp4
+```
+
+#### `dm-remap-test-execution.tape`
+Complete integration test execution showing:
+- Full 10-step test sequence
+- Test device creation
+- Pool setup and configuration
+- Bad sector injection
+- Filesystem operations
+- Data integrity verification
+- Compression ratio results (1.46x)
+
+**Usage**:
+```bash
+vhs < demos/dm-remap-test-execution.tape > dm-remap-test.mp4
+```
+
+**Requirements for video generation**:
+- Install vhs: https://github.com/charmbracelet/vhs
+- Install ffmpeg for video output
+- Linux environment with bash
+
+---
+
+## Interactive Script Demo Details
+
+This section covers the `v4_interactive_demo.sh` script:
 
 ### Prerequisites
 
