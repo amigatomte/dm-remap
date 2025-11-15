@@ -2,5 +2,36 @@
     "files.associations": {
         "device-mapper.h": "c",
         "bio.h": "c"
+    },
+    "files.exclude": {
+        "**/.git": false,
+        "**/*.o": true,
+        "**/*.ko": true,
+        "**/build": true
+    },
+    "files.watcherExclude": {
+        "**/.git/**": true,
+        "**/node_modules/**": true,
+        "**/build/**": true,
+        "src/**/*.o": true,
+        "src/**/*.ko": true,
+        "**/Module.symvers": true,
+        "**/modules.order": true,
+        "**/.*": true
+    },
+    "search.exclude": {
+        "**/.git": true,
+        "**/node_modules": true,
+        "**/build": true,
+        "src/**/*.o": true,
+        "src/**/*.ko": true
+    },
+    "[c]": {
+        "editor.defaultFormatter": null
+    },
+    "C_Cpp.intelliSenseEngine": "disabled",
+    "editor.codeActionsOnSave": {},
+    "[makefile]": {
+        "editor.insertSpaces": false
     }
 }
