@@ -2270,13 +2270,13 @@ static void dm_remap_status_v4_real(struct dm_target *ti, status_type_t type,
     
     switch (type) {
     case STATUSTYPE_INFO:
-        DMEMIT("v4.0-phase1.4 %s %s %llu %llu %llu %llu %u %llu %llu %llu %llu %u %u %llu %llu %llu %llu %llu %llu %llu %llu %llu %u %u %u %s %s",
+        DMEMIT("v4.0-phase1.4 %s %s %llu %llu %llu %llu %u %llu %llu %llu %llu %u %llu %llu %llu %llu %llu %llu %llu %llu %llu %llu %u %u %u %s %s",
                device->main_path, device->spare_path,
                reads, writes, remaps, errors,                      /* Basic I/O stats */
                device->metadata.active_mappings,                   /* Active remaps */
                io_ops, total_time_ns, avg_latency_ns, throughput_bps, /* Performance */
                device->sector_size,                                /* Device info */
-               (unsigned int)(device->spare_device_sectors - device->main_device_sectors), /* Spare capacity */
+               device->spare_device_sectors,                       /* Spare capacity in sectors */
                total_ios, normal_ios, remapped_ios, remapped_sectors, /* Phase 1.3 stats */
                cache_hits, cache_misses, fast_path_hits, slow_path_hits, /* Phase 1.4 cache stats */
                health_scans,                                       /* Health monitoring */
